@@ -59,6 +59,11 @@ your longest recent run (+10 %), or a minimum you set.
   added again, and readiness uses your Body Battery and Training Readiness
   as they are now (after that morning ride), not as they were on waking.
 
+Everything is read fresh on every run: the latest values Garmin has, and the
+weekly targets are recomputed each time. The report shows when your watch
+last synced and warns you if it's been more than 2 hours, since anything
+after that sync isn't in Garmin yet.
+
 **5. Uploads the workout to Garmin**, starting with one short sentence on why
 today looks the way it does (e.g. *"Easier than planned (readiness 48): you
 slept 5.2 h and your Training Readiness is low (38)."*) and the details below it, and shows a daily report in the GitHub Actions run summary

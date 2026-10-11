@@ -31,7 +31,7 @@ def compute(w: dict, ctx: dict) -> dict:
     # 1) Garmin Training Readiness (already blends sleep, HRV, load, recovery)
     if w.get("training_readiness") is not None:
         tr = w["training_readiness"]
-        comps["Training Readiness now" if w.get("after_training") else "Training Readiness"] = (tr, tr, 0.30)
+        comps["Training Readiness now" if w.get("tr_is_now") else "Training Readiness"] = (tr, tr, 0.30)
         if tr < 40:
             reasons.append(f"Low Garmin Training Readiness ({tr}).")
 
@@ -67,10 +67,11 @@ def compute(w: dict, ctx: dict) -> dict:
     # 4) Body Battery on waking
     bb = w.get("body_battery_wake")
     if bb is not None:
-        label = "Body Battery now" if w.get("after_training") else "Body Battery"
+        label = "Body Battery now" if w.get("bb_is_now") else "Body Battery"
         comps[label] = (bb, _lin(bb, 20, 10, 85, 100), 0.15)
         if bb < 45:
             reasons.append(f"Low Body Battery right now ({bb}), after today's training." if w.get("after_training")
+                           else f"Low Body Battery right now ({bb})." if w.get("bb_is_now")
                            else f"Low Body Battery on waking ({bb}).")
 
     # 5) Resting heart rate vs 7-day average

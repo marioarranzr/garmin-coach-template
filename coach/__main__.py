@@ -93,7 +93,7 @@ def main(argv=None):
             print("Return-to-running mode: easy runs only, volume grows ~20 %/week.\n")
         for i in range(7):
             day = d + dt.timedelta(days=i)
-            _, sess = plan_day(day, cfg, wt["target_km"], wt.get("return_mode", False))
+            _, sess = plan_day(day, cfg, wt)
             print(f"{day:%a %d/%m}: " + " + ".join(s.title for s in sess))
         print("\n(Base plan: each morning it is adjusted to your recovery.)")
 

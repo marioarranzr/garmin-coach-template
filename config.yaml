@@ -15,10 +15,11 @@ athlete:
 plan_start: 2026-10-12
 
 # Your target races, in any order. Examples below: replace them with yours.
-#   kind: road (with distance_km) | 5k | 10k | half | marathon | tri_sprint | tri_olympic
-#   priority: A (main goal) | B (secondary)
-# Short races (up to 12 km) and triathlons get their own phases; the plan
-# always prepares for the next race on the calendar.
+#   kind: 5k | 10k | half | marathon | road (with distance_km)
+#         tri_sprint | tri_olympic | bike (with distance_km and elevation_m)
+#   priority: A = main goal (full taper) | B = tune-up race (3 easy days, quick recovery)
+# The plan always prepares for the next race on the calendar.
+# Tip: `python -m coach setup` writes this file for you.
 races:
   - name: Autumn 10K
     date: 2026-12-13
@@ -32,6 +33,12 @@ races:
     date: 2027-06-27
     kind: tri_sprint
     priority: A
+  - name: Alpine gran fondo
+    date: 2027-07-11
+    kind: bike
+    distance_km: 120
+    elevation_m: 2400
+    priority: A
 
 # Maximum weekly running km per goal type. The plan ramps volume up gradually
 # (≈ +8 %/week) from what you actually ran over the last 4 weeks.
@@ -39,11 +46,17 @@ peak_weekly_run_km:
   short: 32
   half: 42
   tri: 30
+  bike: 20
 min_weekly_run_km: 15
 # Return-to-running mode: if your last 4 weeks average less than this many
 # km/week of running, the plan starts at this volume, grows ~20 %/week up to
 # min_weekly_run_km, and replaces hard sessions with easy runs + strides.
 return_to_run_below_km: 10
+
+# Weekly riding hours in a cycling block: grows ≈ +8 %/week from your last
+# 4 weeks, between these limits. Long rides build towards the event's duration.
+min_weekly_bike_hours: 3
+peak_weekly_bike_hours: 9
 
 # Weekly template. Days: mon tue wed thu fri sat sun
 # Available sessions:
@@ -73,6 +86,16 @@ weekly_templates:
     fri: [rest]
     sat: [bike_long, run_brick]
     sun: [run_long]
+  # Used while the next race is a cycling event: 2 interval rides, a long
+  # ride and 2 maintenance runs.
+  cycling:
+    mon: [rest]
+    tue: [bike_quality]
+    wed: [run_strides]
+    thu: [bike_quality]
+    fri: [bike_easy]
+    sat: [bike_long]
+    sun: [run_easy]
 
 garmin:
   # Where `python -m coach login` saves your session on your computer

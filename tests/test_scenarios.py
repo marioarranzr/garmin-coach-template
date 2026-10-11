@@ -809,10 +809,12 @@ def test_update_command_keeps_your_settings():
             git(d, "init", "-q", "-b", "main")
             git(d, "add", "-A")
             git(d, "commit", "-qm", "Initial commit")          # unrelated histories, like the template button
-        cfg = (mine / "config.yaml").read_text().replace("min_long_run_km: 0", "min_long_run_km: 9")
+        import re
+        cfg = re.sub(r"min_long_run_km: \S+", "min_long_run_km: 9", (mine / "config.yaml").read_text())
         (mine / "config.yaml").write_text(cfg)
         wf = mine / ".github" / "workflows" / "coach.yml"
-        wf.write_text(wf.read_text().replace("TZ: Europe/Madrid", "TZ: Asia/Tokyo").replace('"0 6-9 * * *"', '"0 22-23,0-1 * * *"'))
+        flow = re.sub(r"TZ: \S+", "TZ: Asia/Tokyo", wf.read_text(), count=1)
+        wf.write_text(re.sub(r'- cron: "[^"]*"', '- cron: "0 22-23,0-1 * * *"', flow, count=1))
         (mine / "data").mkdir()
         (mine / "data" / "garmin_tokens.enc").write_text("secret")
         git(mine, "add", "-A")

@@ -2,7 +2,9 @@
 
 Notes added to your Inbox in the last 12 hours (by voice, from a gadget, or by
 hand) are passed to the AI coach, including ones already marked done. The
-notes the coach uses are then marked done (completed, never deleted).
+notes the coach uses are then labelled `coach` and marked done (completed, never
+deleted). Those labelled, completed notes are your training diary: the coach
+reads the last weeks of them back from Todoist to learn how you respond.
 """
 from __future__ import annotations
 
@@ -46,7 +48,53 @@ def _note(t, now: dt.datetime, done: bool) -> dict | None:
     when = created.strftime("%H:%M") if created.date() == now.date() else created.strftime("%a %H:%M")
     due = getattr(t, "due", None)
     return {"id": str(t.id), "time": when, "created": created.isoformat(timespec="minutes"),
-            "text": text[:500], "done": done, "recurring": bool(due and getattr(due, "is_recurring", False))}
+            "text": text[:500], "done": done, "recurring": bool(due and getattr(due, "is_recurring", False)),
+            "labels": list(getattr(t, "labels", None) or [])}
+
+
+def diary_label(cfg: dict) -> str:
+    return str((cfg.get("todoist") or {}).get("diary_label", "coach"))
+
+
+def _client(api):
+    if api is not None:
+        return api
+    token = os.environ.get(TOKEN_ENV)
+    if not token:
+        return None
+    from todoist_api_python.api import TodoistAPI
+    return TodoistAPI(token)
+
+
+def diary(cfg: dict, start: dt.date, d: dt.date, now: dt.datetime, api=None) -> list[dict]:
+    """Notes the coach used from `start` until the day before d (the same window
+    the coach uses for your activities): completed tasks in the notes project
+    that carry the diary label."""
+    settings = cfg.get("todoist") or {}
+    if not settings.get("enabled", True):
+        return []
+    try:
+        api = _client(api)
+        if api is None:
+            return []
+        project_id = _find_project(api, str(settings.get("project", "Inbox")))
+        if not project_id:
+            return []
+        since = dt.datetime.combine(start, dt.time())
+        aware = lambda x: x.astimezone().astimezone(dt.timezone.utc)
+        label = diary_label(cfg)
+        out = []
+        for page in api.get_completed_tasks_by_completion_date(since=aware(since), until=aware(now)):
+            for t in page:
+                if str(getattr(t, "project_id", "")) != str(project_id) or label not in (getattr(t, "labels", None) or []):
+                    continue
+                n = _note(t, now, done=True)
+                if n and n["created"][:10] < d.isoformat():
+                    out.append({"date": n["created"][:10], "time": n["created"][11:16], "text": n["text"]})
+        return sorted(out, key=lambda e: (e["date"], e["time"]))
+    except Exception as e:  # noqa: BLE001 — the diary is optional
+        log.warning("Couldn't read your training diary from Todoist: %s", e)
+        return []
 
 
 def recent_notes(cfg: dict, now: dt.datetime, api=None) -> list[dict]:
@@ -90,14 +138,18 @@ def recent_notes(cfg: dict, now: dt.datetime, api=None) -> list[dict]:
 todays_notes = recent_notes   # old name
 
 
-def complete_notes(ids: list[str], api=None, recurring: set[str] | frozenset = frozenset()) -> list[str]:
+def complete_notes(ids: list[str], api=None, recurring: set[str] | frozenset = frozenset(),
+                   labels: dict[str, list[str]] | None = None, label: str = "coach") -> list[str]:
     """Completes (not deletes) the notes the coach used, so they leave your Inbox
     but stay in Todoist's completed history. Returns the ids completed.
 
     Completing a *recurring* task in Todoist only moves it to its next date, so
     for those the date is removed first. That's safe because only tasks created
     in the last few hours are ever read as notes: a real routine created long
-    ago is never touched."""
+    ago is never touched.
+
+    Each one gets the diary `label` first, so it can be found later as part
+    of your training diary."""
     if not ids:
         return []
     token = os.environ.get(TOKEN_ENV)
@@ -110,8 +162,17 @@ def complete_notes(ids: list[str], api=None, recurring: set[str] | frozenset = f
             api = TodoistAPI(token)
         for task_id in ids:
             try:
+                current = list((labels or {}).get(task_id, []))
+                changes = {} if label in current else {"labels": current + [label]}
                 if task_id in recurring:
-                    api.update_task(task_id, due_string="no date")
+                    changes["due_string"] = "no date"
+                if changes:
+                    try:
+                        api.update_task(task_id, **changes)
+                    except Exception as e:  # noqa: BLE001 — still complete it
+                        log.warning("Couldn't label Todoist note %s: %s", task_id, e)
+                        if task_id in recurring:
+                            api.update_task(task_id, due_string="no date")
                 api.complete_task(task_id)
                 done.append(task_id)
             except Exception as e:  # noqa: BLE001

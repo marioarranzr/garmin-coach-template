@@ -1,5 +1,6 @@
 """Offline tests: a fake Garmin with different scenarios.
 Run:  python -m pytest -q tests   (or  python tests/test_scenarios.py)"""
+import contextlib
 import datetime as dt
 import json
 import os
@@ -29,6 +30,10 @@ def act(date, typ, km, mins, aero=2.5, anae=0.5, load=None):
 
 
 class FakeGarmin:
+    """Garmin, including a calendar. Instances created inside the same
+    `fresh()` block share one calendar, like hourly runs on the same account."""
+    shared = None
+
     def __init__(self, today, good=True, extra_yesterday=0.0, swims=True, synced=True, steps=0, today_acts=(),
                  bb_now=None, tr_now=None, last_sync=None):
         self.today = today
@@ -38,6 +43,7 @@ class FakeGarmin:
         self.bb_now, self.tr_now = bb_now, tr_now   # later in the day, e.g. after a workout
         self.last_sync = last_sync                  # datetime of the watch's last upload
         self.uploaded, self.scheduled, self.deleted = [], [], []
+        self.cal = FakeGarmin.shared if FakeGarmin.shared is not None else {"items": [], "workouts": {}}
         acts = []
         for k in range(1, 36):
             d = today - dt.timedelta(days=k)
@@ -97,24 +103,49 @@ class FakeGarmin:
 
     def upload_workout(self, w):
         json.dumps(w)  # must be serializable
+        assert len(w["description"]) <= 1000
         self.uploaded.append(w)
-        return {"workoutId": len(self.uploaded)}
+        wid = len(self.cal["workouts"]) + 1
+        self.cal["workouts"][wid] = w
+        return {"workoutId": wid}
 
     def schedule_workout(self, wid, date):
         self.scheduled.append((wid, date))
+        w = self.cal["workouts"][wid]
+        self.cal["items"].append({"id": 1000 + wid, "itemType": "workout", "workoutId": wid, "date": date,
+                                  "title": w["workoutName"], "sportTypeKey": w["sportType"]["sportTypeKey"]})
         return {"workoutScheduleId": 1000 + wid}
+
+    def get_scheduled_workouts(self, year, month):
+        return {"calendarItems": [i for i in self.cal["items"] if i["date"].startswith(f"{year}-{month:02d}")]}
+
+    def get_workout_by_id(self, wid):
+        return self.cal["workouts"][int(wid)]
 
     def unschedule_workout(self, sid):
         self.deleted.append(("sched", sid))
+        self.cal["items"] = [i for i in self.cal["items"] if i["id"] != sid]
 
     def delete_workout(self, wid):
         self.deleted.append(("w", wid))
+        self.cal["items"] = [i for i in self.cal["items"] if i["workoutId"] != wid]
+
+
+@contextlib.contextmanager
+def fresh():
+    """A new Garmin account: every FakeGarmin made inside shares one calendar."""
+    FakeGarmin.shared = {"items": [], "workouts": {}}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            yield tmp
+    finally:
+        FakeGarmin.shared = None
 
 
 def _run(day, **kw):
     api = FakeGarmin(day, **kw)
-    with tempfile.TemporaryDirectory() as tmp:
-        res = engine.run_day(api, CFG, day, upload=True, state_path=Path(tmp) / "s.json")
+    with fresh() as tmp:
+        res = engine.run_day(api, CFG, day, upload=True)
     return api, res
 
 
@@ -176,7 +207,7 @@ def test_cloud_tokens_roundtrip(monkeypatch=None):
     key = Fernet.generate_key().decode()
     os.environ[G.KEY_ENV] = key
     old = G.TOKENS_ENC
-    with tempfile.TemporaryDirectory() as tmp:
+    with fresh() as tmp:
         G.TOKENS_ENC = Path(tmp) / "t.enc"
         class C:  # fake client
             def dumps(self): return '{"di_token": "a", "di_refresh_token": "b", "di_client_id": "c"}'
@@ -239,7 +270,7 @@ def test_setup_wizard_writes_a_working_config():
         "Alpine fondo", "8", "120", "2400", d3, "b",
         "",                                    # done with races
     ])
-    with tempfile.TemporaryDirectory() as tmp:
+    with fresh() as tmp:
         root = Path(tmp)
         wf = root / ".github" / "workflows"
         wf.mkdir(parents=True)
@@ -265,7 +296,7 @@ def test_setup_accepts_proposed_settings_with_enter():
     answers = iter(["", "Gran fondo", "", "150", "2000", d1, "", ""])
     sug = {"found": ["x"], "sport": "bike", "run_days": 1, "long_day": "sat", "rest_day": "mon",
            "pace": "5:20", "tz": "Europe/Zurich", "pool": 25}
-    with tempfile.TemporaryDirectory() as tmp:
+    with fresh() as tmp:
         setup_wizard.run(Path(tmp), ask=lambda prompt: next(answers), suggestions=sug)
         cfg = yaml.safe_load((Path(tmp) / "config.yaml").read_text())
     assert cfg["athlete"]["sports"] == "bike" and cfg["races"][0]["kind"] == "bike"
@@ -353,40 +384,37 @@ def test_scheduled_runs_wait_for_sleep_data():
     """Hourly morning runs: wait while the watch hasn't synced, plan once, then stop."""
     day = dt.date(2026, 10, 13)
     at = lambda h, m=0: dt.datetime.combine(day, dt.time(h, m))
-    with tempfile.TemporaryDirectory() as tmp:
-        sp = Path(tmp) / "s.json"
+    with fresh() as tmp:
         asleep = FakeGarmin(day, synced=False)
-        res = engine.run_day(asleep, CFG, day, state_path=sp, wait_for_sleep=True, now=at(7))
-        assert res["status"] == "waiting" and not asleep.uploaded and not sp.exists()
+        res = engine.run_day(asleep, CFG, day, wait_for_sleep=True, now=at(7))
+        assert res["status"] == "waiting" and not asleep.uploaded
 
         awake = FakeGarmin(day)                                   # synced after waking up
-        res = engine.run_day(awake, CFG, day, state_path=sp, wait_for_sleep=True, now=at(9))
+        res = engine.run_day(awake, CFG, day, wait_for_sleep=True, now=at(9))
         assert res["status"] == "planned" and awake.uploaded
 
         later = FakeGarmin(day)
-        res = engine.run_day(later, CFG, day, state_path=sp, wait_for_sleep=True, now=at(10))
+        res = engine.run_day(later, CFG, day, wait_for_sleep=True, now=at(10))
         assert res["status"] == "done" and not later.uploaded and not later.deleted
 
         manual = FakeGarmin(day)                                  # "Run workflow" by hand: re-plans
-        res = engine.run_day(manual, CFG, day, state_path=sp, now=at(10, 30))
+        res = engine.run_day(manual, CFG, day, now=at(10, 30))
         assert res["status"] == "planned" and manual.uploaded
 
-    with tempfile.TemporaryDirectory() as tmp:                    # never synced: plan at the deadline
-        sp = Path(tmp) / "s.json"
+    with fresh() as tmp:                    # never synced: plan at the deadline
         api = FakeGarmin(day, synced=False)
-        res = engine.run_day(api, CFG, day, state_path=sp, wait_for_sleep=True, now=at(10, 3))
+        res = engine.run_day(api, CFG, day, wait_for_sleep=True, now=at(10, 3))
         assert res["status"] == "planned" and api.uploaded and "no sleep data from last night" in res["report"]
-        res = engine.run_day(FakeGarmin(day, synced=False), CFG, day, state_path=sp, wait_for_sleep=True, now=at(11))
+        res = engine.run_day(FakeGarmin(day, synced=False), CFG, day, wait_for_sleep=True, now=at(11))
         assert res["status"] == "done"        # still no sleep data: don't re-upload the same thing
-        res = engine.run_day(FakeGarmin(day), CFG, day, state_path=sp, wait_for_sleep=True, now=at(12))
+        res = engine.run_day(FakeGarmin(day), CFG, day, wait_for_sleep=True, now=at(12))
         assert res["status"] == "planned"     # sleep arrived late: re-plan once with it
-        res = engine.run_day(FakeGarmin(day), CFG, day, state_path=sp, wait_for_sleep=True, now=at(13))
+        res = engine.run_day(FakeGarmin(day), CFG, day, wait_for_sleep=True, now=at(13))
         assert res["status"] == "done"
 
-    with tempfile.TemporaryDirectory() as tmp:                    # up and walking, but no sleep recorded
-        sp = Path(tmp) / "s.json"
+    with fresh() as tmp:                    # up and walking, but no sleep recorded
         api = FakeGarmin(day, synced=False, steps=1800)
-        res = engine.run_day(api, CFG, day, state_path=sp, wait_for_sleep=True, now=at(8))
+        res = engine.run_day(api, CFG, day, wait_for_sleep=True, now=at(8))
         assert res["status"] == "planned" and api.uploaded and "recorded no sleep" in res["report"]
 
 
@@ -411,15 +439,15 @@ def test_planning_later_in_the_day_counts_what_you_already_did():
     """Sunday afternoon re-plan after a 30 km morning ride: the run stays, easy; a done run isn't re-added."""
     sunday = dt.date(2026, 10, 18)
     ride = act(sunday.isoformat(), "road_biking", 30, 75)
-    with tempfile.TemporaryDirectory() as tmp:
+    with fresh() as tmp:
         api = FakeGarmin(sunday, today_acts=[ride])
-        res = engine.run_day(api, CFG, sunday, state_path=Path(tmp) / "s.json")
+        res = engine.run_day(api, CFG, sunday)
         runs = [s for s in res["final"] if s.sport == "run"]
         assert runs and any("keep this run easy" in n for n in res["notes"])
     run_done = act(sunday.isoformat(), "running", 9, 50)
-    with tempfile.TemporaryDirectory() as tmp:
+    with fresh() as tmp:
         api = FakeGarmin(sunday, today_acts=[run_done])
-        res = engine.run_day(api, CFG, sunday, state_path=Path(tmp) / "s.json")
+        res = engine.run_day(api, CFG, sunday)
         assert not [s for s in res["final"] if s.sport == "run"] and not api.uploaded
         assert "Already done today" in " ".join(res["notes"]) and "Nothing left for today" in res["report"]
 
@@ -444,12 +472,12 @@ def test_learns_long_run_day_from_recent_weeks():
     # spacing is preserved: quality is still 2 days after the long run
     assert key_day(tpl, "run_quality") == (key_day(tpl, "run_long") + 2) % 7
     # the daily report explains the move
-    with tempfile.TemporaryDirectory() as tmp:
+    with fresh() as tmp:
         api = FakeGarmin(mon)
         api.acts = [a for a in api.acts if a["activityType"]["typeKey"] != "running"]
         for a in runs([2, 2, 2, 6]):
             api.acts.append(act(a["date"], "running", a["distance_km"], a["duration_min"]))
-        res = engine.run_day(api, CFG, mon, state_path=Path(tmp) / "s.json")
+        res = engine.run_day(api, CFG, mon)
         assert any("instead of Sunday" in n for n in res["notes"])
 
 
@@ -458,7 +486,7 @@ def test_setup_rerun_keeps_current_settings_and_races():
     import shutil
     from coach import setup_wizard
     future = (dt.date.today() + dt.timedelta(days=60)).isoformat()
-    with tempfile.TemporaryDirectory() as tmp:
+    with fresh() as tmp:
         root = Path(tmp)
         wf = root / ".github" / "workflows"
         wf.mkdir(parents=True)
@@ -490,15 +518,14 @@ def test_one_line_why():
     cases.append((FakeGarmin(sunday, today_acts=[act(sunday.isoformat(), "road_biking", 30, 95)]),
                   "Keep it easy: you already did a 30 km ride today."))
     for api, expected in cases:
-        with tempfile.TemporaryDirectory() as tmp:
-            res = engine.run_day(api, CFG, api.today, state_path=Path(tmp) / "s.json")
+        with fresh() as tmp:
+            res = engine.run_day(api, CFG, api.today)
         line = res["report"].splitlines()[2]
         assert expected in line, line
         assert line.count(".") <= 2 and len(line) < 180          # one short sentence
         assert api.uploaded[0]["description"].startswith(line.strip("*"))
-    with tempfile.TemporaryDirectory() as tmp:                   # B race: mini taper wording
-        res = engine.run_day(FakeGarmin(dt.date(2026, 12, 11)), CFG, dt.date(2026, 12, 11),
-                             state_path=Path(tmp) / "s.json")
+    with fresh() as tmp:                   # B race: mini taper wording
+        res = engine.run_day(FakeGarmin(dt.date(2026, 12, 11)), CFG, dt.date(2026, 12, 11))
     assert "A few easy days before Autumn 8.5 km race" in res["report"]
 
 
@@ -506,9 +533,9 @@ def test_moderate_ride_today_is_counted():
     """A 30 km / 55' easy ride this morning: listed in the report, and today's run stays easy."""
     sunday = dt.date(2026, 10, 18)
     ride = act(sunday.isoformat(), "road_biking", 30, 55, aero=2.2)
-    with tempfile.TemporaryDirectory() as tmp:
+    with fresh() as tmp:
         api = FakeGarmin(sunday, today_acts=[ride])
-        res = engine.run_day(api, CFG, sunday, state_path=Path(tmp) / "s.json")
+        res = engine.run_day(api, CFG, sunday)
     assert "Done today so far: road_biking (30 km, 55')" in res["report"]
     assert "Keep it easy: you already did a 30 km ride today." in res["report"]
     assert "(scores " in res["report"] and "→" not in res["report"].split("## Yesterday")[0]
@@ -518,33 +545,30 @@ def test_after_training_uses_current_body_battery_and_readiness():
     """Woke at Body Battery 88, rode in the morning, now 40 and Training Readiness down to 35."""
     sunday = dt.date(2026, 10, 18)
     ride = act(sunday.isoformat(), "road_biking", 30, 58, aero=2.3)
-    with tempfile.TemporaryDirectory() as tmp:
-        res = engine.run_day(FakeGarmin(sunday, today_acts=[ride], bb_now=40, tr_now=35), CFG, sunday,
-                             state_path=Path(tmp) / "s.json")
+    with fresh() as tmp:
+        res = engine.run_day(FakeGarmin(sunday, today_acts=[ride], bb_now=40, tr_now=35), CFG, sunday)
     rep = res["report"]
     assert "Body Battery now: 40" in rep and "Training Readiness now: 35" in rep
     assert res["readiness"]["level"] != "green"
     assert "Body Battery" in rep.splitlines()[2] or "Training Readiness" in rep.splitlines()[2]
     # first thing in the morning the latest values are the waking ones
-    with tempfile.TemporaryDirectory() as tmp:
-        res = engine.run_day(FakeGarmin(sunday), CFG, sunday, state_path=Path(tmp) / "s.json")
+    with fresh() as tmp:
+        res = engine.run_day(FakeGarmin(sunday), CFG, sunday)
     assert "- Body Battery: 88" in res["report"] and "- Training Readiness: 82" in res["report"]
     # later in the day without training: still the latest values
-    with tempfile.TemporaryDirectory() as tmp:
-        res = engine.run_day(FakeGarmin(sunday, bb_now=60, tr_now=70), CFG, sunday, state_path=Path(tmp) / "s.json")
+    with fresh() as tmp:
+        res = engine.run_day(FakeGarmin(sunday, bb_now=60, tr_now=70), CFG, sunday)
     assert "- Body Battery now: 60" in res["report"] and "- Training Readiness now: 70" in res["report"]
 
 
 def test_report_shows_watch_sync_and_warns_when_stale():
     day = dt.date(2026, 10, 13)
     now = dt.datetime.combine(day, dt.time(16, 0))
-    with tempfile.TemporaryDirectory() as tmp:
-        res = engine.run_day(FakeGarmin(day, last_sync=now - dt.timedelta(minutes=20)), CFG, day,
-                             state_path=Path(tmp) / "s.json", now=now)
+    with fresh() as tmp:
+        res = engine.run_day(FakeGarmin(day, last_sync=now - dt.timedelta(minutes=20)), CFG, day, now=now)
     assert "last sync: Tue 15:40" in res["report"] and "⚠️" not in res["report"]
-    with tempfile.TemporaryDirectory() as tmp:
-        res = engine.run_day(FakeGarmin(day, last_sync=now - dt.timedelta(hours=9)), CFG, day,
-                             state_path=Path(tmp) / "s.json", now=now)
+    with fresh() as tmp:
+        res = engine.run_day(FakeGarmin(day, last_sync=now - dt.timedelta(hours=9)), CFG, day, now=now)
     assert "Your watch last synced 9 h ago" in res["report"]
 
 
@@ -559,8 +583,8 @@ def test_heavy_multisport_block_shortens_the_long_run():
     api.acts = [a for a in api.acts if a["startTimeLocal"][:10] not in recent]
     for k, km, mins in ((3, 50, 120), (2, 40, 90), (1, 92, 207)):
         api.acts.append(act((sunday - dt.timedelta(days=k)).isoformat(), "road_biking", km, mins, aero=3.0))
-    with tempfile.TemporaryDirectory() as tmp:
-        res = engine.run_day(api, cfg, sunday, state_path=Path(tmp) / "s.json")
+    with fresh() as tmp:
+        res = engine.run_day(api, cfg, sunday)
     long_run = next(s for s in res["final"] if s.kind == "run_long")
     assert long_run.distance_km <= 13 * 0.7 and any("Long run cut to" in n for n in res["notes"])
     # a returning runner whose long run comes only from min_long_run_km (8 km) ends up below it
@@ -584,9 +608,12 @@ class FakeTodoist:
         self.NS = NS
         self.completed = []
         self.updated = []
+        self.labels = {}
 
     def update_task(self, task_id, **kw):
         self.updated.append((task_id, kw))
+        if "labels" in kw:
+            self.labels[task_id] = kw["labels"]
         return True
 
     def _items(self):
@@ -596,8 +623,9 @@ class FakeTodoist:
                 when = dt.datetime.combine(self.day, dt.time(*map(int, when.split(":"))))
             done = (len(n) > 2 and n[2]) or f"t{i}" in self.completed
             due = self.NS(is_recurring=True, string="every thu") if len(n) > 3 and n[3] else None
+            labels = self.labels.get(f"t{i}", list(n[4]) if len(n) > 4 else [])
             yield self.NS(id=f"t{i}", content=text, description="", project_id="inbox", created_at=when,
-                          due=due), done
+                          due=due, labels=labels), done
 
     def get_projects(self):
         yield [self.NS(id="p1", name="Work", is_inbox_project=False),
@@ -610,7 +638,7 @@ class FakeTodoist:
     def get_completed_tasks_by_completion_date(self, since, until):
         assert since.tzinfo is not None and until.tzinfo is not None
         work = self.NS(id="w1", content="finish report", description="", project_id="p1",
-                       created_at=dt.datetime.combine(self.day, dt.time(7)))
+                       created_at=dt.datetime.combine(self.day, dt.time(7)), labels=[])
         yield [t for t, done in self._items() if done] + [work]
 
     def complete_task(self, task_id):
@@ -650,14 +678,14 @@ class FakeOpenAI:
         return NS(choices=[NS(message=NS(content=json.dumps(self.answer), refusal=None))])
 
 
-def _ai_day(answer=None, notes=(), fail=False, now=None, state_path=None, wait=False, api=None,
+def _ai_day(answer=None, notes=(), fail=False, now=None, wait=False, api=None,
             client_cls=None, upload=True, todo=None):
     day = dt.date(2026, 10, 18)                     # Sunday: long run planned
     todo = todo or FakeTodoist(list(notes))
     todo.day = day
     claude = (client_cls or FakeClaude)(answer, fail)
     api = api or FakeGarmin(day)
-    res = engine.run_day(api, CFG, day, state_path=state_path, notes_api=todo, ai_client=claude,
+    res = engine.run_day(api, CFG, day, notes_api=todo, ai_client=claude,
                          now=now or dt.datetime.combine(day, dt.time(9)), wait_for_sleep=wait, upload=upload)
     res["todo"] = todo
     return res, claude, api
@@ -668,16 +696,15 @@ def test_ai_coach_can_choose_rest_from_your_note():
               "why": "Rest today: you mention knee pain, and running on it risks a longer layoff.",
               "coach_note": "Ice it and see how it feels tomorrow; an easy swim is fine if it doesn't hurt.",
               "notes_used": ["t0"]}
-    with tempfile.TemporaryDirectory() as tmp:
-        res, claude, api = _ai_day(answer, notes=[("07:40", "knee hurts a bit"), ("08:05", "buy milk")],
-                                   state_path=Path(tmp) / "s.json")
+    with fresh() as tmp:
+        res, claude, api = _ai_day(answer, notes=[("07:40", "knee hurts a bit"), ("08:05", "buy milk")])
     assert [s.kind for s in res["final"]] == ["rest"]
     rep = res["report"]
     assert rep.splitlines()[2] == "**Rest today: you mention knee pain, and running on it risks a longer layoff.**"
     assert "Decided by the AI coach" in rep and "“knee hurts a bit” (07:40)" in rep and "Taken into account" in rep
     sent = json.loads(claude.requests[0]["messages"][0]["content"].split("\n", 1)[1])
     assert sent["athlete_notes_today"][0]["text"] == "knee hurts a bit"
-    assert sent["rule_proposal_today"] and sent["activities_last_14_days"]
+    assert sent["rule_proposal_today"] and sent["activities_last_6_weeks"] and sent["weekly_summary"]
     assert api.uploaded[0]["description"].startswith("Rest today")
     assert res["todo"].completed == ["t0"]                  # the knee note, not "buy milk"
 
@@ -686,8 +713,8 @@ def test_ai_coach_cannot_exceed_the_plan():
     answer = {"decision": "adjust", "why": "Feeling strong, go long.", "coach_note": "", "notes_used": [],
               "sessions": [{"kind": "run_long", "distance_km": 25, "minutes": None},
                            {"kind": "bike_quality", "distance_km": None, "minutes": 90}]}
-    with tempfile.TemporaryDirectory() as tmp:
-        res, _, _ = _ai_day(answer, state_path=Path(tmp) / "s.json")
+    with fresh() as tmp:
+        res, _, _ = _ai_day(answer)
     long_run = next(s for s in res["final"] if s.kind == "run_long")
     assert long_run.distance_km <= 13                       # the rule proposal's long run
     assert not any(s.kind == "bike_quality" for s in res["final"])
@@ -695,8 +722,8 @@ def test_ai_coach_cannot_exceed_the_plan():
 
 
 def test_ai_failure_falls_back_to_rules():
-    with tempfile.TemporaryDirectory() as tmp:
-        res, _, api = _ai_day(fail=True, state_path=Path(tmp) / "s.json")
+    with fresh() as tmp:
+        res, _, api = _ai_day(fail=True)
     assert any(s.kind == "run_long" for s in res["final"]) and api.uploaded
     assert "AI coach unavailable today (overloaded): rule-based plan used." in res["report"]
 
@@ -704,16 +731,14 @@ def test_ai_failure_falls_back_to_rules():
 def test_new_note_after_planning_triggers_replan():
     answer = {"decision": "keep", "sessions": [{"kind": "run_long", "distance_km": 13, "minutes": None}],
               "why": "As planned.", "coach_note": "", "notes_used": []}
-    with tempfile.TemporaryDirectory() as tmp:
-        sp = Path(tmp) / "s.json"
+    with fresh() as tmp:
         day = dt.date(2026, 10, 18)
         at = lambda h: dt.datetime.combine(day, dt.time(h))
-        res, _, _ = _ai_day(answer, notes=[("07:40", "slept ok")], state_path=sp, wait=True, now=at(8))
+        res, _, _ = _ai_day(answer, notes=[("07:40", "slept ok")], wait=True, now=at(8))
         assert res["status"] == "planned"
-        res, _, _ = _ai_day(answer, notes=[("07:40", "slept ok")], state_path=sp, wait=True, now=at(9))
+        res, _, _ = _ai_day(answer, notes=[("07:40", "slept ok")], wait=True, now=at(9))
         assert res["status"] == "done"                      # nothing new
-        res, claude, _ = _ai_day(answer, notes=[("07:40", "slept ok"), ("09:20", "legs very heavy")],
-                                 state_path=sp, wait=True, now=at(10))
+        res, claude, _ = _ai_day(answer, notes=[("07:40", "slept ok"), ("09:20", "legs very heavy")], wait=True, now=at(10))
         assert res["status"] == "planned"                   # new note → re-planned with it
         assert "legs very heavy" in claude.requests[0]["messages"][0]["content"]
 
@@ -734,20 +759,20 @@ def test_openai_provider_and_note_completion():
               "why": "Easy 5 km: you say your legs feel heavy after the rides.", "coach_note": "Keep it chatty.",
               "notes_used": ["t1", "nonexistent"]}
     notes = [("07:10", "call the bank"), ("07:45", "legs heavy")]
-    with tempfile.TemporaryDirectory() as tmp:
-        res, oai, _ = _ai_day(answer, notes=notes, state_path=Path(tmp) / "s.json", client_cls=FakeOpenAI)
+    with fresh() as tmp:
+        res, oai, _ = _ai_day(answer, notes=notes, client_cls=FakeOpenAI)
         assert [s.kind for s in res["final"]] == ["run_easy"] and res["final"][0].distance_km == 5
         assert oai.requests[0]["response_format"]["json_schema"]["strict"] is True
         assert res["todo"].completed == ["t1"]                    # not "call the bank", not unknown ids
         assert "Completed in Todoist: 1 note(s)" in res["report"]
-        # a later re-plan the same day still knows the note it already used
-        later, oai2, _ = _ai_day(answer, notes=[("07:10", "call the bank"), ("09:30", "feeling better")],
-                                 state_path=Path(tmp) / "s.json", client_cls=FakeOpenAI,
+        # a later re-plan the same day still knows the note it already used (it's completed in Todoist)
+        res["todo"].notes.append(("09:30", "feeling better"))
+        later, oai2, _ = _ai_day(answer, todo=res["todo"], client_cls=FakeOpenAI,
                                  now=dt.datetime.combine(dt.date(2026, 10, 18), dt.time(10)))
         sent = json.loads(oai2.requests[0]["messages"][1]["content"].split("\n", 1)[1])
         assert sent["earlier_notes_today"] == [{"time": "07:45", "text": "legs heavy"}]
-    with tempfile.TemporaryDirectory() as tmp:                     # dry run: nothing completed
-        res, _, _ = _ai_day(answer, notes=notes, state_path=Path(tmp) / "s.json", client_cls=FakeOpenAI,
+    with fresh() as tmp:                     # dry run: nothing completed
+        res, _, _ = _ai_day(answer, notes=notes, client_cls=FakeOpenAI,
                             upload=False)
         assert res["todo"].completed == []
 
@@ -788,8 +813,8 @@ def test_notes_from_the_last_12_hours_open_and_done():
     answer = {"decision": "adjust", "sessions": [{"kind": "run_easy", "distance_km": 4, "minutes": None}],
               "why": "Easy 4 km: tight calf and a tiring ride yesterday.", "coach_note": "",
               "notes_used": ["t1", "t2", "t3"]}                   # t2 is already done
-    with tempfile.TemporaryDirectory() as tmp:
-        res, claude, _ = _ai_day(answer, state_path=Path(tmp) / "s.json", todo=todo,
+    with fresh() as tmp:
+        res, claude, _ = _ai_day(answer, todo=todo,
                                  now=dt.datetime.combine(day, dt.time(8)))
     sent = json.loads(claude.requests[0]["messages"][0]["content"].split("\n", 1)[1])
     assert [n["text"] for n in sent["athlete_notes_today"]] == ["very tired after the ride", "left calf tight"]
@@ -809,7 +834,7 @@ def test_update_command_keeps_your_settings():
         os.environ.setdefault(k, v)
     git = lambda cwd, *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@x", *a],
                                          cwd=cwd, check=True, capture_output=True, text=True)
-    with tempfile.TemporaryDirectory() as tmp:
+    with fresh() as tmp:
         tpl, mine = Path(tmp) / "template", Path(tmp) / "mine"
         for d in (tpl, mine):
             shutil.copytree(root / "coach", d / "coach", ignore=shutil.ignore_patterns("__pycache__"))
@@ -846,48 +871,62 @@ def test_recurring_note_is_really_completed():
     """A note Todoist made recurring would just move to its next date: its date is removed first."""
     answer = {"decision": "rest", "sessions": [{"kind": "rest", "distance_km": None, "minutes": None}],
               "why": "Rest: heavy legs.", "coach_note": "", "notes_used": ["t0", "t1"]}
-    with tempfile.TemporaryDirectory() as tmp:
-        res, _, _ = _ai_day(answer, notes=[("07:40", "legs heavy", False, True), ("07:50", "slept badly")],
-                            state_path=Path(tmp) / "s.json")
+    with fresh() as tmp:
+        res, _, _ = _ai_day(answer, notes=[("07:40", "legs heavy", False, True), ("07:50", "slept badly")])
     todo = res["todo"]
-    assert todo.updated == [("t0", {"due_string": "no date"})]     # only the recurring one
+    assert todo.updated == [("t0", {"labels": ["coach"], "due_string": "no date"}),   # date removed: recurring
+                            ("t1", {"labels": ["coach"]})]
     assert sorted(todo.completed) == ["t0", "t1"]
 
 
 def test_training_diary_feeds_later_decisions():
-    """A note used on Sunday is in the AI's notes_history on Wednesday, with what was trained around it."""
+    """A note used on Sunday is labelled in Todoist and comes back in the AI's notes_history on
+    Wednesday, with what was trained around it and what the coach planned (from Garmin)."""
     sunday, wednesday = dt.date(2026, 10, 18), dt.date(2026, 10, 21)
     answer = {"decision": "keep", "sessions": [{"kind": "run_long", "distance_km": 10, "minutes": None}],
               "why": "As planned.", "coach_note": "", "notes_used": ["t0"]}
-    with tempfile.TemporaryDirectory() as tmp:
-        sp = Path(tmp) / "s.json"
-        todo = FakeTodoist([("07:40", "legs heavy after two long rides")])
+    with fresh():
+        todo = FakeTodoist([(dt.datetime(2026, 10, 18, 7, 40), "legs heavy after two long rides"),
+                            (dt.datetime(2026, 10, 18, 7, 50), "buy milk", True)])   # done by you: not diary
         todo.day = sunday
-        api = FakeGarmin(sunday)
-        engine.run_day(api, CFG, sunday, state_path=sp, notes_api=todo, ai_client=FakeClaude(answer),
+        engine.run_day(FakeGarmin(sunday), CFG, sunday, notes_api=todo, ai_client=FakeClaude(answer),
                        now=dt.datetime.combine(sunday, dt.time(8)))
-        assert json.loads(sp.read_text())["journal"] == [
-            {"date": "2026-10-18", "time": "07:40", "text": "legs heavy after two long rides"}]
-        later = FakeTodoist([])
-        later.day = wednesday
+        assert todo.completed == ["t0"] and todo.labels["t0"] == ["coach"]
+        todo.day = wednesday
         claude = FakeClaude(dict(answer, notes_used=[]))
-        res = engine.run_day(FakeGarmin(wednesday), CFG, wednesday, state_path=sp, notes_api=later,
+        res = engine.run_day(FakeGarmin(wednesday), CFG, wednesday, notes_api=todo,
                              ai_client=claude, now=dt.datetime.combine(wednesday, dt.time(8)))
     sent = json.loads(claude.requests[0]["messages"][0]["content"].split("\n", 1)[1])
     hist = sent["notes_history"]
     assert len(hist) == 1 and hist[0]["note"] == "legs heavy after two long rides"
-    assert hist[0]["trained_day_before"] and hist[0]["readiness"] is not None and hist[0]["coach_plan_that_day"]
+    assert hist[0]["trained_day_before"] and hist[0]["readiness"] is not None
+    assert [t.split(" ")[0] for t in hist[0]["coach_plan_that_day"]] == ["Long"]
     assert "Coach memory: 1 of your notes" in res["report"]
 
 
-def test_diary_is_filled_from_earlier_records():
-    sp_data = {"days": {"2026-10-11": {"notes_used_texts": [{"time": "17:45", "text": "legs heavy"}],
-                                       "final": [], "readiness": {"score": 63}}}, "weeks": {}}
-    with tempfile.TemporaryDirectory() as tmp:
-        sp = Path(tmp) / "s.json"
-        sp.write_text(json.dumps(sp_data))
-        hist = engine.notes_history(engine.State(sp), [], dt.date(2026, 10, 14), CFG)
-    assert hist[0]["note"] == "legs heavy" and hist[0]["readiness"] == 63
+def test_yesterday_is_read_back_from_the_garmin_calendar():
+    """No files: yesterday's plan comes from the marker in the workout the coach uploaded."""
+    from coach.calendar import parse
+    mon, tue = dt.date(2026, 10, 12), dt.date(2026, 10, 13)
+    with fresh():
+        api = FakeGarmin(mon, good=False)                  # a bad day: Monday's plan gets cut
+        first = engine.run_day(api, CFG, mon)
+        tag = parse(api.uploaded[-1]["description"]) if api.uploaded else None
+        res = engine.run_day(FakeGarmin(tue), CFG, tue)
+    planned_km = sum(s.distance_km or 0 for s in first["final"] if s.sport == "run")
+    assert f"Planned: {round(planned_km, 1)} km running" in res["report"]
+    if tag:
+        assert tag["k"] == first["final"][-1].kind and tag["r"] == first["readiness"]["score"]
+
+
+def test_marker_survives_long_descriptions():
+    from coach.calendar import marker, parse, with_marker
+    from coach.planner import Session
+    s = Session("run_easy", "run", "Easy run 8 km", "easy", 8)
+    tag = marker(s, {"r": 71, "n": ["a" * 16, "b" * 16], "u": []})
+    desc = with_marker("x" * 2000, tag)
+    assert len(desc) <= 1000 and parse(desc) == {"k": "run_easy", "s": "run", "i": "easy", "km": 8, "r": 71,
+                                                 "n": ["a" * 16, "b" * 16]}
 
 
 if __name__ == "__main__":

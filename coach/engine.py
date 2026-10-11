@@ -2,19 +2,19 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 import logging
 import os
 from pathlib import Path
 
 from . import garmin_api as G
 from .adjust import adjust
-from .planner import (Session, compute_week_target, key_day, key_session, learn_long_day, monday_of,
+from .planner import (Session, compute_week_target, history_start, key_day, key_session, learn_long_day, monday_of,
                       phase_for, plan_day,
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
 from .readiness import compliance, compute, consecutive_days, own_acwr, recent_load
 from . import ai
-from .notes import complete_notes, recent_notes
+from .calendar import Calendar, marker, with_marker
+from .notes import complete_notes, diary, diary_label, recent_notes
 from .why import substantial, why_line
 from .workouts import to_garmin
 
@@ -22,26 +22,12 @@ log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent
 
 
-class State:
-    def __init__(self, path: Path):
-        self.path = path
-        self.data = json.loads(path.read_text()) if path.exists() else {"days": {}, "weeks": {}}
-
-    def save(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.data, indent=2, ensure_ascii=False, default=str))
+COACH_ACTIVE_DAYS = 14  # if the coach put workouts in your calendar recently, an empty day was a rest day
 
 
-def _week_key(d: dt.date) -> str:
-    y, w, _ = d.isocalendar()
-    return f"{y}-W{w:02d}"
-
-
-def week_target(state: State, acts, d, cfg) -> dict:
-    """Recomputed on every run from the latest data and config (kept in the history for reference)."""
-    wt = compute_week_target(acts, d, cfg)
-    state.data["weeks"][_week_key(d)] = wt
-    return wt
+def week_target(acts, d, cfg) -> dict:
+    """Recomputed on every run from the latest activities and config."""
+    return compute_week_target(acts, d, cfg)
 
 
 def sleep_deadline(cfg: dict) -> dt.time:
@@ -50,27 +36,41 @@ def sleep_deadline(cfg: dict) -> dt.time:
     return dt.time(h, m)
 
 
-def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | None = None,
-            wait_for_sleep: bool = False, now: dt.datetime | None = None,
-            notes_api=None, ai_client=None) -> dict:
+def planned_on(day: dt.date, calendar: Calendar, active: bool, acts: list[dict], cfg: dict) -> list[dict]:
+    """What the coach planned for a past day: read from your Garmin calendar.
+    Days before the coach was used (or never uploaded) fall back to the base plan."""
+    found = calendar.plan(day)
+    if found:
+        return [e["session"] for e in found]
+    if active:
+        return []    # nothing in the calendar on a day the coach was running: a rest day
+    wt = compute_week_target([a for a in acts if a["date"] < day.isoformat()], day, cfg)
+    return [s.to_dict() for s in plan_day(day, cfg, wt)[1]]
+
+
+def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: bool = False,
+            now: dt.datetime | None = None, notes_api=None, ai_client=None, **_ignored) -> dict:
     """Plans day `d`. With `wait_for_sleep` (scheduled runs), it does nothing if
     today is already planned, and waits (returns without planning) while last
-    night's sleep hasn't reached Garmin yet, until the configured deadline."""
-    state = State(state_path or ROOT / "data" / "state.json")
+    night's sleep hasn't reached Garmin yet, until the configured deadline.
+    Everything it knows about earlier runs comes from your Garmin calendar."""
     now = now or dt.datetime.now()
     deadline = sleep_deadline(cfg)
-    today_rec = state.data["days"].get(d.isoformat()) or {}
+    calendar = Calendar(api, cfg)
+    today_cal = calendar.day(d)
+    seen_ids = {i for e in today_cal for i in e["meta"].get("n", [])}
+    planned_sleep = all(e["meta"].get("sr", 1) for e in today_cal)
     # your own notes for today (Todoist); a new one after planning means re-plan
     notes_today = recent_notes(cfg, now, api=notes_api)          # last 12 h, open and done
     open_notes = [n for n in notes_today if not n["done"]]
-    new_notes = [n for n in open_notes if n["id"] not in set(today_rec.get("note_ids", []))]
-    if wait_for_sleep and today_rec.get("uploads") and today_rec.get("sleep_ready", True) and not new_notes:
-        msg = f"Today's workout is already in your Garmin calendar ({', '.join(u['name'] for u in today_rec['uploads'])})."
+    new_notes = [n for n in open_notes if n["id"] not in seen_ids]
+    if wait_for_sleep and today_cal and planned_sleep and not new_notes:
+        msg = f"Today's workout is already in your Garmin calendar ({', '.join(e['name'] for e in today_cal)})."
         return {"status": "done", "report": msg + "\n"}
 
     wellness = G.fetch_wellness(api, d)
     sleep_ready = wellness.get("sleep_hours") is not None or wellness.get("sleep_score") is not None
-    if wait_for_sleep and today_rec.get("uploads") and not sleep_ready and not new_notes:
+    if wait_for_sleep and today_cal and not sleep_ready and not new_notes:
         # planned at the deadline without sleep data, and it still hasn't arrived
         return {"status": "done", "report": "Today's workout is already in your Garmin calendar.\n"}
     # Steps today mean you're up and wearing the watch: if it still has no sleep
@@ -81,32 +81,31 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
                f"Trying again next hour; planning anyway at {deadline:%H:%M} at the latest.")
         return {"status": "waiting", "report": msg + "\n"}
 
-    acts = G.fetch_activities(api, d - dt.timedelta(days=35), d)
+    since = history_start(d)                 # one window for every look back (see planner.LOOKBACK_WEEKS)
+    acts = G.fetch_activities(api, since, d)
     past = [a for a in acts if a["date"] < d.isoformat()]
 
     # learn where you actually do your long run/ride (3 of the last 4 weeks)
-    learned = state.data.setdefault("schedule", {})
+    learned = {}
     for sport in ("run", "bike"):
         day = learn_long_day(past, d, sport)
         if day:
             learned[sport] = day
     configured = cfg
-    cfg = dict(cfg, _learned_days=dict(learned))
+    cfg = dict(cfg, _learned_days=learned)
 
-    wt = week_target(state, past, d, cfg)
+    wt = week_target(past, d, cfg)
     week_km = wt["target_km"]
     ret = wt.get("return_mode", False)
     phase, planned = plan_day(d, cfg, wt)
     _, tomorrow = plan_day(d + dt.timedelta(days=1), cfg, wt)
 
+    # what the coach planned on earlier days, from your Garmin calendar
+    active = calendar.active_since(d - dt.timedelta(days=COACH_ACTIVE_DAYS), d - dt.timedelta(days=1))
+
     # ── yesterday's compliance ──
     yday = d - dt.timedelta(days=1)
-    yrec = state.data["days"].get(yday.isoformat())
-    if yrec:
-        y_planned = yrec["final"]
-    else:
-        ywt = week_target(state, [a for a in acts if a["date"] < yday.isoformat()], yday, cfg)
-        y_planned = [s.to_dict() for s in plan_day(yday, cfg, ywt)[1]]
+    y_planned = planned_on(yday, calendar, active, acts, cfg)
     y_done = [a for a in acts if a["date"] == yday.isoformat()]
     comp = compliance(y_planned, y_done)
 
@@ -116,9 +115,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     planned_so_far = 0.0
     cur = mon
     while cur < d:
-        rec = state.data["days"].get(cur.isoformat())
-        sess = [Session.from_dict(x) for x in rec["final"]] if rec else plan_day(cur, cfg, wt)[1]
-        planned_so_far += planned_run_km(sess)
+        planned_so_far += sum(s.get("distance_km") or 0 for s in planned_on(cur, calendar, active, acts, cfg)
+                              if s.get("sport") == "run")
         cur += dt.timedelta(days=1)
     week_over = planned_so_far > 0 and week_done > planned_so_far * 1.15 and week_done - planned_so_far >= 4
 
@@ -162,62 +160,47 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
 
     # ── AI coach: final call within the rule-based limits ──
     coach = {"used": False, "configured": ai_client is not None or ai.enabled(cfg)}
+    history: list[dict] = []
     if coach["configured"] and final:
         # notes already marked done (by the coach earlier, or by you) are context, not new input
         earlier = [{"time": n["time"], "text": n["text"]} for n in notes_today if n["done"]]
-        earlier += [e for e in today_rec.get("notes_used_texts", []) if e["text"] not in {x["text"] for x in earlier}]
+        history = notes_history(diary(cfg, since, d, now, api=notes_api), calendar, acts, d)
         context = ai.build_context(d, phase, wt, wellness, r, ctx, final, planned,
                                    [{k: n[k] for k in ("id", "time", "text")} for n in open_notes],
-                                   acts, notes, why, earlier, notes_history(state, acts, d, cfg))
+                                   acts, notes, why, earlier, history)
         coach.update(ai.decide(cfg, context, final, phase, week_index(d, cfg), client=ai_client,
                                prov=getattr(ai_client, "provider", None)))
         if coach.get("used"):
             final, why = coach["sessions"], coach["why"] or why
             notes += [f"Safety limit: {x}." for x in coach.get("limited", [])]
     coach["notes_today"] = notes_today
-    coach["history_count"] = len(notes_history(state, acts, d, cfg)) if coach.get("used") else 0
+    coach["history_count"] = len(history) if coach.get("used") else 0
+    used = [n for n in open_notes if n["id"] in set(coach.get("notes_used") or [])]
 
     # ── Garmin ──
-    prev = (state.data["days"].get(d.isoformat()) or {}).get("uploads", [])
     uploads = []
     if upload:
-        G.remove_uploaded(api, prev)
+        G.remove_uploaded(api, today_cal)
         for s in final:
             if not s.steps:
                 continue
-            desc = _workout_description(s, r, notes, phase, why, coach.get("coach_note", ""))
+            tag = marker(s, {"r": r["score"], "sr": 0 if not sleep_ready else None,
+                             "n": [n["id"] for n in open_notes], "u": [n["id"] for n in used]})
+            desc = with_marker(_workout_description(s, r, notes, phase, why, coach.get("coach_note", "")), tag)
             try:
                 uploads.append(G.upload_and_schedule(api, to_garmin(s, cfg, desc), d.isoformat()))
             except Exception as e:  # noqa: BLE001
                 log.error("Could not upload '%s' to Garmin: %s", s.title, e)
     else:
-        uploads = prev
+        uploads = today_cal
 
-    # notes the coach used: complete them in Todoist (real runs only) and remember them for today
-    used = [n for n in open_notes if n["id"] in set(coach.get("notes_used") or [])]
+    # notes the coach used: label them for your diary and complete them in Todoist (real runs only)
     if upload and used:
-        completed = complete_notes([n["id"] for n in used], api=notes_api,
-                                   recurring={n["id"] for n in used if n.get("recurring")})
-        coach["completed"] = completed
-    used_texts = today_rec.get("notes_used_texts", []) + [{"time": n["time"], "text": n["text"]} for n in used]
-    # training diary: every note the coach used, kept to learn how you respond over the weeks
-    journal = state.data.setdefault("journal", [])
-    seen = {(e["date"], e["text"]) for e in journal}
-    for n in used:
-        if (d.isoformat(), n["text"]) not in seen:
-            journal.append({"date": d.isoformat(), "time": n["time"], "text": n["text"]})
-    keep_from = (d - dt.timedelta(days=int((cfg.get("todoist") or {}).get("keep_days", 365)))).isoformat()
-    state.data["journal"] = [e for e in journal if e["date"] >= keep_from]
+        coach["completed"] = complete_notes([n["id"] for n in used], api=notes_api,
+                                            recurring={n["id"] for n in used if n.get("recurring")},
+                                            labels={n["id"]: n.get("labels", []) for n in used},
+                                            label=diary_label(cfg))
 
-    state.data["days"][d.isoformat()] = {
-        "phase": phase.describe(), "week_target_km": week_km,
-        "planned": [s.to_dict() for s in planned], "final": [s.to_dict() for s in final],
-        "readiness": {k: r[k] for k in ("score", "level", "reasons")},
-        "compliance_yesterday": comp, "uploads": uploads, "sleep_ready": sleep_ready, "why": why,
-        "note_ids": [n["id"] for n in open_notes],
-        "notes_used_texts": used_texts,
-        "coach": {k: coach.get(k) for k in ("used", "decision", "coach_note", "notes_used", "error")},
-    }
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why,
                           coach, cfg)
     report += sync_note(wellness.get("last_sync"), now)
@@ -227,8 +210,6 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         report += (f"\n> Planned without sleep data: {no_sleep}. Readiness uses Body Battery, resting HR "
                    "and training load instead. If last night's sleep shows up later, press *Run workflow* "
                    "to re-plan with it.\n")
-    if upload:  # a dry run only prints the report and leaves no files behind
-        state.save()
     if upload and not os.environ.get("GITHUB_ACTIONS"):
         # local runs keep a copy; on GitHub the report is in the run summary
         rep_dir = ROOT / "reports"
@@ -249,30 +230,24 @@ def sync_note(last_sync: str | None, now: dt.datetime) -> str:
     return line
 
 
-def notes_history(state: State, acts: list[dict], d: dt.date, cfg: dict) -> list[dict]:
-    """Your notes from previous weeks, each with what you trained around it."""
-    if "journal" not in state.data:   # first run with the diary: fill it from earlier days' used notes
-        state.data["journal"] = [{"date": day, "time": n.get("time"), "text": n["text"]}
-                                 for day, rec in sorted(state.data["days"].items())
-                                 for n in rec.get("notes_used_texts", [])]
-    days = int((cfg.get("todoist") or {}).get("history_days", 28))
-    since = (d - dt.timedelta(days=days)).isoformat()
-
+def notes_history(entries: list[dict], calendar: Calendar, acts: list[dict], d: dt.date) -> list[dict]:
+    """Your diary notes from previous weeks (from Todoist), each with what you
+    trained around it (Garmin activities) and what the coach had planned (Garmin calendar)."""
     def trained(day: str) -> list[str]:
         return [f"{a['sport']} {a['distance_km']:g} km, {a['duration_min']:.0f}'"
                 + (f", TE {a['aerobic_te']}" if a.get("aerobic_te") else "")
                 for a in acts if a["date"] == day]
 
     out = []
-    for e in state.data.get("journal", []):
-        if not (since <= e["date"] < d.isoformat()):
+    for e in entries:
+        if e["date"] >= d.isoformat():
             continue
         prev = (dt.date.fromisoformat(e["date"]) - dt.timedelta(days=1)).isoformat()
-        rec = state.data["days"].get(e["date"]) or {}
+        plan = calendar.plan(dt.date.fromisoformat(e["date"]))
         out.append({"date": e["date"], "time": e.get("time"), "note": e["text"],
                     "trained_that_day": trained(e["date"]), "trained_day_before": trained(prev),
-                    "readiness": (rec.get("readiness") or {}).get("score"),
-                    "coach_plan_that_day": [s.get("title") for s in rec.get("final", [])]})
+                    "readiness": next((p["meta"].get("r") for p in plan if p["meta"].get("r") is not None), None),
+                    "coach_plan_that_day": [p["session"]["title"] for p in plan]})
     return out[-40:]
 
 

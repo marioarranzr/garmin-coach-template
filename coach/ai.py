@@ -75,8 +75,9 @@ watch for). No generic motivation.
 - "notes_used": the ids of the athlete notes that are about how they feel or their training \
 and that you took into account, or []. Never include unrelated notes (they stay in the athlete's \
 to-do list). Notes listed under "earlier_notes_today" were already used; don't list them again.
-- "notes_history" holds the athlete's notes from previous weeks, each with what they trained that day \
-and the day before and their readiness. Use it to learn how this athlete responds (which loads leave \
+- "notes_history" holds the athlete's notes from the last 6 weeks, each with what they trained that day \
+and the day before, their readiness and what the coach had planned. "activities_last_6_weeks" and \
+"weekly_summary" show the training trend over the same weeks. Use them to learn how this athlete responds (which loads leave \
 them heavy or sore, what they recover well from) and to spot recurring niggles. It describes the \
 past, not how they feel today; never list those notes in "notes_used".
 - Distances in km for runs, minutes for rides; null where not applicable."""
@@ -108,6 +109,25 @@ def _session_json(s: Session) -> dict:
             "intensity": s.intensity}
 
 
+def weekly_summary(acts: list[dict], d) -> list[dict]:
+    """Per week (Monday first) and sport: sessions, km and hours, over the lookback window."""
+    from .planner import LOOKBACK_WEEKS, monday_of
+    mon = monday_of(d)
+    out = []
+    for k in range(LOOKBACK_WEEKS, -1, -1):
+        lo = mon - dt.timedelta(weeks=k)
+        hi = lo + dt.timedelta(weeks=1)
+        week = [a for a in acts if lo.isoformat() <= a["date"] < min(hi, d).isoformat()]
+        row = {"week_of": lo.isoformat(), "so_far" if k == 0 else "complete": True}
+        for sport in ("run", "bike", "swim", "other"):
+            items = [a for a in week if a["sport"] == sport]
+            if items:
+                row[sport] = {"sessions": len(items), "km": round(sum(a["distance_km"] for a in items), 1),
+                              "hours": round(sum(a["duration_min"] for a in items) / 60, 1)}
+        out.append(row)
+    return out
+
+
 def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict, proposal: list[Session],
                   planned: list[Session], notes: list[dict], acts: list[dict], rule_notes: list[str],
                   rule_why: str, earlier_notes: list[dict] | None = None,
@@ -117,7 +137,7 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
               "training_status", "acwr", "steps_today", "after_training", "last_sync")
     recent = [{k: a.get(k) for k in ("date", "sport", "name", "distance_km", "duration_min", "avg_hr",
                                      "aerobic_te", "anaerobic_te")}
-              for a in acts if a["date"] >= (d - dt.timedelta(days=14)).isoformat()]
+              for a in acts if a["date"] < d.isoformat()]
     return {
         "today": d.isoformat(), "weekday": d.strftime("%A"),
         "phase": phase.describe(),
@@ -132,7 +152,8 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
         "yesterday_vs_plan": {k: (ctx.get("compliance") or {}).get(k)
                               for k in ("run_planned", "run_done", "missed", "done_titles", "extra_intensity")},
         "done_today_so_far": ctx.get("today_acts"),
-        "activities_last_14_days": recent,
+        "activities_last_6_weeks": recent,
+        "weekly_summary": weekly_summary(acts, d),
         "originally_planned_today": [_session_json(s) for s in planned],
         "rule_proposal_today": [_session_json(s) for s in proposal],
         "rule_adjustments": rule_notes,

@@ -4,3 +4,4 @@ logs/
 reports/
 config.yaml.bak
 *.pyc
+data/state.json

@@ -279,15 +279,14 @@ ai:
 
 # Your own notes on how you feel, read from Todoist: anything added to this
 # project in the last `lookback_hours`, including notes already marked done.
-# Notes the AI coach uses are marked done (never deleted). Needs
-# TODOIST_API_TOKEN (see README).
+# Notes the AI coach uses get the `diary_label` label and are marked done
+# (never deleted); the coach reads the last 6 weeks of them back as your
+# training diary. Needs TODOIST_API_TOKEN (see README).
 todoist:
   enabled: {str(answers.get('todoist_enabled', True)).lower()}
   project: {_yaml_str(answers.get('todoist_project', 'Inbox'))}
   lookback_hours: {answers.get('todoist_lookback_hours', 12)}
-  # Notes the coach used are kept as a training diary, and the AI also sees
-  # the last `history_days` of it to learn how you respond to training.
-  history_days: {answers.get('todoist_history_days', 28)}
+  diary_label: {_yaml_str(answers.get('todoist_diary_label', 'coach'))}
 """
 
 
@@ -311,7 +310,7 @@ def _fmt_pace(min_per_km: float) -> str:
 
 
 def suggest_from_activities(acts: list[dict], tz: str | None = None) -> dict:
-    """Proposes setup answers from ~12 weeks of normalized Garmin activities."""
+    """Proposes setup answers from the lookback window (6 weeks) of normalized Garmin activities."""
     from collections import Counter
     from statistics import median
 
@@ -383,7 +382,7 @@ def suggest_from_activities(acts: list[dict], tz: str | None = None) -> dict:
 
 
 def detect_from_garmin(root: Path) -> dict:
-    """Reads the last 12 weeks from Garmin, if you've already logged in."""
+    """Reads the last 6 weeks from Garmin (the coach's lookback window), if you've already logged in."""
     try:
         import yaml
         from . import garmin_api as G
@@ -393,10 +392,11 @@ def detect_from_garmin(root: Path) -> dict:
         if not (token_dir / "garmin_tokens.json").exists():
             print("Tip: run `python -m coach login` first and the setup will propose settings from your Garmin data.\n")
             return {}
-        print("Reading your last 12 weeks from Garmin…")
+        print("Reading your last 6 weeks from Garmin…")
         api = G.connect(str(token_dir))
         today = dt.date.today()
-        acts = G.fetch_activities(api, today - dt.timedelta(weeks=12), today)
+        from .planner import history_start
+        acts = G.fetch_activities(api, history_start(today), today)
         return suggest_from_activities(acts, G.fetch_profile_time_zone(api))
     except (Exception, SystemExit) as e:  # noqa: BLE001 — suggestions are optional
         print(f"Couldn't read Garmin data ({e}); continuing with default settings.\n")
@@ -520,7 +520,7 @@ def existing_setup(cfg: dict, workflow: str) -> dict:
                      "todoist_enabled": (cfg.get("todoist") or {}).get("enabled", True),
                      "todoist_project": (cfg.get("todoist") or {}).get("project", "Inbox"),
                      "todoist_lookback_hours": (cfg.get("todoist") or {}).get("lookback_hours", 12),
-                     "todoist_history_days": (cfg.get("todoist") or {}).get("history_days", 28)}
+                     "todoist_diary_label": (cfg.get("todoist") or {}).get("diary_label", "coach")}
     return out
 
 
@@ -635,7 +635,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
     print("\nGarmin Coach setup\n")
     sug = detect_from_garmin(root) if suggestions is None else suggestions
     if sug.get("found"):
-        print("Found in your last 12 weeks: " + "; ".join(sug["found"]) + ".\n")
+        print("Found in your last 6 weeks: " + "; ".join(sug["found"]) + ".\n")
     garmin = {
         "sport": sug.get("sport", "run"),
         "run_days": sug.get("run_days", 3),
@@ -674,7 +674,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
                "until": extras.get("until", "10:00"), "prefix": extras.get("prefix", "Coach"),
                **{k: extras[k] for k in ("ai_enabled", "ai_provider", "openai_model", "anthropic_model",
                                          "todoist_enabled", "todoist_project",
-                                         "todoist_lookback_hours", "todoist_history_days") if k in extras},
+                                         "todoist_lookback_hours", "todoist_diary_label") if k in extras},
                "templates": build_templates(st["sport"], st["run_days"], long_idx, rest_idx),
                "peaks": peaks_for(st["sport"], st["run_days"])}
 

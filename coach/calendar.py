@@ -29,10 +29,10 @@ NO_SLEEP = "Planned without last night's sleep data."
 def fit(body: str, footer: str) -> str:
     """The description, with the body shortened if needed so the footer (which
     the coach reads back) always fits Garmin's limit."""
-    room = MAX_DESCRIPTION - len(footer) - 2
+    room = MAX_DESCRIPTION - (len(footer) + 2 if footer else 0)
     if len(body) > room:
         body = body[:room - 1].rstrip() + "…"
-    return f"{body}\n\n{footer}"
+    return f"{body}\n\n{footer}" if footer else body
 
 
 def footer(phase_text: str, planned_at: dt.datetime, sleep_ready: bool) -> str:
@@ -103,7 +103,9 @@ class Calendar:
 
     def __init__(self, api, cfg: dict):
         self.api = api
-        self.prefix = (cfg.get("garmin") or {}).get("workout_prefix", "Coach") + " ·"
+        base = (cfg.get("garmin") or {}).get("workout_prefix", "Coach")
+        self.prefix = base + " ·"
+        self.draft_prefix = base + " draft ·"
         self._months: dict[tuple[int, int], list[dict]] = {}
         self._details: dict[str, tuple[dict, float | None]] = {}
 
@@ -131,20 +133,22 @@ class Calendar:
                 self._details[key] = ({}, None)
         return self._details[key]
 
-    def plan(self, day: dt.date) -> list[dict]:
-        """[{name, workoutId, scheduleId, meta, session}] for the coach's workouts on `day`."""
+    def plan(self, day: dt.date, draft: bool = False) -> list[dict]:
+        """[{name, workoutId, scheduleId, meta, session}] for the coach's workouts on `day`
+        (its drafts for the days ahead with `draft`)."""
+        prefix = self.draft_prefix if draft else self.prefix
         out = []
         for item in self._month(day.year, day.month):
             title = str(item.get("title") or "")
-            if str(item.get("date") or "")[:10] != day.isoformat() or not title.startswith(self.prefix):
+            if str(item.get("date") or "")[:10] != day.isoformat() or not title.startswith(prefix):
                 continue
             wid = item.get("workoutId") or find_key(item, "workoutId")
-            meta, km = self._detail(wid) if wid else ({}, None)
+            meta, km = self._detail(wid) if (wid and not draft) else ({}, None)
             out.append({
                 "name": title, "workoutId": wid,
                 "scheduleId": item.get("id") or find_key(item, "workoutScheduleId"),
                 "meta": meta,
-                "session": session_from(title[len(self.prefix):].strip(), meta, km),
+                "session": session_from(title[len(prefix):].strip(), meta, km),
             })
         return out
 

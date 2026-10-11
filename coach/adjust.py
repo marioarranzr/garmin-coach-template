@@ -13,14 +13,16 @@ def adjust(planned: list[Session], r: dict, ctx: dict, phase: Phase, tomorrow: l
     if any(s.kind == "race" for s in planned):
         return planned, ["Race day: the plan stays as it is. Good luck!"]
 
-    # ── 1. Move a quality session you skipped yesterday? ────────────────────
+    # ── 1. Move a quality session you skipped (yesterday or earlier this week)? ──
     tomorrow_hard = any(s.kind in ("run_quality", "run_long") for s in tomorrow)
-    if (comp.get("missed_quality") and level == "green" and not tomorrow_hard
+    owed = comp.get("missed_quality") or ctx.get("quality_owed")
+    if (owed and level == "green" and not tomorrow_hard and not ctx.get("hard_yesterday")
             and any(s.kind in ("run_easy", "run_strides") for s in planned)):
         q_km = ctx.get("dist", {}).get("quality", 8)
         planned = [make_run("run_quality", q_km, phase, ctx.get("week_idx", 0))
                    if s.kind in ("run_easy", "run_strides") else s for s in planned]
-        notes.append("You skipped yesterday's quality session and you're recovered today: "
+        when = "yesterday's" if comp.get("missed_quality") else "this week's"
+        notes.append(f"You skipped {when} quality session and you're recovered today: "
                      "it moves to today (the easy run is dropped).")
     elif comp.get("missed_long"):
         notes.append("You skipped yesterday's long run. Not making it up: better to lose one than pile up fatigue.")

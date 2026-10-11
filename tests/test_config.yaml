@@ -75,3 +75,4 @@ garmin:
   tokenstore: ~/.garminconnect
   upload: true
   workout_prefix: "Coach"
+  preview_days: 0          # the draft tests turn it on

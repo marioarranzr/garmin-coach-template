@@ -93,7 +93,8 @@ read back each run:
   footer "Planned 07:42" when it was planned (a Todoist note added after that
   is new and triggers a re-plan). That's how it knows yesterday's plan, this
   week's plan so far, which workout to replace on a re-run, and whether today
-  is already planned. A day the coach left empty while it was running counts as a rest
+  is already planned. Drafts ("Coach draft · …") are only the days ahead;
+  if the coach never ran on a day, that day's draft stands in for the plan. A day the coach left empty while it was running counts as a rest
   day.
 - **Your training diary:** Todoist. Notes the coach used are labelled
   `coach` and completed, so they're in your completed tasks.
@@ -174,8 +175,9 @@ session.
 **Checks against what you actually did:**
 - Ran more than planned yesterday? Today's run is shortened.
 - Went hard on an easy day? No quality today.
-- Skipped yesterday's intervals and you're recovered today? They move to today,
-  unless the long run is tomorrow.
+- Skipped this week's intervals (yesterday or earlier) and you're recovered
+  today? They move to today's easy run, unless yesterday was hard or the long
+  run is tomorrow.
 - Skipped the long run? It isn't made up: better to lose one than pile up fatigue.
 - Ahead of this week's running volume? Today's run is cut by 15 %.
 - A heavy last 4 days across all sports? Even with good morning numbers, the
@@ -185,6 +187,27 @@ session.
   done isn't added again, and after a substantial ride or swim (45'+, 25 km
   ride, 1.5 km swim, or a hard effort) today's run stays easy.
 - Skipping swims? The next swim is marked as a priority.
+
+**The week as a whole.** Each morning the coach also checks this week's key
+sessions (long run, quality run, swims, long ride, bike intervals) against
+what you've done since Monday, so a session done on another day isn't
+repeated:
+- Did the long run on Saturday instead of Sunday? Sunday becomes a shorter
+  easy run, and Saturday counts as the week's long run (not as "ran more than
+  planned").
+- Already swum as many times as planned this week? A later swim is dropped.
+- Already done this week's hard run or hard rides? A later quality session
+  becomes easy.
+- A run on a day the coach planned intervals counts as this week's quality
+  session, even if Garmin's Training Effect stayed moderate.
+
+**The days ahead.** Every run also drafts the next 6 days in your Garmin
+calendar as "Coach draft · …" workouts (`preview_days`), using the same rules
+as if you follow the plan. So the week shows what's coming, and it already
+reflects what you've done (after an early long run, Sunday's draft is an easy
+run). Each morning today's draft is replaced by the real workout and the
+drafts are redrawn. The run report and the notification list the next days
+too.
 
 ## AI coach and your notes
 
@@ -444,7 +467,8 @@ workflow file, and keys in GitHub secrets.
 | `min_weekly_bike_hours` / `peak_weekly_bike_hours` | 3 / 9-12 | Riding hours range in cycling blocks |
 | `weekly_templates` | from setup | Sessions per weekday for `run_focus`, `triathlon` and `cycling` blocks |
 | `garmin.wait_for_sleep_until` | `"10:00"` | Plans without sleep data at this time at the latest |
-| `garmin.workout_prefix` | `"Coach"` | Name prefix of the workouts in Garmin |
+| `garmin.workout_prefix` | `"Coach"` | Name prefix of the workouts in Garmin (drafts get `<prefix> draft`) |
+| `garmin.preview_days` | 6 | Days ahead drafted in your Garmin calendar; 0 turns drafts off |
 | `garmin.upload` | `true` | `false` = analysis only, never upload |
 | `garmin.tokenstore` | `~/.garminconnect` | Where `login` saves your session on your computer |
 | `ai.enabled` | `true` | Use the AI coach if a key is set |

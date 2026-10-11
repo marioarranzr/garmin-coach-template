@@ -98,11 +98,16 @@ def main(argv=None):
               f"(4-week average: {wt['chronic_km']} km)\n")
         if wt.get("return_mode"):
             print("Return-to-running mode: easy runs only, volume grows ~20 %/week.\n")
-        for i in range(7):
-            day = d + dt.timedelta(days=i)
-            _, sess = plan_day(day, cfg, wt)
-            print(f"{day:%a %d/%m}: " + " + ".join(s.title for s in sess))
-        print("\n(Base plan: each morning it is adjusted to your recovery.)")
+        from . import week as W
+        from .planner import week_parts
+        phase, today = plan_day(d, cfg, wt)
+        _, tpl, dist, bdist = week_parts(d, cfg, wt)
+        led = W.ledger(acts, d, tpl, dist, bdist, quality_ok=not wt.get("return_mode") and phase.name != "transition")
+        today, notes, _ = W.apply(today, led, phase, dist)
+        days = [(d, phase, today, notes)] + W.drafts(d, cfg, acts, today, 6)
+        for day, _, sess, notes in days:
+            print(f"{day:%a %d/%m}: " + " + ".join(s.title for s in sess) + (f"  ({notes[0]})" if notes else ""))
+        print("\n(Each morning the day is adjusted to your recovery, and the rest of the week to what you did.)")
 
 
 if __name__ == "__main__":

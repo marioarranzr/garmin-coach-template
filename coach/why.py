@@ -44,13 +44,28 @@ def recovery_causes(w: dict, r: dict, ctx: dict) -> list[str]:
     return out
 
 
+def substantial(a: dict) -> bool:
+    """A session that matters for the rest of the day: 45'+, a decent distance, or a hard effort."""
+    if a["sport"] not in SPORT_WORD:
+        return False
+    far = {"bike": 25, "run": 8, "swim": 1.5}[a["sport"]]
+    return (a["duration_min"] >= 45 or (a.get("distance_km") or 0) >= far
+            or (a.get("aerobic_te") or 0) >= 2.5)
+
+
+def _biggest_substantial(acts: list[dict]) -> dict | None:
+    done = [a for a in acts if substantial(a)]
+    return max(done, key=lambda a: a["duration_min"]) if done else None
+
+
 def _big(acts: list[dict]) -> dict | None:
     big = [a for a in acts if a["sport"] in SPORT_WORD and (a["duration_min"] >= 90 or (a.get("aerobic_te") or 0) >= 3.5)]
     return max(big, key=lambda a: a["duration_min"]) if big else None
 
 
 def _act_phrase(a: dict) -> str:
-    dist = f"{a['distance_km']:g} km " if a.get("distance_km") else ""
+    km = a.get("distance_km") or 0
+    dist = f"{round(km)} km " if km >= 10 else (f"{km:g} km " if km else "")
     return f"{dist}{SPORT_WORD[a['sport']]}".strip()
 
 
@@ -59,7 +74,7 @@ def why_line(final: list, planned: list, r: dict, w: dict, ctx: dict, wt: dict, 
         return "Race day: trust the work you've done."
     causes = recovery_causes(w, r, ctx)
     level, score = r["level"], r["score"]
-    today = _big(ctx.get("today_acts") or [])
+    today = _biggest_substantial(ctx.get("today_acts") or [])
     yday = _big(ctx.get("yesterday_acts") or [])
 
     if not final and planned:

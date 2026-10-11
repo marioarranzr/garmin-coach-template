@@ -13,7 +13,7 @@ from .planner import (Session, compute_week_target, key_day, key_session, learn_
                       phase_for, plan_day,
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
 from .readiness import compliance, compute, consecutive_days, own_acwr
-from .why import why_line
+from .why import substantial, why_line
 from .workouts import to_garmin
 
 log = logging.getLogger(__name__)
@@ -194,8 +194,7 @@ def account_for_today(final: list[Session], done_today: list[dict], phase, notes
                          f"so “{s.title}” isn't added to your calendar.")
             continue
         kept.append(s)
-    big = [a for a in done_today if a["sport"] in ("bike", "swim", "run")
-           and (a["duration_min"] >= 60 or (a.get("aerobic_te") or 0) >= 3.0)]
+    big = [a for a in done_today if substantial(a)]
     out = []
     for s in kept:
         other = [a for a in big if a["sport"] != s.sport]
@@ -238,10 +237,10 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
     if wt.get("return_mode"):
         L.insert(-1, "**Return-to-running mode:** volume grows ~20 %/week from 10 km and there are "
                      "no hard sessions until you average 10+ km/week.  ")
-    L += ["",
+    L += [
          f"## Readiness: {r['score']}/100 — {r['label']}", ""]
     for k, v in r["components"].items():
-        L.append(f"- {k}: {v['value']} → {v['score']}/100")
+        L.append(f"- {k}: {v['value']} (scores {v['score']}/100)")
     if ctx.get("acwr_own"):
         L.append(f"- Acute/chronic load (computed): {ctx['acwr_own']}")
     if w.get("training_status"):
@@ -255,6 +254,10 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
         L.append(f"- Skipped: {', '.join(comp['missed'])}")
 
     L += ["", "## Today"]
+    if ctx.get("today_acts"):
+        L.append("- Done today so far: " + ", ".join(
+            f"{a['name']} ({round(a['distance_km']) if a['distance_km'] >= 10 else a['distance_km']:g} km, "
+            f"{a['duration_min']:.0f}')" for a in ctx["today_acts"]))
     if [s.title for s in planned] != [s.title for s in final]:
         L.append(f"- Original plan: {' + '.join(s.title for s in planned)}")
     for s in final:

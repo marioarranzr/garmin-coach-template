@@ -2,10 +2,14 @@
 
 [![Tests](https://github.com/marioarranzr/garmin-coach-template/actions/workflows/tests.yml/badge.svg)](https://github.com/marioarranzr/garmin-coach-template/actions/workflows/tests.yml)
 
-A self-adjusting running and triathlon coach for Garmin users. Every morning it
+A self-adjusting training coach for Garmin users, set up for **your** races and
+your week: running only, running with cycling, or triathlon. Every morning it
 reads your recovery data from Garmin Connect, decides what you should train
 today, and **puts the workout on your Garmin calendar** so it's on your watch,
 with structured steps and heart-rate zones.
+
+A guided setup reads your Garmin history and suggests the answers (what you
+train, run days, long-run day, easy pace…), so you only add your races.
 
 It runs for free on GitHub Actions in your own private repository: no server,
 no app, and your data never leaves your Garmin account and your repository.
@@ -17,14 +21,16 @@ normal range, Body Battery on waking, resting heart rate vs your 7-day average,
 yesterday's stress, Training Readiness, acute/chronic load and your activities
 from the last 5 weeks.
 
-**2. Builds a periodized plan** towards the races in `config.yaml`:
-base → specific → taper → recovery for each race, with 3 load weeks + 1 deload
-week and ~80 % easy / 20 % quality training. Supports 5K to marathon and
-sprint/olympic triathlon, with separate weekly templates for running and
-triathlon blocks. Running volume starts from what you **actually** ran in the
-last 4 weeks and grows ~8-10 % per week at most. If you've barely been running
-(e.g. a cycling block), a **return-to-running mode** starts low and keeps
-everything easy until your legs adapt.
+**2. Builds a periodized plan** towards your races (5K to marathon, sprint or
+olympic triathlon) around your own weekly schedule: which days you run, ride,
+swim and rest. Cycling is used as cross-training in your week; cycling races
+aren't a goal type yet. Each race gets base → specific → taper → recovery,
+with 3 load weeks + 1 deload week and ~80 % easy / 20 % quality training, and
+the week switches to triathlon mode (more swims, bike intervals, bricks)
+before a triathlon. Running volume starts from what you **actually** ran in
+the last 4 weeks and grows ~8-10 % per week at most. If you've barely been
+running (e.g. a cycling block), a **return-to-running mode** starts low and
+keeps everything easy until your legs adapt.
 
 **3. Scores your readiness (0-100)** and adjusts the day:
 

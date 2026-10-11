@@ -167,7 +167,9 @@ With one, every day:
 (typed, dictated, or from a gadget) is passed to the AI if it was created in
 the last 12 hours, so a note from last night counts in the morning. The AI
 uses only notes about how you feel or your training. Those are then **marked
-done** in Todoist (never deleted). Unrelated notes ("buy milk") are left
+done** in Todoist (never deleted). If Todoist made a note recurring (e.g. it
+read part of the text as a date), its date is removed first, because
+completing a recurring task would only move it to its next date. Unrelated notes ("buy milk") are left
 alone. Notes already marked done in that window, by the coach or by you, are
 still passed as context, so a re-plan later in the day remembers them. Notes
 are only marked done on real runs, never on "Analyze only" test runs.

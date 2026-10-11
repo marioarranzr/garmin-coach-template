@@ -44,8 +44,9 @@ def _note(t, now: dt.datetime, done: bool) -> dict | None:
     if getattr(t, "description", None):
         text += " — " + t.description.strip()
     when = created.strftime("%H:%M") if created.date() == now.date() else created.strftime("%a %H:%M")
+    due = getattr(t, "due", None)
     return {"id": str(t.id), "time": when, "created": created.isoformat(timespec="minutes"),
-            "text": text[:500], "done": done}
+            "text": text[:500], "done": done, "recurring": bool(due and getattr(due, "is_recurring", False))}
 
 
 def recent_notes(cfg: dict, now: dt.datetime, api=None) -> list[dict]:
@@ -89,9 +90,14 @@ def recent_notes(cfg: dict, now: dt.datetime, api=None) -> list[dict]:
 todays_notes = recent_notes   # old name
 
 
-def complete_notes(ids: list[str], api=None) -> list[str]:
+def complete_notes(ids: list[str], api=None, recurring: set[str] | frozenset = frozenset()) -> list[str]:
     """Completes (not deletes) the notes the coach used, so they leave your Inbox
-    but stay in Todoist's completed history. Returns the ids completed."""
+    but stay in Todoist's completed history. Returns the ids completed.
+
+    Completing a *recurring* task in Todoist only moves it to its next date, so
+    for those the date is removed first. That's safe because only tasks created
+    in the last few hours are ever read as notes: a real routine created long
+    ago is never touched."""
     if not ids:
         return []
     token = os.environ.get(TOKEN_ENV)
@@ -104,6 +110,8 @@ def complete_notes(ids: list[str], api=None) -> list[str]:
             api = TodoistAPI(token)
         for task_id in ids:
             try:
+                if task_id in recurring:
+                    api.update_task(task_id, due_string="no date")
                 api.complete_task(task_id)
                 done.append(task_id)
             except Exception as e:  # noqa: BLE001

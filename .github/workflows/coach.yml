@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      TZ: Europe/Madrid     # your time zone, so "today" is your local date
+      TZ: Europe/Paris     # your time zone, so "today" is your local date
       GARMIN_TOKENS_KEY: ${{ secrets.GARMIN_TOKENS_KEY }}
     steps:
       # The coach commits your health data and your encrypted Garmin session,

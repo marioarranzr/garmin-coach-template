@@ -198,6 +198,36 @@ def test_return_to_running_mode():
     assert wt2["return_mode"] and 11.5 <= wt2["target_km"] <= 12.5
 
 
+def test_setup_wizard_writes_a_working_config():
+    """Scripted answers → config.yaml + workflow time zone, usable by the planner."""
+    import shutil
+    from coach import setup_wizard
+    future = (dt.date.today() + dt.timedelta(days=120)).isoformat()
+    later = (dt.date.today() + dt.timedelta(days=250)).isoformat()
+    answers = iter([
+        "3",                                   # triathlon
+        "City half", future, "3", "A",         # race 1: half marathon
+        "Lake sprint", later, "6", "",         # race 2: sprint tri, default priority A
+        "",                                    # done with races
+        "4", "sun", "mon", "5:30", "50", "America/New_York", "06:30",
+    ])
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        wf = root / ".github" / "workflows"
+        wf.mkdir(parents=True)
+        shutil.copy(Path(__file__).resolve().parent.parent / ".github" / "workflows" / "coach.yml", wf)
+        setup_wizard.run(root, ask=lambda prompt: next(answers))
+        cfg = yaml.safe_load((root / "config.yaml").read_text())
+        flow = (wf / "coach.yml").read_text()
+    assert [r["kind"] for r in cfg["races"]] == ["half", "tri_sprint"]
+    assert cfg["athlete"]["easy_pace_min_per_km"] == 5.5 and cfg["athlete"]["pool_length_m"] == 50
+    runs = [k for day in cfg["weekly_templates"]["run_focus"].values() for k in day if k.startswith("run_")]
+    assert len(runs) == 4
+    assert "TZ: America/New_York" in flow and '"30 11 * * *"' in flow
+    for i in range(0, 260, 5):   # the planner accepts it for the whole season
+        plan_day(dt.date.today() + dt.timedelta(days=i), cfg, 30)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

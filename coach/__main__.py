@@ -1,4 +1,5 @@
 """Usage:
+    python -m coach setup                 # guided setup: writes config.yaml
     python -m coach login                 # first time: saves your Garmin session tokens
     python -m coach run                   # today's workout → Garmin calendar
     python -m coach run --dry-run         # same, but uploads nothing
@@ -29,7 +30,7 @@ def load_cfg(path: str | None) -> dict:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="coach")
-    ap.add_argument("cmd", choices=["login", "run", "week", "semana", "export-tokens"])
+    ap.add_argument("cmd", choices=["setup", "login", "run", "week", "semana", "export-tokens"])
     ap.add_argument("--date", help="YYYY-MM-DD (default: today)")
     ap.add_argument("--dry-run", action="store_true", help="don't upload anything to Garmin")
     ap.add_argument("--config")
@@ -44,6 +45,13 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:  # noqa: BLE001
         pass
+    if a.cmd == "setup":
+        from .setup_wizard import run as setup
+        setup(ROOT)
+        return
+    cfg_file = Path(a.config) if a.config else ROOT / "config.yaml"
+    if not cfg_file.exists():
+        raise SystemExit("No config.yaml yet: run 'python -m coach setup' first.")
     cfg = load_cfg(a.config)
     tokens = cfg.get("garmin", {}).get("tokenstore", "~/.garminconnect")
     d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()

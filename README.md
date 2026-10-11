@@ -100,9 +100,15 @@ python3 -m venv .venv
 
 ### 2. Configure your plan
 
-Edit `config.yaml`: your races and dates, your weekly template (which days
-you run, ride, swim and rest) and your easy pace. In
-`.github/workflows/coach.yml`, set `TZ` and the `cron` time for your time zone.
+```bash
+.venv/bin/python -m coach setup
+```
+
+It asks what you train (running, running + cycling, or triathlon), your races
+and dates, how many days a week you want to run, your long-run and rest days,
+your easy pace and your time zone. Then it writes `config.yaml` and sets the
+time zone and daily time in `.github/workflows/coach.yml`. Run it again any
+time your goals change, or edit `config.yaml` by hand for finer control.
 
 ### 3. Log in to Garmin (once, on your computer)
 
@@ -120,7 +126,7 @@ it worked. Avoid logging in many times in a row.
 
 ```bash
 .venv/bin/python -m coach export-tokens
-git add config.yaml data/garmin_tokens.enc .github/workflows/coach.yml
+git add config.yaml data/garmin_tokens.enc .github/workflows/coach.yml   # your setup + session
 git commit -m "My plan and Garmin session"
 git push
 ```

@@ -123,9 +123,10 @@ ai:
   anthropic_model: claude-sonnet-5-5
 
 # Your own notes on how you feel, read from Todoist: anything added to this
-# project from `from_hour` this morning. Notes the AI coach uses are then
-# completed (not deleted). Needs TODOIST_API_TOKEN (see README).
+# project in the last `lookback_hours`, including notes already marked done.
+# Notes the AI coach uses are marked done (never deleted). Needs
+# TODOIST_API_TOKEN (see README).
 todoist:
   enabled: true
   project: Inbox
-  from_hour: 3
+  lookback_hours: 12

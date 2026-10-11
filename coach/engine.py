@@ -14,7 +14,7 @@ from .planner import (Session, compute_week_target, key_day, key_session, learn_
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
 from .readiness import compliance, compute, consecutive_days, own_acwr, recent_load
 from . import ai
-from .notes import complete_notes, todays_notes
+from .notes import complete_notes, recent_notes
 from .why import substantial, why_line
 from .workouts import to_garmin
 
@@ -61,8 +61,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     deadline = sleep_deadline(cfg)
     today_rec = state.data["days"].get(d.isoformat()) or {}
     # your own notes for today (Todoist); a new one after planning means re-plan
-    notes_today = todays_notes(cfg, now, api=notes_api)
-    new_notes = [n for n in notes_today if n["id"] not in set(today_rec.get("note_ids", []))]
+    notes_today = recent_notes(cfg, now, api=notes_api)          # last 12 h, open and done
+    open_notes = [n for n in notes_today if not n["done"]]
+    new_notes = [n for n in open_notes if n["id"] not in set(today_rec.get("note_ids", []))]
     if wait_for_sleep and today_rec.get("uploads") and today_rec.get("sleep_ready", True) and not new_notes:
         msg = f"Today's workout is already in your Garmin calendar ({', '.join(u['name'] for u in today_rec['uploads'])})."
         return {"status": "done", "report": msg + "\n"}
@@ -162,9 +163,12 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     # ── AI coach: final call within the rule-based limits ──
     coach = {"used": False, "configured": ai_client is not None or ai.enabled(cfg)}
     if coach["configured"] and final:
-        earlier = today_rec.get("notes_used_texts", [])
-        context = ai.build_context(d, phase, wt, wellness, r, ctx, final, planned, notes_today, acts, notes, why,
-                                   earlier)
+        # notes already marked done (by the coach earlier, or by you) are context, not new input
+        earlier = [{"time": n["time"], "text": n["text"]} for n in notes_today if n["done"]]
+        earlier += [e for e in today_rec.get("notes_used_texts", []) if e["text"] not in {x["text"] for x in earlier}]
+        context = ai.build_context(d, phase, wt, wellness, r, ctx, final, planned,
+                                   [{k: n[k] for k in ("id", "time", "text")} for n in open_notes],
+                                   acts, notes, why, earlier)
         coach.update(ai.decide(cfg, context, final, phase, week_index(d, cfg), client=ai_client,
                                prov=getattr(ai_client, "provider", None)))
         if coach.get("used"):
@@ -189,7 +193,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         uploads = prev
 
     # notes the coach used: complete them in Todoist (real runs only) and remember them for today
-    used = [n for n in notes_today if n["id"] in set(coach.get("notes_used") or [])]
+    used = [n for n in open_notes if n["id"] in set(coach.get("notes_used") or [])]
     if upload and used:
         completed = complete_notes([n["id"] for n in used], api=notes_api)
         coach["completed"] = completed
@@ -200,7 +204,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         "planned": [s.to_dict() for s in planned], "final": [s.to_dict() for s in final],
         "readiness": {k: r[k] for k in ("score", "level", "reasons")},
         "compliance_yesterday": comp, "uploads": uploads, "sleep_ready": sleep_ready, "why": why,
-        "note_ids": [n["id"] for n in notes_today],
+        "note_ids": [n["id"] for n in open_notes],
         "notes_used_texts": used_texts,
         "coach": {k: coach.get(k) for k in ("used", "decision", "coach_note", "notes_used", "error")},
     }
@@ -248,7 +252,8 @@ def coach_section(coach: dict, cfg: dict) -> list[str]:
     notes = coach.get("notes_today") or []
     if notes:
         used_ids = set(coach.get("notes_used") or [])
-        L.append("- Your notes today: " + "; ".join(f"“{n['text']}” ({n['time']})" for n in notes))
+        L.append("- Your notes (last 12 h): " + "; ".join(
+            f"“{n['text']}” ({n['time']}{', already done' if n.get('done') else ''})" for n in notes))
         if coach.get("used"):
             used = [n for n in notes if n["id"] in used_ids]
             L.append("- Taken into account: " + ("; ".join(f"“{n['text']}”" for n in used) if used

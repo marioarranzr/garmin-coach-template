@@ -1,8 +1,8 @@
 """Your own notes on how you feel, read from your Todoist Inbox.
 
-Anything you add to the Inbox in the morning (by voice, from a gadget, or by
-hand) is passed to the AI coach. Only notes created since early this morning
-are read, and nothing in Todoist is changed.
+Notes added to your Inbox in the last 12 hours (by voice, from a gadget, or by
+hand) are passed to the AI coach, including ones already marked done. The
+notes the coach uses are then marked done (completed, never deleted).
 """
 from __future__ import annotations
 
@@ -27,8 +27,30 @@ def _as_local(value) -> dt.datetime | None:
     return value
 
 
-def todays_notes(cfg: dict, now: dt.datetime, api=None) -> list[dict]:
-    """Notes created today since `from_hour` (default 03:00) in the configured project."""
+def _find_project(api, wanted: str):
+    wanted = wanted.lower()
+    for page in api.get_projects():
+        for p in page:
+            if (wanted == "inbox" and getattr(p, "is_inbox_project", False)) or p.name.lower() == wanted:
+                return p.id
+    return None
+
+
+def _note(t, now: dt.datetime, done: bool) -> dict | None:
+    created = _as_local(getattr(t, "created_at", None))
+    if created is None:
+        return None
+    text = (t.content or "").strip()
+    if getattr(t, "description", None):
+        text += " — " + t.description.strip()
+    when = created.strftime("%H:%M") if created.date() == now.date() else created.strftime("%a %H:%M")
+    return {"id": str(t.id), "time": when, "created": created.isoformat(timespec="minutes"),
+            "text": text[:500], "done": done}
+
+
+def recent_notes(cfg: dict, now: dt.datetime, api=None) -> list[dict]:
+    """Notes created in the last `lookback_hours` (default 12) in the configured
+    project, both open ones and ones already marked done (by the coach or you)."""
     settings = cfg.get("todoist") or {}
     token = os.environ.get(TOKEN_ENV)
     if not settings.get("enabled", True) or (api is None and not token):
@@ -37,33 +59,34 @@ def todays_notes(cfg: dict, now: dt.datetime, api=None) -> list[dict]:
         if api is None:
             from todoist_api_python.api import TodoistAPI
             api = TodoistAPI(token)
-        wanted = str(settings.get("project", "Inbox")).lower()
-        project_id = None
-        for page in api.get_projects():
-            for p in page:
-                if (wanted == "inbox" and getattr(p, "is_inbox_project", False)) or p.name.lower() == wanted:
-                    project_id = p.id
-                    break
-            if project_id:
-                break
+        project_id = _find_project(api, str(settings.get("project", "Inbox")))
         if not project_id:
             log.warning("Todoist project %r not found", settings.get("project", "Inbox"))
             return []
-        since = now.replace(hour=int(settings.get("from_hour", 3)), minute=0, second=0, microsecond=0)
-        notes = []
-        for page in api.get_tasks(project_id=project_id):
-            for t in page:
-                created = _as_local(getattr(t, "created_at", None))
-                if created and since <= created <= now + dt.timedelta(minutes=5):
-                    text = (t.content or "").strip()
-                    if t.description:
-                        text += " — " + t.description.strip()
-                    notes.append({"id": str(t.id), "time": created.strftime("%H:%M"), "text": text[:500]})
-        notes.sort(key=lambda n: n["time"])
-        return notes[-10:]
+        since = now - dt.timedelta(hours=float(settings.get("lookback_hours", 12)))
+        until = now + dt.timedelta(minutes=5)
+
+        def recent(n):
+            return n and since <= dt.datetime.fromisoformat(n["created"]) <= until
+
+        notes = [n for page in api.get_tasks(project_id=project_id) for t in page
+                 if recent(n := _note(t, now, done=False))]
+        aware = lambda x: x.astimezone().astimezone(dt.timezone.utc)   # local → UTC for the API
+        try:
+            for page in api.get_completed_tasks_by_completion_date(since=aware(since), until=aware(until)):
+                for t in page:
+                    if str(getattr(t, "project_id", "")) == str(project_id) and recent(n := _note(t, now, done=True)):
+                        notes.append(n)
+        except Exception as e:  # noqa: BLE001 — open notes are still useful on their own
+            log.warning("Couldn't read completed Todoist notes: %s", e)
+        notes.sort(key=lambda n: n["created"])
+        return notes[-15:]
     except Exception as e:  # noqa: BLE001 — notes are optional
         log.warning("Couldn't read Todoist notes: %s", e)
         return []
+
+
+todays_notes = recent_notes   # old name
 
 
 def complete_notes(ids: list[str], api=None) -> list[str]:

@@ -232,6 +232,9 @@ min_weekly_run_km: 15
 # km/week of running, the plan starts at this volume, grows ~20 %/week up to
 # min_weekly_run_km, and replaces hard sessions with easy runs + strides.
 return_to_run_below_km: 10
+# The long run is never shorter than ~10 % above your longest run of the last
+# 6 weeks (outside taper and race weeks). Set a minimum here if you want one.
+min_long_run_km: 0
 
 # Weekly riding hours in a cycling block: grows ≈ +8 %/week from your last
 # 4 weeks, between these limits. Long rides build towards the event's duration.

@@ -217,7 +217,9 @@ def compute_week_target(activities: list[dict], d: dt.date, cfg: dict) -> dict:
         target = max(target, chronic * 0.75, floor)     # after a light week, don't drop off a cliff
     target = min(target, peak)
     target *= phase.volume_factor
-    out = {"target_km": round(target, 1), "chronic_km": round(chronic, 1),
+    longest = max((a["distance_km"] for a in activities if a["sport"] == "run"
+                   and a["date"] >= (mon - dt.timedelta(weeks=6)).isoformat()), default=0)
+    out = {"target_km": round(target, 1), "chronic_km": round(chronic, 1), "longest_run_km": round(longest, 1),
            "last_week_km": last, "phase": phase.name, "deload": phase.deload,
            "return_mode": return_mode}
     out.update(_bike_week(activities, mon, cfg, phase))
@@ -281,7 +283,8 @@ def bike_distribution(template: dict, wt: dict, phase: Phase) -> dict:
     return {"long": long_min, "quality": q_min, "easy": easy_min, "event_min": round(event_min)}
 
 
-def run_distribution(template: dict, week_km: float, phase: Phase, return_mode: bool = False) -> dict:
+def run_distribution(template: dict, week_km: float, phase: Phase, return_mode: bool = False,
+                     long_floor: float = 0) -> dict:
     kinds = [k for day in WEEKDAYS for k in template.get(day, [])]
     if return_mode:  # quality sessions become easy runs with strides
         kinds = ["run_strides" if k == "run_quality" else k for k in kinds]
@@ -293,6 +296,9 @@ def run_distribution(template: dict, week_km: float, phase: Phase, return_mode: 
     n_runs = n_easy + n_q + int(has_long)
     long_share = 0.40 if n_runs <= 3 else 0.30
     long_km = min(_round_half(week_km * long_share), phase.long_cap_km) if has_long else 0
+    if has_long and phase.name not in ("taper", "race_week", "transition"):
+        # never shorter than what your legs already handle (or your configured minimum)
+        long_km = max(long_km, min(long_floor, phase.long_cap_km))
     q_km = min(max(_round_half(week_km * 0.28 if n_runs <= 3 else week_km * 0.20), 6), 13) if n_q else 0
     brick_km = 3.0 if has_brick else 0
     rest_km = week_km - long_km - q_km * n_q - brick_km
@@ -490,7 +496,8 @@ def plan_day(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = Fals
     return_mode = return_mode or wt.get("return_mode", False)
     phase = phase_for(d, cfg)
     tpl = template_for(phase, cfg)
-    dist = run_distribution(tpl, wt["target_km"], phase, return_mode)
+    long_floor = max(float(cfg.get("min_long_run_km") or 0), _round_half(wt.get("longest_run_km", 0) * 1.1))
+    dist = run_distribution(tpl, wt["target_km"], phase, return_mode, long_floor)
     bdist = bike_distribution(tpl, wt, phase) if phase.focus == "bike" else None
     wk = week_index(d, cfg)
     sessions: list[Session] = []

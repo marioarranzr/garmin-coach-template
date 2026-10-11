@@ -24,7 +24,7 @@ def act(date, typ, km, mins, aero=2.5, anae=0.5, load=None):
 
 
 class FakeGarmin:
-    def __init__(self, today, good=True, extra_yesterday=0.0, swims=True, synced=True, steps=0):
+    def __init__(self, today, good=True, extra_yesterday=0.0, swims=True, synced=True, steps=0, today_acts=()):
         self.today = today
         self.good = good
         self.synced = synced          # False: last night's sleep hasn't reached Garmin yet
@@ -46,7 +46,7 @@ class FakeGarmin:
         if extra_yesterday:
             acts = [a for a in acts if not a["startTimeLocal"].startswith(y)]
             acts.append(act(y, "running", 6 + extra_yesterday, 70, aero=4.2, anae=2.8))
-        self.acts = acts
+        self.acts = acts + list(today_acts)
 
     def get_activities_by_date(self, s, e):
         return [a for a in self.acts if s <= a["startTimeLocal"][:10] <= e]
@@ -371,6 +371,40 @@ def test_scheduled_runs_wait_for_sleep_data():
         api = FakeGarmin(day, synced=False, steps=1800)
         res = engine.run_day(api, CFG, day, state_path=sp, wait_for_sleep=True, now=at(8))
         assert res["status"] == "planned" and api.uploaded and "recorded no sleep" in res["report"]
+
+
+def test_long_run_never_below_recent_longest_run():
+    """Return-to-running from a cycling block: a recent 6 km run sets the long-run floor."""
+    sunday = dt.date(2026, 10, 18)                       # base phase
+    wt = {"target_km": 10, "return_mode": True, "longest_run_km": 6.0}
+    long_run = next(s for s in plan_day(sunday, CFG, wt)[1] if s.kind == "run_long")
+    assert long_run.distance_km == 6.5                   # +10 % over 6 km, not 4 km
+    import copy
+    cfg = copy.deepcopy(CFG)
+    cfg["min_long_run_km"] = 8                           # athlete's own minimum
+    long_run = next(s for s in plan_day(sunday, cfg, wt)[1] if s.kind == "run_long")
+    assert long_run.distance_km == 8
+    # tapering still wins over the floor
+    taper_sunday = dt.date(2027, 4, 4)
+    taper_long = next(s for s in plan_day(taper_sunday, cfg, dict(wt, target_km=15))[1] if s.kind == "run_long")
+    assert taper_long.distance_km < 8
+
+
+def test_planning_later_in_the_day_counts_what_you_already_did():
+    """Sunday afternoon re-plan after a 30 km morning ride: the run stays, easy; a done run isn't re-added."""
+    sunday = dt.date(2026, 10, 18)
+    ride = act(sunday.isoformat(), "road_biking", 30, 75)
+    with tempfile.TemporaryDirectory() as tmp:
+        api = FakeGarmin(sunday, today_acts=[ride])
+        res = engine.run_day(api, CFG, sunday, state_path=Path(tmp) / "s.json")
+        runs = [s for s in res["final"] if s.sport == "run"]
+        assert runs and any("keep this run easy" in n for n in res["notes"])
+    run_done = act(sunday.isoformat(), "running", 9, 50)
+    with tempfile.TemporaryDirectory() as tmp:
+        api = FakeGarmin(sunday, today_acts=[run_done])
+        res = engine.run_day(api, CFG, sunday, state_path=Path(tmp) / "s.json")
+        assert not [s for s in res["final"] if s.sport == "run"] and not api.uploaded
+        assert "Already done today" in " ".join(res["notes"]) and "Nothing left for today" in res["report"]
 
 
 if __name__ == "__main__":

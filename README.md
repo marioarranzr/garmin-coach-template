@@ -51,6 +51,9 @@ your longest recent run (+10 %), or a minimum you set.
 - Skipped intervals but feel good today? They move to today (unless the long run is tomorrow).
 - Skipped the long run? It isn't made up: better to lose one than pile up fatigue.
 - Ahead of this week's volume? 15 % cut.
+- Trained a lot over the last 4 days, any sport (e.g. a big cycling block)?
+  Even if the morning numbers look fine, the long run is cut by 30 % and
+  hard sessions become easy, since tired legs absorb running impact worse.
 - Skipping swims? The next swim is flagged as a priority.
 - Doing your long run on a different day than planned? If your longest run
   falls on the same weekday in 3 of the last 4 weeks, the week moves so the

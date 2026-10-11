@@ -76,6 +76,24 @@ def adjust(planned: list[Session], r: dict, ctx: dict, phase: Phase, tomorrow: l
         out = [make_rest("Your body is asking for rest today.")]
         notes.append("Today's training is replaced with rest or mobility.")
 
+    # ── 2b. Heavy last few days (any sport) but green numbers: still go easier ──
+    if r.get("flags", {}).get("heavy_block") and level == "green":
+        load = ctx.get("recent_load") or {}
+        new = []
+        for s in out:
+            if s.kind == "run_long":
+                km = max(_round_half((s.distance_km or 8) * 0.7), 4)
+                notes.append(f"Long run cut to {km:g} km, easy: {load.get('hours', 0):g} h of training "
+                             "in the last 4 days is a lot for your legs, whatever the morning numbers say.")
+                s = make_run("run_long", km, phase)
+                s.steps = [st for st in s.steps if st.get("zone") != 3] or s.steps
+            elif s.kind in ("run_quality", "bike_quality", "swim_css"):
+                notes.append(f"{s.title} swapped for an easy session after a heavy few days.")
+                s = (make_run("run_easy", (s.distance_km or 8) * 0.8, phase) if s.sport == "run"
+                     else make_bike("bike_easy", phase, 60) if s.sport == "bike" else make_swim("swim_technique", phase))
+            new.append(s)
+        out = new
+
     # ── 3. Overdid it yesterday → shorten today's run ───────────────────────
     excess = comp.get("excess_km", 0)
     cut_applied = False

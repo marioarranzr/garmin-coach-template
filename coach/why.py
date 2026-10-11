@@ -35,6 +35,10 @@ def recovery_causes(w: dict, r: dict, ctx: dict) -> list[str]:
     if bb is not None and bb < 45:
         out.append(f"your Body Battery is down to {bb} after today's training" if after
                    else f"your Body Battery is low ({bb})")
+    load = ctx.get("recent_load") or {}
+    if flags.get("heavy_block"):
+        out.insert(0, f"you've trained {load.get('hours', 0):g} h in the last 4 days "
+                      f"(about {load.get('ratio', 0):g}× your usual)")
     acwr = w.get("acwr") or ctx.get("acwr_own")
     if acwr and acwr > 1.3:
         out.append("your training load has jumped recently")
@@ -88,6 +92,8 @@ def why_line(final: list, planned: list, r: dict, w: dict, ctx: dict, wt: dict, 
         return f"{lead} (readiness {score}): {_join(causes[:2]) or 'your recovery is below normal'}."
 
     # green: say why the session looks the way it does
+    if r.get("flags", {}).get("heavy_block"):
+        return f"Shorter and easier: {causes[0]}."
     if today and any(s.sport == "run" for s in final):
         return f"Keep it easy: you already did a {_act_phrase(today)} today."
     comp = ctx.get("compliance") or {}

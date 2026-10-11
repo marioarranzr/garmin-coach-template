@@ -543,6 +543,32 @@ def test_report_shows_watch_sync_and_warns_when_stale():
     assert "Your watch last synced 9 h ago" in res["report"]
 
 
+def test_heavy_multisport_block_shortens_the_long_run():
+    """4 days of big rides: even with green morning numbers, the long run is cut (min_long_run_km included)."""
+    import copy
+    sunday = dt.date(2026, 10, 18)
+    cfg = copy.deepcopy(CFG)
+    cfg["min_long_run_km"] = 8
+    api = FakeGarmin(sunday, today_acts=[act(sunday.isoformat(), "road_biking", 30, 57, aero=2.4)])
+    recent = {(sunday - dt.timedelta(days=k)).isoformat() for k in (1, 2, 3)}
+    api.acts = [a for a in api.acts if a["startTimeLocal"][:10] not in recent]
+    for k, km, mins in ((3, 50, 120), (2, 40, 90), (1, 92, 207)):
+        api.acts.append(act((sunday - dt.timedelta(days=k)).isoformat(), "road_biking", km, mins, aero=3.0))
+    with tempfile.TemporaryDirectory() as tmp:
+        res = engine.run_day(api, cfg, sunday, state_path=Path(tmp) / "s.json")
+    long_run = next(s for s in res["final"] if s.kind == "run_long")
+    assert long_run.distance_km <= 13 * 0.7 and any("Long run cut to" in n for n in res["notes"])
+    # a returning runner whose long run comes only from min_long_run_km (8 km) ends up below it
+    from coach.adjust import adjust
+    from coach.planner import make_run, phase_for
+    r = {"level": "green", "score": 74, "flags": {"heavy_block": True}}
+    out, _ = adjust([make_run("run_long", 8, phase_for(sunday, cfg))], r,
+                    {"recent_load": {"hours": 7.9, "ratio": 2.9}}, phase_for(sunday, cfg), [])
+    assert out[0].distance_km == 5.5
+    why = res["report"].splitlines()[2]
+    assert why.startswith("**Shorter and easier: you've trained") and "your usual" in why, why
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -797,6 +797,9 @@ def test_update_command_keeps_your_settings():
     import subprocess
     from coach.update import run as update
     root = Path(__file__).resolve().parent.parent
+    for k, v in (("GIT_AUTHOR_NAME", "t"), ("GIT_AUTHOR_EMAIL", "t@x"),      # CI machines have no git identity
+                 ("GIT_COMMITTER_NAME", "t"), ("GIT_COMMITTER_EMAIL", "t@x")):
+        os.environ.setdefault(k, v)
     git = lambda cwd, *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@x", *a],
                                          cwd=cwd, check=True, capture_output=True, text=True)
     with tempfile.TemporaryDirectory() as tmp:

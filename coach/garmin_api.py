@@ -163,7 +163,26 @@ def normalize_activity(a: dict) -> dict:
         "aerobic_te": a.get("aerobicTrainingEffect"),
         "anaerobic_te": a.get("anaerobicTrainingEffect"),
         "load": a.get("activityTrainingLoad"),
+        "pool_length_m": _pool_length_m(a),
     }
+
+
+def _pool_length_m(a: dict) -> float | None:
+    """Pool length of a pool swim in metres (Garmin stores it in cm or yard-hundredths)."""
+    length = a.get("poolLength")
+    if not length:
+        return None
+    unit = a.get("unitOfPoolLength") or {}
+    value = length / (unit.get("factor") or 100.0)
+    if "yard" in (unit.get("unitKey") or ""):
+        value *= 0.9144
+    return round(value, 1)
+
+
+def fetch_profile_time_zone(api) -> str | None:
+    settings = _safe(api.get_userprofile_settings, default={}) or {}
+    tz = find_key(settings, "timeZone") or find_key(settings, "timezone")
+    return tz if isinstance(tz, str) and "/" in tz else None
 
 
 def fetch_activities(api, start: dt.date, end: dt.date) -> list[dict]:

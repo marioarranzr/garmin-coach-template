@@ -278,9 +278,103 @@ def _guess_tz() -> str:
     return "UTC"
 
 
-def run(root: Path, ask=input) -> Path:
-    print("\nGarmin Coach setup. Press Enter to accept the [default].\n")
-    sport = SPORTS[_choice("What do you train?", SPORTS, "1", ask)][0]
+# ── suggestions from your Garmin history (pure function, tested) ────────────
+def _fmt_pace(min_per_km: float) -> str:
+    m = int(min_per_km)
+    s = round((min_per_km - m) * 60)
+    if s == 60:
+        m, s = m + 1, 0
+    return f"{m}:{s:02d}"
+
+
+def suggest_from_activities(acts: list[dict], tz: str | None = None) -> dict:
+    """Proposes setup answers from ~12 weeks of normalized Garmin activities."""
+    from collections import Counter
+    from statistics import median
+
+    sug: dict = {"found": []}
+    runs = [a for a in acts if a["sport"] == "run" and a["distance_km"] >= 1]
+    rides = [a for a in acts if a["sport"] == "bike"]
+    swims = [a for a in acts if a["sport"] == "swim"]
+    if not acts:
+        return sug
+
+    if len(swims) >= 2:
+        sug["sport"] = "3"
+    elif len(rides) >= 2:
+        sug["sport"] = "2"
+    else:
+        sug["sport"] = "1"
+    sug["found"].append(f"{len(runs)} runs, {len(rides)} rides, {len(swims)} swims in the last 12 weeks")
+
+    by_week: dict = {}
+    for a in runs:
+        d = dt.date.fromisoformat(a["date"])
+        by_week.setdefault(d.isocalendar()[:2], []).append((a, d))
+    if by_week:
+        per_week = median(len(v) for v in by_week.values())
+        sug["run_days"] = str(min(max(round(per_week), 3), 5))
+        longest = Counter(max(v, key=lambda x: x[0]["distance_km"])[1].weekday()
+                          for v in by_week.values() if len(v) >= 2)
+        if longest:
+            sug["long_day"] = DAYS[longest.most_common(1)[0][0]]
+            sug["found"].append(f"your longest run is usually on {DAY_NAMES[DAYS.index(sug['long_day'])]}")
+
+    if len(acts) >= 8:
+        busy = Counter(dt.date.fromisoformat(a["date"]).weekday() for a in acts)
+        long_idx = DAYS.index(sug.get("long_day", "sun"))
+        quiet = min((d for d in range(7) if d != long_idx), key=lambda d: (busy.get(d, 0), d))
+        sug["rest_day"] = DAYS[quiet]
+
+    easy = [a for a in runs if a["distance_km"] >= 3 and a["duration_min"] > 0
+            and (a.get("aerobic_te") is None or a["aerobic_te"] < 3.0)]
+    pool = easy or [a for a in runs if a["distance_km"] >= 3]
+    if pool:
+        pace = median(a["duration_min"] / a["distance_km"] for a in pool)
+        if not easy:
+            pace += 0.25          # all runs were hard-ish: easy pace is a bit slower
+        if 3 <= pace <= 12:
+            sug["pace"] = _fmt_pace(pace)
+            sug["found"].append(f"easy pace around {sug['pace']} /km from {len(pool)} runs")
+
+    lengths = [round(a["pool_length_m"]) for a in swims if a.get("pool_length_m")]
+    if lengths:
+        common = Counter(lengths).most_common(1)[0][0]
+        sug["pool"] = "50" if common >= 45 else "25"
+        sug["found"].append(f"you swim in a {sug['pool']} m pool")
+
+    if tz and tz in available_timezones():
+        sug["tz"] = tz
+    return sug
+
+
+def detect_from_garmin(root: Path) -> dict:
+    """Reads the last 12 weeks from Garmin, if you've already logged in."""
+    try:
+        import yaml
+        from . import garmin_api as G
+        cfg_file = root / "config.yaml"
+        cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) if cfg_file.exists() else {}
+        token_dir = Path((cfg.get("garmin") or {}).get("tokenstore", "~/.garminconnect")).expanduser()
+        if not (token_dir / "garmin_tokens.json").exists():
+            print("Tip: run `python -m coach login` first and the setup will suggest answers from your Garmin data.\n")
+            return {}
+        print("Reading your last 12 weeks from Garmin…")
+        api = G.connect(str(token_dir))
+        today = dt.date.today()
+        acts = G.fetch_activities(api, today - dt.timedelta(weeks=12), today)
+        return suggest_from_activities(acts, G.fetch_profile_time_zone(api))
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — suggestions are optional
+        print(f"Couldn't read Garmin data ({e}); continuing without suggestions.\n")
+        return {}
+
+
+def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
+    print("\nGarmin Coach setup. Press Enter to accept the [suggested] answer.\n")
+    sug = detect_from_garmin(root) if suggestions is None else suggestions
+    if sug.get("found"):
+        print("From your Garmin data: " + "; ".join(sug["found"]) + ".\n")
+    sport = SPORTS[_choice("What do you train?", SPORTS, sug.get("sport", "1"), ask)][0]
 
     races = []
     print("\nYour races, in any order. Leave the name empty when you're done.")
@@ -302,16 +396,19 @@ def run(root: Path, ask=input) -> Path:
                       "distance_km": dist if kind == "road" else None, "priority": prio})
 
     print()
-    run_days = int(_ask("How many days a week do you want to run? (3 is a safe start)", "3",
+    run_days = int(_ask("How many days a week do you want to run? (3 is a safe start)", sug.get("run_days", "3"),
                         lambda v: None if v in ("3", "4", "5") else "3, 4 or 5", ask))
-    long_day = _day_index(_ask("Long run day", "sun", _valid_day, ask))
-    rest_day = _day_index(_ask("Full rest day", "mon",
+    long_day = _day_index(_ask("Long run day", sug.get("long_day", "sun"), _valid_day, ask))
+    rest_default = sug.get("rest_day", "mon")
+    if _day_index(rest_default) == long_day:
+        rest_default = "mon" if long_day != 0 else "fri"
+    rest_day = _day_index(_ask("Full rest day", rest_default,
                                lambda v: _valid_day(v) or (None if _day_index(v) != long_day
                                                            else "Can't be the long run day"), ask))
-    pace = _pace_to_float(_ask("Easy pace, min:sec per km", "6:00", _valid_pace, ask))
-    pool = int(_ask("Pool length (m)", "25", lambda v: None if v in ("25", "50") else "25 or 50", ask)) \
+    pace = _pace_to_float(_ask("Easy pace, min:sec per km", sug.get("pace", "6:00"), _valid_pace, ask))
+    pool = int(_ask("Pool length (m)", sug.get("pool", "25"), lambda v: None if v in ("25", "50") else "25 or 50", ask)) \
         if sport == "tri" else 25
-    tz = _ask("Time zone", _guess_tz(), lambda v: None if v in available_timezones() else
+    tz = _ask("Time zone", sug.get("tz") or _guess_tz(), lambda v: None if v in available_timezones() else
               "Use an IANA name like Europe/Madrid or America/New_York", ask)
     wake = _ask("When should the daily workout be ready (HH:MM)?", "07:00",
                 lambda v: None if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", v) else "Use HH:MM", ask)

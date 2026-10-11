@@ -216,7 +216,7 @@ def test_setup_wizard_writes_a_working_config():
         wf = root / ".github" / "workflows"
         wf.mkdir(parents=True)
         shutil.copy(Path(__file__).resolve().parent.parent / ".github" / "workflows" / "coach.yml", wf)
-        setup_wizard.run(root, ask=lambda prompt: next(answers))
+        setup_wizard.run(root, ask=lambda prompt: next(answers), suggestions={})
         cfg = yaml.safe_load((root / "config.yaml").read_text())
         flow = (wf / "coach.yml").read_text()
     assert [r["kind"] for r in cfg["races"]] == ["half", "tri_sprint"]
@@ -226,6 +226,31 @@ def test_setup_wizard_writes_a_working_config():
     assert "TZ: America/New_York" in flow and '"30 11 * * *"' in flow
     for i in range(0, 260, 5):   # the planner accepts it for the whole season
         plan_day(dt.date.today() + dt.timedelta(days=i), cfg, 30)
+
+
+def test_setup_suggestions_from_garmin_history():
+    """12 weeks of runs, rides and pool swims → sensible suggested answers."""
+    from coach.garmin_api import normalize_activity
+    from coach.setup_wizard import suggest_from_activities
+    raw, start = [], dt.date(2026, 7, 20)  # a Monday
+    for w in range(12):
+        mon = start + dt.timedelta(weeks=w)
+        raw.append(act((mon + dt.timedelta(days=1)).isoformat(), "running", 8, 44, aero=2.6))    # Tue easy 5:30/km
+        raw.append(act((mon + dt.timedelta(days=3)).isoformat(), "running", 6, 27, aero=4.1))    # Thu hard
+        raw.append(act((mon + dt.timedelta(days=6)).isoformat(), "running", 14, 79, aero=2.9))   # Sun long
+        raw.append(act((mon + dt.timedelta(days=5)).isoformat(), "road_biking", 60, 150))
+        swim = act((mon + dt.timedelta(days=2)).isoformat(), "lap_swimming", 2, 45)
+        swim.update(poolLength=5000.0, unitOfPoolLength={"unitKey": "meter", "factor": 100.0})
+        raw.append(swim)
+    sug = suggest_from_activities([normalize_activity(a) for a in raw], "Europe/Zurich")
+    assert sug["sport"] == "3"            # swims + rides → triathlon
+    assert sug["run_days"] == "3"
+    assert sug["long_day"] == "sun"
+    assert sug["rest_day"] == "mon"       # the only day with nothing logged
+    assert sug["pace"] == "5:34"          # median of the easy runs (5:30 and 5:39/km); the hard run is excluded
+    assert sug["pool"] == "50"
+    assert sug["tz"] == "Europe/Zurich"
+    assert suggest_from_activities([], None) == {"found": []}
 
 
 if __name__ == "__main__":

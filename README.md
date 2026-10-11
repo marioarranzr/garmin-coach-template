@@ -98,29 +98,36 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt        # Windows: .venv\Scripts\pip install -r requirements.txt
 ```
 
-### 2. Configure your plan
-
-```bash
-.venv/bin/python -m coach setup
-```
-
-It asks what you train (running, running + cycling, or triathlon), your races
-and dates, how many days a week you want to run, your long-run and rest days,
-your easy pace and your time zone. Then it writes `config.yaml` and sets the
-time zone and daily time in `.github/workflows/coach.yml`. Run it again any
-time your goals change, or edit `config.yaml` by hand for finer control.
-
-### 3. Log in to Garmin (once, on your computer)
+### 2. Log in to Garmin (once, on your computer)
 
 ```bash
 .venv/bin/python -m coach login          # email, password and MFA code if asked
-.venv/bin/python -m coach week           # preview the next 7 days
-.venv/bin/python -m coach run --dry-run  # today's full analysis, uploads nothing
 ```
 
 Garmin usually blocks logins coming from servers, which is why this step runs
 on your computer. If you see `429` warnings but it ends with `✅ Logged in`,
 it worked. Avoid logging in many times in a row.
+
+### 3. Set up your plan
+
+```bash
+.venv/bin/python -m coach setup
+```
+
+It reads your last 12 weeks from Garmin and suggests the answers: what you
+train (running, running + cycling, or triathlon), how many days a week you
+run, your usual long-run and rest days, your easy pace, pool length and time
+zone. Press Enter to accept a suggestion or type your own. Then add your races
+(name, date and type). It writes `config.yaml` and sets the time zone and
+daily time in `.github/workflows/coach.yml`. Run it again whenever your goals
+change, or edit `config.yaml` by hand for finer control.
+
+Check the result with your real data:
+
+```bash
+.venv/bin/python -m coach week           # the next 7 days
+.venv/bin/python -m coach run --dry-run  # today's full analysis, uploads nothing
+```
 
 ### 4. Hand the session to GitHub
 
@@ -146,7 +153,7 @@ You can re-run it any time from the GitHub mobile app (e.g. after syncing your
 watch late): the day's earlier workout is replaced.
 
 **If a run fails with a session error** (Garmin sometimes expires sessions),
-repeat steps 3 and 4.
+repeat `login` (step 2) and step 4.
 
 ## Running it on your computer instead
 

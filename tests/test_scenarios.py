@@ -2,6 +2,7 @@
 Run:  python -m pytest -q tests   (or  python tests/test_scenarios.py)"""
 import datetime as dt
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -12,6 +13,10 @@ import yaml  # noqa: E402
 from coach import engine  # noqa: E402
 from coach.planner import plan_day, phase_for  # noqa: E402
 from coach.workouts import to_garmin  # noqa: E402
+
+# the tests never call the real Claude or Todoist APIs
+for _k in ("ANTHROPIC_API_KEY", "TODOIST_API_TOKEN"):
+    os.environ.pop(_k, None)
 
 CFG = yaml.safe_load((Path(__file__).resolve().parent / "test_config.yaml").read_text(encoding="utf-8"))
 
@@ -567,6 +572,114 @@ def test_heavy_multisport_block_shortens_the_long_run():
     assert out[0].distance_km == 5.5
     why = res["report"].splitlines()[2]
     assert why.startswith("**Shorter and easier: you've trained") and "your usual" in why, why
+
+
+# ── AI coach and Todoist notes (fakes, no network) ─────────────────────────
+class FakeTodoist:
+    def __init__(self, notes):              # notes: list of (hh:mm, text) for "today"
+        from types import SimpleNamespace as NS
+        self.day = None
+        self.notes = notes
+        self.NS = NS
+
+    def get_projects(self):
+        yield [self.NS(id="p1", name="Work", is_inbox_project=False),
+               self.NS(id="inbox", name="Inbox", is_inbox_project=True)]
+
+    def get_tasks(self, project_id=None):
+        assert project_id == "inbox"
+        yield [self.NS(id=f"t{i}", content=text, description="",
+                       created_at=dt.datetime.combine(self.day, dt.time(*map(int, hhmm.split(":")))))
+               for i, (hhmm, text) in enumerate(self.notes)]
+
+
+class FakeClaude:
+    def __init__(self, answer=None, fail=False):
+        from types import SimpleNamespace as NS
+        self.answer, self.fail, self.requests = answer, fail, []
+        self.messages = NS(create=self._create)
+
+    def _create(self, **kw):
+        from types import SimpleNamespace as NS
+        self.requests.append(kw)
+        if self.fail:
+            raise RuntimeError("overloaded")
+        return NS(content=[NS(type="text", text=json.dumps(self.answer))])
+
+
+def _ai_day(answer=None, notes=(), fail=False, now=None, state_path=None, wait=False, api=None):
+    day = dt.date(2026, 10, 18)                     # Sunday: long run planned
+    todo = FakeTodoist(list(notes))
+    todo.day = day
+    claude = FakeClaude(answer, fail)
+    api = api or FakeGarmin(day)
+    res = engine.run_day(api, CFG, day, state_path=state_path, notes_api=todo, ai_client=claude,
+                         now=now or dt.datetime.combine(day, dt.time(9)), wait_for_sleep=wait)
+    return res, claude, api
+
+
+def test_ai_coach_can_choose_rest_from_your_note():
+    answer = {"decision": "rest", "sessions": [{"kind": "rest", "distance_km": None, "minutes": None}],
+              "why": "Rest today: you mention knee pain, and running on it risks a longer layoff.",
+              "coach_note": "Ice it and see how it feels tomorrow; an easy swim is fine if it doesn't hurt.",
+              "notes_used": ["knee hurts a bit"]}
+    with tempfile.TemporaryDirectory() as tmp:
+        res, claude, api = _ai_day(answer, notes=[("07:40", "knee hurts a bit"), ("08:05", "buy milk")],
+                                   state_path=Path(tmp) / "s.json")
+    assert [s.kind for s in res["final"]] == ["rest"]
+    rep = res["report"]
+    assert rep.splitlines()[2] == "**Rest today: you mention knee pain, and running on it risks a longer layoff.**"
+    assert "Decided by the AI coach" in rep and "“knee hurts a bit” (07:40)" in rep and "Taken into account" in rep
+    sent = json.loads(claude.requests[0]["messages"][0]["content"].split("\n", 1)[1])
+    assert sent["athlete_notes_today"][0]["text"] == "knee hurts a bit"
+    assert sent["rule_proposal_today"] and sent["activities_last_14_days"]
+    assert api.uploaded[0]["description"].startswith("Rest today")
+
+
+def test_ai_coach_cannot_exceed_the_plan():
+    answer = {"decision": "adjust", "why": "Feeling strong, go long.", "coach_note": "", "notes_used": [],
+              "sessions": [{"kind": "run_long", "distance_km": 25, "minutes": None},
+                           {"kind": "bike_quality", "distance_km": None, "minutes": 90}]}
+    with tempfile.TemporaryDirectory() as tmp:
+        res, _, _ = _ai_day(answer, state_path=Path(tmp) / "s.json")
+    long_run = next(s for s in res["final"] if s.kind == "run_long")
+    assert long_run.distance_km <= 13                       # the rule proposal's long run
+    assert not any(s.kind == "bike_quality" for s in res["final"])
+    assert any("Safety limit" in n for n in res["notes"])
+
+
+def test_ai_failure_falls_back_to_rules():
+    with tempfile.TemporaryDirectory() as tmp:
+        res, _, api = _ai_day(fail=True, state_path=Path(tmp) / "s.json")
+    assert any(s.kind == "run_long" for s in res["final"]) and api.uploaded
+    assert "AI coach unavailable today (overloaded): rule-based plan used." in res["report"]
+
+
+def test_new_note_after_planning_triggers_replan():
+    answer = {"decision": "keep", "sessions": [{"kind": "run_long", "distance_km": 13, "minutes": None}],
+              "why": "As planned.", "coach_note": "", "notes_used": []}
+    with tempfile.TemporaryDirectory() as tmp:
+        sp = Path(tmp) / "s.json"
+        day = dt.date(2026, 10, 18)
+        at = lambda h: dt.datetime.combine(day, dt.time(h))
+        res, _, _ = _ai_day(answer, notes=[("07:40", "slept ok")], state_path=sp, wait=True, now=at(8))
+        assert res["status"] == "planned"
+        res, _, _ = _ai_day(answer, notes=[("07:40", "slept ok")], state_path=sp, wait=True, now=at(9))
+        assert res["status"] == "done"                      # nothing new
+        res, claude, _ = _ai_day(answer, notes=[("07:40", "slept ok"), ("09:20", "legs very heavy")],
+                                 state_path=sp, wait=True, now=at(10))
+        assert res["status"] == "planned"                   # new note → re-planned with it
+        assert "legs very heavy" in claude.requests[0]["messages"][0]["content"]
+
+
+def test_ai_never_adds_training_to_a_rest_day():
+    from coach import ai
+    from coach.planner import make_rest, phase_for
+    phase = phase_for(dt.date(2026, 10, 19), CFG)
+    out, _ = ai.apply_limits([{"kind": "bike_easy", "distance_km": None, "minutes": 45},
+                              {"kind": "swim_technique", "distance_km": None, "minutes": None}],
+                             [make_rest()], phase, 0)
+    assert [s.kind for s in out] == ["rest"]
 
 
 if __name__ == "__main__":

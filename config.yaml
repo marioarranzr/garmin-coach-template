@@ -80,3 +80,18 @@ garmin:
   # and your watch syncs). If the watch shows you're up but recorded no sleep,
   # or at this time at the latest, it plans without it.
   wait_for_sleep_until: "10:00"
+
+# AI coach: each day Claude makes the final call (keep, shorten, make easier
+# or rest) within the plan's safety limits, using all your data and notes.
+# Needs the ANTHROPIC_API_KEY secret (see README); without it the rule-based
+# plan is used.
+ai:
+  enabled: true
+  model: claude-sonnet-5-5
+
+# Your own notes on how you feel, read from Todoist: anything added to this
+# project from `from_hour` this morning. Needs TODOIST_API_TOKEN (see README).
+todoist:
+  enabled: true
+  project: Inbox
+  from_hour: 3

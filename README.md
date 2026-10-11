@@ -67,7 +67,20 @@ weekly targets are recomputed each time. The report shows when your watch
 last synced and warns you if it's been more than 2 hours, since anything
 after that sync isn't in Garmin yet.
 
-**5. Uploads the workout to Garmin**, starting with one short sentence on why
+**5. Lets an AI coach make the final call** (optional). Claude gets the whole
+picture (your Garmin data, the last two weeks of every sport, the plan and
+your own notes from that morning) and decides: keep the plan, shorten it,
+make it easier, swap it for an easy swim or spin, or rest. It can never add
+volume or intensity beyond the rule-based plan; that's enforced in code, and
+if the AI is unavailable the rule-based plan is used.
+
+**Your notes:** anything you add to your Todoist Inbox in the morning ("legs
+heavy", "knee sore", "slept badly"), typed, dictated or from a gadget, is
+passed to the AI coach. Unrelated notes are ignored and nothing in Todoist is
+changed. If you add a note after the day is planned, the next morning check
+re-plans with it.
+
+**6. Uploads the workout to Garmin**, starting with one short sentence on why
 today looks the way it does (e.g. *"Easier than planned (readiness 48): you
 slept 5.2 h and your Training Readiness is low (38)."*) and the details below it, and shows a daily report in the GitHub Actions run summary
 (local runs also save it in `reports/`, which git ignores).
@@ -108,6 +121,9 @@ logged in). That's why:
   computer to get a session token from Garmin.
 - The session token is encrypted with a key that only lives in your
   repository's GitHub secrets.
+- With the AI coach on, each day's data (Garmin metrics, recent activities,
+  the plan and your notes) is sent to the Claude API to make the call.
+  Leave `ANTHROPIC_API_KEY` unset to keep everything rule-based.
 
 ## Setup (about 10 minutes)
 
@@ -174,7 +190,23 @@ git push
 variables → Actions → New repository secret**, name it `GARMIN_TOKENS_KEY` and
 paste the key.
 
-### 5. Test it
+### 5. Optional: AI coach and your notes
+
+**AI coach.** Create an API key in the [Claude Console](https://console.anthropic.com)
+(Settings → API keys) and add it as the repository secret `ANTHROPIC_API_KEY`.
+It's pay-per-use: one call per day, a few thousand tokens. Set a monthly
+spending limit in the Console so there are no surprises. The model is set in
+`config.yaml` (`ai.model`).
+
+**Notes from Todoist.** Copy your API token from Todoist (Settings →
+Integrations → Developer) and add it as the secret `TODOIST_API_TOKEN`. The
+coach reads today's notes from the project in `config.yaml` (`todoist.project`,
+default `Inbox`).
+
+To use them when running on your computer, set the same names as
+environment variables (`export ANTHROPIC_API_KEY=...`).
+
+### 6. Test it
 
 **Actions → Daily workout → Run workflow**, tick *Analyze only*, and run it.
 The report appears in the run summary. From then on it runs on its own every
@@ -217,6 +249,8 @@ Zones) or do your watch's guided threshold test.
 | `coach/adjust.py` | Daily adjustment rules |
 | `coach/workouts.py` | Conversion to Garmin structured workouts |
 | `coach/engine.py` | Orchestrates the day and writes the report |
+| `coach/ai.py` | AI coach: final call within code-enforced limits |
+| `coach/notes.py` | Your morning notes from Todoist |
 | `tests/` | Offline tests with a fake Garmin (no account needed) |
 
 ```bash

@@ -266,6 +266,21 @@ garmin:
   # and your watch syncs). If the watch shows you're up but recorded no sleep,
   # or at this time at the latest, it plans without it.
   wait_for_sleep_until: "{answers.get('until', '10:00')}"
+
+# AI coach: each day Claude makes the final call (keep, shorten, make easier
+# or rest) within the plan's safety limits, using all your data and notes.
+# Needs the ANTHROPIC_API_KEY secret (see README); without it the rule-based
+# plan is used.
+ai:
+  enabled: {str(answers.get('ai_enabled', True)).lower()}
+  model: {answers.get('ai_model', 'claude-sonnet-5-5')}
+
+# Your own notes on how you feel, read from Todoist: anything added to this
+# project from `from_hour` this morning. Needs TODOIST_API_TOKEN (see README).
+todoist:
+  enabled: {str(answers.get('todoist_enabled', True)).lower()}
+  project: {_yaml_str(answers.get('todoist_project', 'Inbox'))}
+  from_hour: {answers.get('todoist_from_hour', 3)}
 """
 
 
@@ -489,7 +504,12 @@ def existing_setup(cfg: dict, workflow: str) -> dict:
     out["extras"] = {"min_long_run_km": float(cfg.get("min_long_run_km") or 0),
                      "until": str(g.get("wait_for_sleep_until", "10:00")),
                      "prefix": g.get("workout_prefix", "Coach"),
-                     "pool": ath.get("pool_length_m")}
+                     "pool": ath.get("pool_length_m"),
+                     "ai_enabled": (cfg.get("ai") or {}).get("enabled", True),
+                     "ai_model": (cfg.get("ai") or {}).get("model", "claude-sonnet-5-5"),
+                     "todoist_enabled": (cfg.get("todoist") or {}).get("enabled", True),
+                     "todoist_project": (cfg.get("todoist") or {}).get("project", "Inbox"),
+                     "todoist_from_hour": (cfg.get("todoist") or {}).get("from_hour", 3)}
     return out
 
 
@@ -641,6 +661,8 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
                "pool": sug.get("pool") or extras.get("pool") or 25,
                "min_long_run_km": extras.get("min_long_run_km", 0),
                "until": extras.get("until", "10:00"), "prefix": extras.get("prefix", "Coach"),
+               **{k: extras[k] for k in ("ai_enabled", "ai_model", "todoist_enabled", "todoist_project",
+                                         "todoist_from_hour") if k in extras},
                "templates": build_templates(st["sport"], st["run_days"], long_idx, rest_idx),
                "peaks": peaks_for(st["sport"], st["run_days"])}
 

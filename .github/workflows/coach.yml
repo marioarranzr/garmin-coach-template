@@ -28,6 +28,8 @@ jobs:
     env:
       TZ: Europe/Madrid     # your time zone, so "today" is your local date
       GARMIN_TOKENS_KEY: ${{ secrets.GARMIN_TOKENS_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}     # optional: AI coach
+      TODOIST_API_TOKEN: ${{ secrets.TODOIST_API_TOKEN }}     # optional: your notes
     steps:
       # The coach commits your health data and your encrypted Garmin session,
       # so it refuses to run in a public repository.

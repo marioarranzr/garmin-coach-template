@@ -13,6 +13,8 @@ from .planner import (Session, compute_week_target, key_day, key_session, learn_
                       phase_for, plan_day,
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
 from .readiness import compliance, compute, consecutive_days, own_acwr, recent_load
+from . import ai
+from .notes import todays_notes
 from .why import substantial, why_line
 from .workouts import to_garmin
 
@@ -49,7 +51,8 @@ def sleep_deadline(cfg: dict) -> dt.time:
 
 
 def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | None = None,
-            wait_for_sleep: bool = False, now: dt.datetime | None = None) -> dict:
+            wait_for_sleep: bool = False, now: dt.datetime | None = None,
+            notes_api=None, ai_client=None) -> dict:
     """Plans day `d`. With `wait_for_sleep` (scheduled runs), it does nothing if
     today is already planned, and waits (returns without planning) while last
     night's sleep hasn't reached Garmin yet, until the configured deadline."""
@@ -57,13 +60,16 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     now = now or dt.datetime.now()
     deadline = sleep_deadline(cfg)
     today_rec = state.data["days"].get(d.isoformat()) or {}
-    if wait_for_sleep and today_rec.get("uploads") and today_rec.get("sleep_ready", True):
+    # your own notes for today (Todoist); a new one after planning means re-plan
+    notes_today = todays_notes(cfg, now, api=notes_api)
+    new_notes = [n for n in notes_today if n["id"] not in set(today_rec.get("note_ids", []))]
+    if wait_for_sleep and today_rec.get("uploads") and today_rec.get("sleep_ready", True) and not new_notes:
         msg = f"Today's workout is already in your Garmin calendar ({', '.join(u['name'] for u in today_rec['uploads'])})."
         return {"status": "done", "report": msg + "\n"}
 
     wellness = G.fetch_wellness(api, d)
     sleep_ready = wellness.get("sleep_hours") is not None or wellness.get("sleep_score") is not None
-    if wait_for_sleep and today_rec.get("uploads") and not sleep_ready:
+    if wait_for_sleep and today_rec.get("uploads") and not sleep_ready and not new_notes:
         # planned at the deadline without sleep data, and it still hasn't arrived
         return {"status": "done", "report": "Today's workout is already in your Garmin calendar.\n"}
     # Steps today mean you're up and wearing the watch: if it still has no sleep
@@ -153,6 +159,16 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     final = account_for_today(final, ctx["today_acts"], phase, notes)
     why = why_line(final, planned, r, wellness, ctx, wt, phase)
 
+    # ── AI coach: final call within the rule-based limits ──
+    coach = {"used": False, "configured": ai_client is not None or ai.enabled(cfg)}
+    if coach["configured"] and final:
+        context = ai.build_context(d, phase, wt, wellness, r, ctx, final, planned, notes_today, acts, notes, why)
+        coach.update(ai.decide(cfg, context, final, phase, week_index(d, cfg), client=ai_client))
+        if coach.get("used"):
+            final, why = coach["sessions"], coach["why"] or why
+            notes += [f"Safety limit: {x}." for x in coach.get("limited", [])]
+    coach["notes_today"] = notes_today
+
     # ── Garmin ──
     prev = (state.data["days"].get(d.isoformat()) or {}).get("uploads", [])
     uploads = []
@@ -161,7 +177,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         for s in final:
             if not s.steps:
                 continue
-            desc = _workout_description(s, r, notes, phase, why)
+            desc = _workout_description(s, r, notes, phase, why, coach.get("coach_note", ""))
             try:
                 uploads.append(G.upload_and_schedule(api, to_garmin(s, cfg, desc), d.isoformat()))
             except Exception as e:  # noqa: BLE001
@@ -174,13 +190,16 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         "planned": [s.to_dict() for s in planned], "final": [s.to_dict() for s in final],
         "readiness": {k: r[k] for k in ("score", "level", "reasons")},
         "compliance_yesterday": comp, "uploads": uploads, "sleep_ready": sleep_ready, "why": why,
+        "note_ids": [n["id"] for n in notes_today],
+        "coach": {k: coach.get(k) for k in ("used", "decision", "coach_note", "notes_used", "error")},
     }
-    report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why)
+    report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why,
+                          coach, cfg)
     report += sync_note(wellness.get("last_sync"), now)
     if not sleep_ready:
-        why = ("your watch shows you're up but recorded no sleep last night (not worn, or another watch)"
-               if awake else "no sleep data from last night reached Garmin")
-        report += (f"\n> Planned without sleep data: {why}. Readiness uses Body Battery, resting HR "
+        no_sleep = ("your watch shows you're up but recorded no sleep last night (not worn, or another watch)"
+                    if awake else "no sleep data from last night reached Garmin")
+        report += (f"\n> Planned without sleep data: {no_sleep}. Readiness uses Body Battery, resting HR "
                    "and training load instead. If last night's sleep shows up later, press *Run workflow* "
                    "to re-plan with it.\n")
     if upload:  # a dry run only prints the report and leaves no files behind
@@ -203,6 +222,26 @@ def sync_note(last_sync: str | None, now: dt.datetime) -> str:
         line += (f"\n> ⚠️ Your watch last synced {hours:.0f} h ago, so anything since then (sleep, workouts, "
                  "Body Battery) isn't included. Sync it and press *Run workflow* to re-plan.\n")
     return line
+
+
+def coach_section(coach: dict, cfg: dict) -> list[str]:
+    L = ["", "## Coach"]
+    if coach.get("used"):
+        model = (cfg.get("ai") or {}).get("model", ai.DEFAULT_MODEL)
+        L.append(f"- Decided by the AI coach ({model}), within the plan's safety limits.")
+        if coach.get("coach_note"):
+            L.append(f"- {coach['coach_note']}")
+    elif coach.get("configured"):
+        L.append(f"- AI coach unavailable today ({coach.get('error', 'no answer')}): rule-based plan used.")
+    else:
+        L.append("- Rule-based plan (add an ANTHROPIC_API_KEY to let the AI coach make the final call).")
+    notes = coach.get("notes_today") or []
+    if notes:
+        used = coach.get("notes_used") or []
+        L.append("- Your notes today: " + "; ".join(f"“{n['text']}” ({n['time']})" for n in notes))
+        if coach.get("used"):
+            L.append("- Taken into account: " + ("; ".join(f"“{u}”" for u in used) if used else "none were about training"))
+    return L
 
 
 def account_for_today(final: list[Session], done_today: list[dict], phase, notes: list[str]) -> list[Session]:
@@ -235,8 +274,9 @@ def account_for_today(final: list[Session], done_today: list[dict], phase, notes
     return out
 
 
-def _workout_description(s: Session, r: dict, notes: list[str], phase, why: str = "") -> str:
-    parts = ([why] if why else []) + [s.detail, f"Readiness today: {r['score']}/100 – {r['label'][2:]}."]
+def _workout_description(s: Session, r: dict, notes: list[str], phase, why: str = "", coach_note: str = "") -> str:
+    parts = ([why] if why else []) + ([coach_note] if coach_note else []) + \
+            [s.detail, f"Readiness today: {r['score']}/100 – {r['label'][2:]}."]
     if r["reasons"]:
         parts.append("Details: " + " ".join(r["reasons"][:3]))
     if notes:
@@ -245,7 +285,8 @@ def _workout_description(s: Session, r: dict, notes: list[str], phase, why: str 
     return "\n".join(parts)
 
 
-def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, upload, why="") -> str:
+def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, upload, why="",
+                 coach: dict | None = None, cfg: dict | None = None) -> str:
     L = [f"# Training for {d.strftime('%A %d %b %Y')}", ""]
     if why:
         L += [f"**{why}**", ""]
@@ -292,6 +333,7 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
         L.append("- Nothing left for today: you've already done it. 🎉")
     if notes:
         L += ["", "**Coach adjustments:**"] + [f"- {n}" for n in notes]
+    L += coach_section(coach or {}, cfg or {})
     L += ["", "## Garmin"]
     if upload:
         L.append(f"- Added to calendar: {', '.join(u['name'] for u in uploads) or 'nothing'}")

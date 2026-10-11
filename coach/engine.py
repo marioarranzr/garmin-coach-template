@@ -36,10 +36,10 @@ def _week_key(d: dt.date) -> str:
 
 
 def week_target(state: State, acts, d, cfg) -> dict:
-    key = _week_key(d)
-    if key not in state.data["weeks"]:
-        state.data["weeks"][key] = compute_week_target(acts, d, cfg)
-    return state.data["weeks"][key]
+    """Recomputed on every run from the latest data and config (kept in the history for reference)."""
+    wt = compute_week_target(acts, d, cfg)
+    state.data["weeks"][_week_key(d)] = wt
+    return wt
 
 
 def sleep_deadline(cfg: dict) -> dt.time:
@@ -129,11 +129,17 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         "dist": run_distribution(template_for(phase, cfg), week_km, phase, ret),
         "week_idx": week_index(d, cfg),
     }
-    if ctx["today_acts"]:
-        # You've already trained today: judge readiness on how you are now, not on waking
-        wellness = dict(wellness, after_training=True,
-                        body_battery_wake=wellness.get("body_battery_now") or wellness.get("body_battery_wake"),
-                        training_readiness=wellness.get("training_readiness_now") or wellness.get("training_readiness"))
+    # Always judge readiness on the latest values Garmin has (first thing in the
+    # morning they're the waking values; later in the day, how you are now).
+    bb_now, tr_now = wellness.get("body_battery_now"), wellness.get("training_readiness_now")
+    current = dict(wellness, after_training=bool(ctx["today_acts"]))
+    if bb_now is not None:
+        current["bb_is_now"] = wellness.get("body_battery_wake") is not None and bb_now != wellness["body_battery_wake"]
+        current["body_battery_wake"] = bb_now
+    if tr_now is not None:
+        current["tr_is_now"] = wellness.get("training_readiness") is not None and tr_now != wellness["training_readiness"]
+        current["training_readiness"] = tr_now
+    wellness = current
     r = compute(wellness, ctx)
     final, notes = adjust(planned, r, ctx, phase, tomorrow)
     kind, sport = key_session(phase)
@@ -169,6 +175,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         "compliance_yesterday": comp, "uploads": uploads, "sleep_ready": sleep_ready, "why": why,
     }
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why)
+    report += sync_note(wellness.get("last_sync"), now)
     if not sleep_ready:
         why = ("your watch shows you're up but recorded no sleep last night (not worn, or another watch)"
                if awake else "no sleep data from last night reached Garmin")
@@ -183,6 +190,18 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         rep_dir.mkdir(exist_ok=True)
         (rep_dir / f"{d.isoformat()}.md").write_text(report, encoding="utf-8")
     return {"status": "planned", "report": report, "final": final, "readiness": r, "notes": notes}
+
+
+def sync_note(last_sync: str | None, now: dt.datetime) -> str:
+    if not last_sync:
+        return ""
+    synced = dt.datetime.fromisoformat(last_sync)
+    hours = (now - synced).total_seconds() / 3600
+    line = f"\n_Garmin data as of your watch's last sync: {synced:%a %H:%M}._\n"
+    if hours > 2:
+        line += (f"\n> ⚠️ Your watch last synced {hours:.0f} h ago, so anything since then (sleep, workouts, "
+                 "Body Battery) isn't included. Sync it and press *Run workflow* to re-plan.\n")
+    return line
 
 
 def account_for_today(final: list[Session], done_today: list[dict], phase, notes: list[str]) -> list[Session]:

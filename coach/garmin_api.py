@@ -245,6 +245,12 @@ def fetch_wellness(api, d: dt.date) -> dict:
     w["body_battery_wake"] = _body_battery_wake(bb) or stats.get("bodyBatteryHighestValue")
     w["body_battery_now"] = _body_battery_latest(bb) or stats.get("bodyBatteryMostRecentValue")
 
+    # when the watch last uploaded to Garmin Connect: everything is only as fresh as this
+    dev = _safe(api.get_device_last_used, default={}) or {}
+    ts = find_key(dev, "lastUsedDeviceUploadTime")
+    w["last_sync"] = (dt.datetime.fromtimestamp(ts / 1000).isoformat(timespec="minutes")
+                      if isinstance(ts, (int, float)) and ts > 0 else None)
+
     stats_y = _safe(api.get_stats, yday, default={}) or {}
     w["stress_yesterday"] = stats_y.get("averageStressLevel")
 

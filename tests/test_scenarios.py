@@ -25,12 +25,13 @@ def act(date, typ, km, mins, aero=2.5, anae=0.5, load=None):
 
 class FakeGarmin:
     def __init__(self, today, good=True, extra_yesterday=0.0, swims=True, synced=True, steps=0, today_acts=(),
-                 bb_now=None, tr_now=None):
+                 bb_now=None, tr_now=None, last_sync=None):
         self.today = today
         self.good = good
         self.synced = synced          # False: last night's sleep hasn't reached Garmin yet
         self.steps = steps            # steps so far today (you're up and wearing the watch)
         self.bb_now, self.tr_now = bb_now, tr_now   # later in the day, e.g. after a workout
+        self.last_sync = last_sync                  # datetime of the watch's last upload
         self.uploaded, self.scheduled, self.deleted = [], [], []
         acts = []
         for k in range(1, 36):
@@ -72,6 +73,11 @@ class FakeGarmin:
         v = 88 if self.good else 35
         values = [[1, v - 20], [2, v]] + ([[3, self.bb_now]] if self.bb_now is not None else [])
         return [{"bodyBatteryValuesArray": values}]
+
+    def get_device_last_used(self):
+        if not self.last_sync:
+            return {}
+        return {"lastUsedDeviceUploadTime": int(self.last_sync.timestamp() * 1000)}
 
     def get_training_readiness(self, d):
         morning = {"score": 82 if self.good else 22, "level": "HIGH" if self.good else "LOW",
@@ -514,10 +520,27 @@ def test_after_training_uses_current_body_battery_and_readiness():
     assert "Body Battery now: 40" in rep and "Training Readiness now: 35" in rep
     assert res["readiness"]["level"] != "green"
     assert "Body Battery" in rep.splitlines()[2] or "Training Readiness" in rep.splitlines()[2]
-    # in the morning, before training, the waking values are used
+    # first thing in the morning the latest values are the waking ones
     with tempfile.TemporaryDirectory() as tmp:
-        res = engine.run_day(FakeGarmin(sunday, bb_now=86, tr_now=80), CFG, sunday, state_path=Path(tmp) / "s.json")
+        res = engine.run_day(FakeGarmin(sunday), CFG, sunday, state_path=Path(tmp) / "s.json")
     assert "- Body Battery: 88" in res["report"] and "- Training Readiness: 82" in res["report"]
+    # later in the day without training: still the latest values
+    with tempfile.TemporaryDirectory() as tmp:
+        res = engine.run_day(FakeGarmin(sunday, bb_now=60, tr_now=70), CFG, sunday, state_path=Path(tmp) / "s.json")
+    assert "- Body Battery now: 60" in res["report"] and "- Training Readiness now: 70" in res["report"]
+
+
+def test_report_shows_watch_sync_and_warns_when_stale():
+    day = dt.date(2026, 10, 13)
+    now = dt.datetime.combine(day, dt.time(16, 0))
+    with tempfile.TemporaryDirectory() as tmp:
+        res = engine.run_day(FakeGarmin(day, last_sync=now - dt.timedelta(minutes=20)), CFG, day,
+                             state_path=Path(tmp) / "s.json", now=now)
+    assert "last sync: Tue 15:40" in res["report"] and "⚠️" not in res["report"]
+    with tempfile.TemporaryDirectory() as tmp:
+        res = engine.run_day(FakeGarmin(day, last_sync=now - dt.timedelta(hours=9)), CFG, day,
+                             state_path=Path(tmp) / "s.json", now=now)
+    assert "Your watch last synced 9 h ago" in res["report"]
 
 
 if __name__ == "__main__":

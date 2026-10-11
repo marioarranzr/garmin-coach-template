@@ -13,6 +13,7 @@ from .planner import (Session, compute_week_target, key_day, key_session, learn_
                       phase_for, plan_day,
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
 from .readiness import compliance, compute, consecutive_days, own_acwr
+from .why import why_line
 from .workouts import to_garmin
 
 log = logging.getLogger(__name__)
@@ -118,6 +119,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
 
     ctx = {
         "compliance": comp,
+        "yesterday_acts": y_done,
+        "today_acts": [a for a in acts if a["date"] == d.isoformat()],
         "acwr_own": own_acwr(past, d),
         "consecutive_days": consecutive_days(past, d),
         "week_over": week_over, "week_done": week_done, "week_planned_so_far": round(planned_so_far, 1),
@@ -135,7 +138,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
         notes.append(f"Your {what} has been on {names[now_day]} in most of the last 4 weeks, so the plan puts it "
                      f"there instead of {names[was]} (the rest of the week moves with it).")
-    final = account_for_today(final, [a for a in acts if a["date"] == d.isoformat()], phase, notes)
+    final = account_for_today(final, ctx["today_acts"], phase, notes)
+    why = why_line(final, planned, r, wellness, ctx, wt, phase)
 
     # ── Garmin ──
     prev = (state.data["days"].get(d.isoformat()) or {}).get("uploads", [])
@@ -145,7 +149,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         for s in final:
             if not s.steps:
                 continue
-            desc = _workout_description(s, r, notes, phase)
+            desc = _workout_description(s, r, notes, phase, why)
             try:
                 uploads.append(G.upload_and_schedule(api, to_garmin(s, cfg, desc), d.isoformat()))
             except Exception as e:  # noqa: BLE001
@@ -157,9 +161,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         "phase": phase.describe(), "week_target_km": week_km,
         "planned": [s.to_dict() for s in planned], "final": [s.to_dict() for s in final],
         "readiness": {k: r[k] for k in ("score", "level", "reasons")},
-        "compliance_yesterday": comp, "uploads": uploads, "sleep_ready": sleep_ready,
+        "compliance_yesterday": comp, "uploads": uploads, "sleep_ready": sleep_ready, "why": why,
     }
-    report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload)
+    report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why)
     if not sleep_ready:
         why = ("your watch shows you're up but recorded no sleep last night (not worn, or another watch)"
                if awake else "no sleep data from last night reached Garmin")
@@ -207,18 +211,21 @@ def account_for_today(final: list[Session], done_today: list[dict], phase, notes
     return out
 
 
-def _workout_description(s: Session, r: dict, notes: list[str], phase) -> str:
-    parts = [s.detail, f"Readiness today: {r['score']}/100 – {r['label'][2:]}."]
+def _workout_description(s: Session, r: dict, notes: list[str], phase, why: str = "") -> str:
+    parts = ([why] if why else []) + [s.detail, f"Readiness today: {r['score']}/100 – {r['label'][2:]}."]
     if r["reasons"]:
-        parts.append("Why: " + " ".join(r["reasons"][:3]))
+        parts.append("Details: " + " ".join(r["reasons"][:3]))
     if notes:
         parts.append("Changes: " + " ".join(notes[:3]))
     parts.append(f"Phase: {phase.describe()}.")
     return "\n".join(parts)
 
 
-def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, upload) -> str:
-    L = [f"# Training for {d.strftime('%A %d %b %Y')}", "",
+def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, upload, why="") -> str:
+    L = [f"# Training for {d.strftime('%A %d %b %Y')}", ""]
+    if why:
+        L += [f"**{why}**", ""]
+    L += [
          f"**Phase:** {phase.describe()}  ",
          f"**Weekly running target:** {wt['target_km']} km "
          f"(last 4 weeks average {wt['chronic_km']} km, last week {wt['last_week_km']} km)  ",
@@ -240,7 +247,7 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
     if w.get("training_status"):
         L.append(f"- Garmin training status: {w['training_status']}")
     if r["reasons"]:
-        L += ["", "**Why:**"] + [f"- {x}" for x in r["reasons"]]
+        L += ["", "**Details:**"] + [f"- {x}" for x in r["reasons"]]
 
     L += ["", "## Yesterday", f"- Planned: {comp['run_planned']} km running",
           f"- Done: {', '.join(comp['done_titles']) or 'nothing recorded'}"]

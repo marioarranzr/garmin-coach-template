@@ -58,14 +58,18 @@ your longest recent run (+10 %), or a minimum you set.
 - Re-planning later in the day? Sessions you've already done today aren't
   added again, and after a big ride or swim today's run stays easy.
 
-**5. Uploads the workout to Garmin** with the reasons for any change in its
-description, and shows a daily report in the GitHub Actions run summary
+**5. Uploads the workout to Garmin**, starting with one short sentence on why
+today looks the way it does (e.g. *"Easier than planned: you slept 5.2 h and
+your Training Readiness is low (38)."*) and the details below it, and shows a daily report in the GitHub Actions run summary
 (local runs also save it in `reports/`, which git ignores).
 
 Example report:
 
 ```
 # Training for Tuesday 13 Oct 2026
+
+Easy and short while you rebuild running after weeks of little running: you're well recovered (readiness 78).
+
 Phase: Aerobic base + speed — Autumn 10K in 61 days
 Weekly running target: 10.0 km (last 4 weeks average 3.5 km, last week 2 km)
 Return-to-running mode: volume grows ~20 %/week from 10 km and there are no hard sessions …
@@ -135,8 +139,9 @@ week, your usual long-run (or long-ride) and rest days, easy pace and time
 zone. Press Enter to accept them all, or type the numbers you want to change.
 Then add your races: name, type (with distance and elevation for cycling
 events), date and priority. It writes `config.yaml` and sets the time zone and
-daily time in `.github/workflows/coach.yml`. Run it again whenever your goals
-change: it starts from your current settings and races (Enter keeps them, and
+daily time in `.github/workflows/coach.yml`. Commit `config.yaml` and the workflow file afterwards: GitHub runs whatever is
+in the repository, so a new time zone or schedule applies once it's pushed.
+Run it again whenever your goals change: it starts from your current settings and races (Enter keeps them, and
 it shows where your Garmin data suggests something different), or edit
 `config.yaml` by hand for finer control.
 

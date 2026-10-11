@@ -462,6 +462,29 @@ def test_setup_rerun_keeps_current_settings_and_races():
     assert any("keep them" in p for p in prompts) and not any("Race 1 name" in p for p in prompts)
 
 
+def test_one_line_why():
+    """The report and the watch description start with one short reason for today's workout."""
+    day = dt.date(2026, 10, 13)
+    cases = [
+        (FakeGarmin(day), "Building your base for"),
+        (FakeGarmin(day, good=False), "Rest today: low HRV with a raised resting HR"),
+    ]
+    sunday = dt.date(2026, 10, 18)
+    cases.append((FakeGarmin(sunday, today_acts=[act(sunday.isoformat(), "road_biking", 30, 95)]),
+                  "Keep it easy: you already did a 30 km ride today."))
+    for api, expected in cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            res = engine.run_day(api, CFG, api.today, state_path=Path(tmp) / "s.json")
+        line = res["report"].splitlines()[2]
+        assert expected in line, line
+        assert line.count(".") <= 2 and len(line) < 180          # one short sentence
+        assert api.uploaded[0]["description"].startswith(line.strip("*"))
+    with tempfile.TemporaryDirectory() as tmp:                   # B race: mini taper wording
+        res = engine.run_day(FakeGarmin(dt.date(2026, 12, 11)), CFG, dt.date(2026, 12, 11),
+                             state_path=Path(tmp) / "s.json")
+    assert "A few easy days before Autumn 8.5 km race" in res["report"]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

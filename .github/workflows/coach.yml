@@ -32,8 +32,9 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}     # optional: AI coach (Claude)
       TODOIST_API_TOKEN: ${{ secrets.TODOIST_API_TOKEN }}     # optional: your notes
     steps:
-      # The coach commits your health data and your encrypted Garmin session,
-      # so it refuses to run in a public repository.
+      # Each run's summary (your sleep, HRV, readiness, notes) is visible to
+      # anyone who can see the repository's Actions, and your encrypted Garmin
+      # session is committed, so it refuses to run in a public repository.
       - name: Safety check
         id: guard
         env:
@@ -41,7 +42,7 @@ jobs:
         run: |
           private=$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)
           if [ "$private" != "true" ]; then
-            echo "::warning::This repository is public. Garmin Coach stores personal health data and your Garmin session in the repository, so it only runs in a PRIVATE copy. See the README."
+            echo "::warning::This repository is public. Each run's summary shows your health data and your Garmin session is stored in the repository, so Garmin Coach only runs in a PRIVATE copy. See the README."
             echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
           if [ -z "$GARMIN_TOKENS_KEY" ]; then
@@ -74,13 +75,15 @@ jobs:
             python -m coach run                      # manual run: plan now
           fi
 
-      - name: Save history and session
+      # The only file the coach commits: your Garmin session, re-encrypted when
+      # Garmin refreshes it. Everything else is read back from Garmin and Todoist.
+      - name: Save the refreshed Garmin session
         if: always() && steps.guard.outputs.run == 'true'
         run: |
           git config user.name "garmin-coach-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data || true
+          git add data/garmin_tokens.enc || true
           if ! git diff --cached --quiet; then
-            git commit -m "Workout $(date +%F)"
+            git commit -m "Refresh Garmin session"
             git push
           fi

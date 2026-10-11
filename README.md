@@ -59,6 +59,47 @@ the weekly targets are recomputed each time. The report shows when your watch
 last synced and warns you if that was more than 2 hours ago, because anything
 after that sync isn't in Garmin yet.
 
+### What it looks back at, and why 6 weeks
+
+Every run looks back over **the same window: the 6 full weeks before this
+week's Monday, plus this week so far** (42 to 48 days). That one window is
+used for everything: your Garmin activities, the coach's own past workouts in
+your Garmin calendar, your training diary in Todoist, and what the AI coach
+sees.
+
+| What | Uses | Why |
+|---|---|---|
+| Weekly running target, riding hours | last 4 weeks | The usual "chronic load" window: long enough to smooth out one odd week, short enough to follow your current fitness |
+| Long-run floor | longest run of the last 6 weeks | A long run you did within 6 weeks is one your body can still do; older than that, after a break, it isn't |
+| Learned long-run / long-ride day | last 4 weeks (3 of 4 must agree) | Your current habit, not last season's |
+| Heavy-block check, load ratio | last 4 days vs. the 4 weeks before | Spots a big block of training against your normal |
+| Yesterday's plan, this week's plan so far | Garmin calendar | To compare what was planned with what you did |
+| AI coach | all 6 weeks: every activity plus a weekly summary per sport, and your diary notes with what you trained around each | Enough to see the trend into today and how you responded, without stale history |
+
+Six weeks is the longest any rule needs, so a longer window wouldn't change a
+single decision. It would only add older training that no longer reflects
+your fitness, and more data to send to the AI. The setup wizard reads the
+same window to suggest your settings.
+
+### Where the coach keeps its memory
+
+**Nowhere in the repository.** Everything it needs from earlier days is
+read back each run:
+
+- **Your training:** Garmin activities.
+- **What it planned:** your Garmin calendar. Every workout it uploads ends
+  its description with one short line, `coach:{…}`, holding the session type,
+  distance or minutes, intensity, that day's readiness score and the ids of
+  the notes it saw. That's how it knows yesterday's plan, this week's plan
+  so far, which workout to replace on a re-run, and whether today is already
+  planned. A day the coach left empty while it was running counts as a rest
+  day.
+- **Your training diary:** Todoist. Notes the coach used are labelled
+  `coach` and completed, so they're in your completed tasks.
+
+The only file the daily job commits is your encrypted Garmin session
+(`data/garmin_tokens.enc`), because Garmin refreshes it.
+
 ## How it plans
 
 **Phases.** The plan always prepares for the next race on your calendar:
@@ -150,9 +191,9 @@ session.
 With one, every day:
 
 1. The rules prepare the day's proposal and its **safety limits**.
-2. The AI (OpenAI or Claude) gets the whole picture: your Garmin data, the
-   last 14 days of every sport, your last 4 days of load, the plan, the rules'
-   proposal and your notes.
+2. The AI (OpenAI or Claude) gets the whole picture: your Garmin data, every
+   activity of the last 6 weeks with a week-by-week summary per sport, your
+   last 4 days of load, the plan, the rules' proposal and your notes.
 3. It makes the final call: keep the plan, shorten it, make it easier, swap it
    for an easy swim or spin, or rest.
 4. The code checks its answer. **It can never add volume or intensity beyond
@@ -166,18 +207,18 @@ With one, every day:
 **Your notes (Todoist, optional).** Anything you add to your Todoist Inbox
 (typed, dictated, or from a gadget) is passed to the AI if it was created in
 the last 12 hours, so a note from last night counts in the morning. The AI
-uses only notes about how you feel or your training. Those are then **marked
-done** in Todoist (never deleted). If Todoist made a note recurring (e.g. it
+uses only notes about how you feel or your training. Those are then
+**labelled `coach` and marked done** in Todoist (never deleted). If Todoist made a note recurring (e.g. it
 read part of the text as a date), its date is removed first, because
 completing a recurring task would only move it to its next date. Unrelated notes ("buy milk") are left
 alone. Notes already marked done in that window, by the coach or by you, are
 still passed as context, so a re-plan later in the day remembers them. Notes
 are only marked done on real runs, never on "Analyze only" test runs.
 
-**Training diary.** Every note the AI uses is also kept in `data/state.json`.
-Each day the AI sees the last 4 weeks of it (`history_days`), each note next
-to what you trained that day and the day before, your readiness and the
-coach's plan. That lets it learn how *you* respond, e.g. that two big ride
+**Training diary.** The notes labelled `coach` in your completed Todoist tasks
+are your training diary. Each day the AI sees the ones from the last 6 weeks,
+each next to what you trained that day and the day before (from Garmin), and
+that day's readiness and plan (from your Garmin calendar). That lets it learn how *you* respond, e.g. that two big ride
 days in a row leave your legs heavy, or that a niggle keeps coming back.
 
 ## What you get
@@ -227,14 +268,16 @@ _Garmin data as of your watch's last sync: Sun 08:12._
 
 ## Privacy
 
-The daily job commits two files to your repository:
-- `data/state.json`: each day's plan and readiness, and your training diary of notes. The coach uses it to compare yesterday's plan with what you did, to replace a re-run's workout instead of duplicating it, and to learn from your past notes.
-- `data/garmin_tokens.enc`: your **encrypted** Garmin session, refreshed so it stays logged in.
+The coach keeps **no health data in your repository**: what it planned lives
+in your Garmin calendar and your diary in Todoist (see
+[Where the coach keeps its memory](#where-the-coach-keeps-its-memory)). The
+daily job commits only `data/garmin_tokens.enc`, your **encrypted** Garmin
+session, refreshed so it stays logged in.
 
-That's why:
-
-- You run it from your **own private** repository, never from a public one.
-  The daily workflow checks this and refuses to run in a public repository.
+- Still, run it from your **own private** repository, never from a public
+  one: each run's summary on GitHub (sleep, HRV, readiness, your notes) is
+  visible to anyone who can see the repository's Actions. The daily workflow
+  checks this and refuses to run in a public repository.
 - Your Garmin **password is never stored** anywhere. It's used once on your
   computer to get a session token from Garmin.
 - The session token is encrypted with a key that only lives in your
@@ -276,7 +319,7 @@ it worked. Avoid logging in many times in a row.
 .venv/bin/python -m coach setup
 ```
 
-It reads your last 12 weeks from Garmin and proposes your settings in one list:
+It reads your last 6 weeks from Garmin and proposes your settings in one list:
 what you train (running, running + cycling, triathlon or cycling), run days
 per week, your usual long-run (or long-ride) day and rest day, easy pace,
 time zone, and the time of the first morning check. Press Enter to accept
@@ -374,7 +417,7 @@ workflow file, and keys in GitHub secrets.
 | `todoist.enabled` | `true` | Read your notes if a token is set |
 | `todoist.project` | `Inbox` | Todoist project the notes are read from |
 | `todoist.lookback_hours` | 12 | How far back notes count as today's state |
-| `todoist.history_days` | 28 | How many days of your training diary the AI sees |
+| `todoist.diary_label` | coach | Label given to the notes the coach used; completed notes with it are your training diary |
 
 **Session types** for the weekly templates: `rest`, `run_easy`,
 `run_strides`, `run_quality`, `run_long`, `run_brick`, `bike_easy`,
@@ -411,6 +454,7 @@ your file use their defaults.
 |---|---|
 | `No saved Garmin session` | Run `python -m coach login` and finish all prompts |
 | `429` warnings during login | Normal if it ends with `✅ Logged in`; otherwise wait a while before trying again |
+| A workout you deleted from your Garmin calendar counts as a rest day | The calendar is the coach's record of what it planned. Re-run the workflow to put today's workout back |
 | GitHub run fails with a session error | Garmin expired the session: run `login`, then `export-tokens`, push `data/garmin_tokens.enc` and update the `GARMIN_TOKENS_KEY` secret |
 | "Last night's sleep isn't in Garmin yet" | Sync your watch (open Garmin Connect on your phone); the next hourly check picks it up |
 | "Your watch last synced X h ago" | Sync your watch and press *Run workflow* to re-plan |
@@ -446,7 +490,8 @@ Zones) or do your watch's guided threshold test.
 | `coach/adjust.py` | Daily adjustment rules |
 | `coach/why.py` | The one-line explanation of each day |
 | `coach/ai.py` | AI coach: final call within code-enforced limits |
-| `coach/notes.py` | Your notes from Todoist |
+| `coach/notes.py` | Your notes and training diary in Todoist |
+| `coach/calendar.py` | Reads back what the coach planned from your Garmin calendar |
 | `coach/engine.py` | Orchestrates the day and writes the report |
 | `coach/workouts.py` | Conversion to Garmin structured workouts |
 | `coach/setup_wizard.py` | The guided setup |

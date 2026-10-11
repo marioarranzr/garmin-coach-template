@@ -20,8 +20,8 @@ from pathlib import Path
 import yaml
 
 from . import garmin_api as G
-from .engine import ROOT, State, run_day, week_target
-from .planner import plan_day, phase_for
+from .engine import ROOT, run_day, week_target
+from .planner import history_start, learn_long_day, plan_day, phase_for
 
 
 def load_cfg(path: str | None) -> dict:
@@ -89,10 +89,10 @@ def main(argv=None):
         G.save_cloud_tokens(api)
 
     if a.cmd == "week":
-        state = State(ROOT / "data" / "state.json")
-        acts = G.fetch_activities(api, d - dt.timedelta(days=35), d - dt.timedelta(days=1))
-        cfg = dict(cfg, _learned_days=state.data.get("schedule", {}))
-        wt = week_target(state, acts, d, cfg)
+        acts = G.fetch_activities(api, history_start(d), d - dt.timedelta(days=1))
+        learned = {s: day for s in ("run", "bike") if (day := learn_long_day(acts, d, s))}
+        cfg = dict(cfg, _learned_days=learned)
+        wt = week_target(acts, d, cfg)
         print(f"Phase: {phase_for(d, cfg).describe()}")
         print(f"Running target this week: {wt['target_km']} km "
               f"(4-week average: {wt['chronic_km']} km)\n")

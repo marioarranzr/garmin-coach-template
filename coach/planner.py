@@ -186,6 +186,18 @@ def week_index(d: dt.date, cfg) -> int:
 
 
 # ── weekly volume ───────────────────────────────────────────────────────────
+# How far back the coach looks, for everything: Garmin activities, its own plans
+# in your Garmin calendar, your Todoist diary and what the AI coach sees.
+# Six full weeks before this week's Monday covers the longest window any rule
+# needs (your longest recent run, below) plus the 4-week load average, and is
+# short enough that it reflects your current fitness rather than an old block.
+LOOKBACK_WEEKS = 6
+
+
+def history_start(d: dt.date) -> dt.date:
+    return monday_of(d) - dt.timedelta(weeks=LOOKBACK_WEEKS)
+
+
 def monday_of(d: dt.date) -> dt.date:
     return d - dt.timedelta(days=d.weekday())
 
@@ -218,7 +230,7 @@ def compute_week_target(activities: list[dict], d: dt.date, cfg: dict) -> dict:
     target = min(target, peak)
     target *= phase.volume_factor
     longest = max((a["distance_km"] for a in activities if a["sport"] == "run"
-                   and a["date"] >= (mon - dt.timedelta(weeks=6)).isoformat()), default=0)
+                   and a["date"] >= (mon - dt.timedelta(weeks=LOOKBACK_WEEKS)).isoformat()), default=0)
     out = {"target_km": round(target, 1), "chronic_km": round(chronic, 1), "longest_run_km": round(longest, 1),
            "last_week_km": last, "phase": phase.name, "deload": phase.deload,
            "return_mode": return_mode}

@@ -2,9 +2,11 @@ name: Daily workout
 
 on:
   schedule:
-    # GitHub cron runs in UTC: 06:00 UTC = 7:00 CET / 8:00 CEST.
-    # Change it to suit your time zone. Scheduled runs can be delayed a few minutes.
-    - cron: "0 6 * * *"
+    # Every hour in the morning (GitHub cron is UTC: 06:00-11:00 UTC = 7-12 CET / 8-13 CEST).
+    # Each run waits until last night's sleep has reached Garmin, plans the day
+    # once, and later runs that morning stop straight away.
+    # `python -m coach setup` sets this for your time zone.
+    - cron: "0 6-11 * * *"
   workflow_dispatch:        # "Run workflow" button (also from the GitHub mobile app)
     inputs:
       dry_run:
@@ -63,8 +65,10 @@ jobs:
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             python -m coach run --dry-run
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            python -m coach run --wait-for-sleep     # waits for your sleep data
           else
-            python -m coach run
+            python -m coach run                      # manual run: plan now
           fi
 
       - name: Save history and session

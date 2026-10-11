@@ -129,13 +129,31 @@ def build_templates(sport: str, run_days: int, long_day: int, rest_day: int) -> 
     return templates
 
 
-def cron_for(wake: str, tz: str) -> str:
-    """GitHub cron (UTC) for a local time. Uses the winter offset, so in summer
-    the run happens one hour later, never before you're up."""
-    h, m = (int(x) for x in wake.split(":"))
-    winter = dt.datetime(2026, 1, 15, h, m, tzinfo=ZoneInfo(tz))
-    utc = winter.astimezone(dt.timezone.utc)
-    return f"{utc.minute} {utc.hour} * * *"
+def cron_for(wake: str, tz: str, until: str = "12:00") -> str:
+    """GitHub cron (UTC): hourly from `wake` (local), with the last run at or
+    just after `until` so it plans even without sleep data. Uses the winter
+    offset, so in summer everything happens one hour later, never too early."""
+    # standard (non-daylight-saving) offset, whichever hemisphere you're in
+    zone = ZoneInfo(tz)
+    std_day = min((dt.datetime(2026, 1, 15, 12, tzinfo=zone), dt.datetime(2026, 7, 15, 12, tzinfo=zone)),
+                  key=lambda x: x.utcoffset())
+
+    def utc(hhmm):
+        h, m = (int(x) for x in hhmm.split(":"))
+        return std_day.replace(hour=h, minute=m).astimezone(dt.timezone.utc)
+    start, end = utc(wake), utc(until)
+    minute = start.minute
+    if end <= start:                       # deadline before wake-up: a single run
+        return f"{minute} {start.hour} * * *"
+    last = (end.hour if end.minute <= minute else end.hour + 1) % 24
+
+    def span(a, b):
+        return f"{a}-{b}" if a != b else f"{a}"
+    if last >= start.hour:
+        hours = span(start.hour, last)
+    else:                                  # the morning crosses midnight UTC (e.g. Asia)
+        hours = f"{span(start.hour, 23)},{span(0, last)}"
+    return f"{minute} {hours} * * *"
 
 
 def peaks_for(sport: str, run_days: int) -> dict:
@@ -241,6 +259,9 @@ garmin:
   tokenstore: ~/.garminconnect
   upload: true
   workout_prefix: "Coach"
+  # Morning runs wait for last night's sleep to reach Garmin (i.e. until you
+  # wake up and your watch syncs). At this time it plans anyway.
+  wait_for_sleep_until: "{answers.get('until', '12:00')}"
 """
 
 
@@ -436,7 +457,7 @@ def _settings_lines(st: dict) -> list[tuple[str, str]]:
         ("Rest day", DAY_NAMES[DAYS.index(st["rest_day"])]),
         ("Easy running pace", f"{st['pace']} /km"),
         ("Time zone", st["tz"]),
-        ("Workout ready by", st["wake"]),
+        ("First check at", st["wake"]),
     ]
 
 
@@ -461,7 +482,7 @@ def _edit_setting(i: int, st: dict, ask) -> None:
         st["tz"] = _ask("Time zone", st["tz"], lambda v: None if v in available_timezones() else
                         "Use an IANA name like Europe/Madrid or America/New_York", ask)
     elif i == 7:
-        st["wake"] = _ask("Workout ready by (HH:MM)", st["wake"],
+        st["wake"] = _ask("First check for your sleep data (HH:MM)", st["wake"],
                           lambda v: None if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", v) else "Use HH:MM", ask)
 
 
@@ -566,6 +587,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
         show("cycling", "Before a cycling event")
     print("\nDistances and intensities are set each day from your data and the phase of the plan.")
     if wf:
-        print(f"GitHub workflow set to {st['tz']}, running daily around {st['wake']} (cron \"{cron}\" in UTC).")
+        print(f"GitHub workflow set to {st['tz']}: hourly from {st['wake']} until your sleep data arrives "
+              f"(at 12:00 at the latest; cron \"{cron}\" in UTC).")
     print("\nNext: `python -m coach week` to preview it with your Garmin data.")
     return cfg_path

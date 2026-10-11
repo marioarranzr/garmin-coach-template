@@ -33,6 +33,8 @@ def main(argv=None):
     ap.add_argument("cmd", choices=["setup", "login", "run", "week", "semana", "export-tokens"])
     ap.add_argument("--date", help="YYYY-MM-DD (default: today)")
     ap.add_argument("--dry-run", action="store_true", help="don't upload anything to Garmin")
+    ap.add_argument("--wait-for-sleep", action="store_true",
+                    help="scheduled runs: skip if today is planned, wait until last night's sleep reaches Garmin")
     ap.add_argument("--config")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
@@ -72,7 +74,7 @@ def main(argv=None):
     try:
         if a.cmd == "run":
             upload = cfg.get("garmin", {}).get("upload", True) and not a.dry_run
-            res = run_day(api, cfg, d, upload=upload)
+            res = run_day(api, cfg, d, upload=upload, wait_for_sleep=a.wait_for_sleep)
             print(res["report"])
             summary = os.environ.get("GITHUB_STEP_SUMMARY")
             if summary:

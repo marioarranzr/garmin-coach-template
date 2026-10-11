@@ -24,9 +24,10 @@ def act(date, typ, km, mins, aero=2.5, anae=0.5, load=None):
 
 
 class FakeGarmin:
-    def __init__(self, today, good=True, extra_yesterday=0.0, swims=True):
+    def __init__(self, today, good=True, extra_yesterday=0.0, swims=True, synced=True):
         self.today = today
         self.good = good
+        self.synced = synced          # False: last night's sleep hasn't reached Garmin yet
         self.uploaded, self.scheduled, self.deleted = [], [], []
         acts = []
         for k in range(1, 36):
@@ -50,6 +51,8 @@ class FakeGarmin:
         return [a for a in self.acts if s <= a["startTimeLocal"][:10] <= e]
 
     def get_sleep_data(self, d):
+        if not self.synced:
+            return {"dailySleepDTO": {"sleepTimeSeconds": None, "sleepScores": None}}
         return {"dailySleepDTO": {"sleepTimeSeconds": (7.8 if self.good else 5.2) * 3600,
                                   "sleepScores": {"overall": {"value": 85 if self.good else 48}}}}
 
@@ -232,7 +235,7 @@ def test_setup_wizard_writes_a_working_config():
     runs = [k for day in cfg["weekly_templates"]["run_focus"].values() for k in day if k.startswith("run_")]
     assert len(runs) == 4
     assert "cycling" in cfg["weekly_templates"]
-    assert "TZ: America/New_York" in flow and '"30 11 * * *"' in flow
+    assert "TZ: America/New_York" in flow and '"30 11-17 * * *"' in flow
     for i in range(0, 260, 3):   # the planner accepts it for the whole season
         plan_day(dt.date.today() + dt.timedelta(days=i), cfg, 30)
 
@@ -326,6 +329,41 @@ def test_cycling_event_plan():
         for s in plan_day(mon + dt.timedelta(days=i), cfg, wt)[1]:
             if s.steps:
                 assert to_garmin(s, cfg, "x")["workoutSegments"][0]["workoutSteps"]
+
+
+def test_scheduled_runs_wait_for_sleep_data():
+    """Hourly morning runs: wait while the watch hasn't synced, plan once, then stop."""
+    day = dt.date(2026, 10, 13)
+    at = lambda h, m=0: dt.datetime.combine(day, dt.time(h, m))
+    with tempfile.TemporaryDirectory() as tmp:
+        sp = Path(tmp) / "s.json"
+        asleep = FakeGarmin(day, synced=False)
+        res = engine.run_day(asleep, CFG, day, state_path=sp, wait_for_sleep=True, now=at(7))
+        assert res["status"] == "waiting" and not asleep.uploaded and not sp.exists()
+
+        awake = FakeGarmin(day)                                   # synced after waking up
+        res = engine.run_day(awake, CFG, day, state_path=sp, wait_for_sleep=True, now=at(9))
+        assert res["status"] == "planned" and awake.uploaded
+
+        later = FakeGarmin(day)
+        res = engine.run_day(later, CFG, day, state_path=sp, wait_for_sleep=True, now=at(10))
+        assert res["status"] == "done" and not later.uploaded and not later.deleted
+
+        manual = FakeGarmin(day)                                  # "Run workflow" by hand: re-plans
+        res = engine.run_day(manual, CFG, day, state_path=sp, now=at(10, 30))
+        assert res["status"] == "planned" and manual.uploaded
+
+    with tempfile.TemporaryDirectory() as tmp:                    # never synced: plan at the deadline
+        sp = Path(tmp) / "s.json"
+        api = FakeGarmin(day, synced=False)
+        res = engine.run_day(api, CFG, day, state_path=sp, wait_for_sleep=True, now=at(12, 3))
+        assert res["status"] == "planned" and api.uploaded and "No sleep data" in res["report"]
+        res = engine.run_day(FakeGarmin(day, synced=False), CFG, day, state_path=sp, wait_for_sleep=True, now=at(13))
+        assert res["status"] == "done"        # still no sleep data: don't re-upload the same thing
+        res = engine.run_day(FakeGarmin(day), CFG, day, state_path=sp, wait_for_sleep=True, now=at(14))
+        assert res["status"] == "planned"     # sleep arrived late: re-plan once with it
+        res = engine.run_day(FakeGarmin(day), CFG, day, state_path=sp, wait_for_sleep=True, now=at(15))
+        assert res["status"] == "done"
 
 
 if __name__ == "__main__":

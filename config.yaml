@@ -41,7 +41,7 @@ min_weekly_run_km: 15
 return_to_run_below_km: 10
 # The long run is never shorter than ~10 % above your longest run of the last
 # 6 weeks (outside taper and race weeks). Set a minimum here if you want one.
-min_long_run_km: 0
+min_long_run_km: 8
 
 # Weekly template. Days: mon tue wed thu fri sat sun
 # Available sessions:

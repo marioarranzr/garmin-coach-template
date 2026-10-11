@@ -74,10 +74,12 @@ make it easier, swap it for an easy swim or spin, or rest. It can never add
 volume or intensity beyond the rule-based plan; that's enforced in code, and
 if the AI is unavailable the rule-based plan is used.
 
-**Your notes:** anything you add to your Todoist Inbox in the morning ("legs
-heavy", "knee sore", "slept badly"), typed, dictated or from a gadget, is
-passed to the AI coach. Notes it uses are then completed in Todoist (not
-deleted: they're in your completed tasks); unrelated notes are left alone. If you add a note after the day is planned, the next morning check
+**Your notes:** anything you add to your Todoist Inbox ("legs heavy", "knee
+sore", "slept badly"), typed, dictated or from a gadget, is passed to the AI
+coach if it was created in the last 12 hours, so a note from last night counts
+too. Notes it uses are marked done (never deleted); unrelated notes are left
+alone. Notes already marked done in that window still count as context, so a
+re-plan later in the day remembers them. If you add a note after the day is planned, the next morning check
 re-plans with it.
 
 **6. Uploads the workout to Garmin**, starting with one short sentence on why
@@ -206,8 +208,8 @@ With `ai.provider: auto` it uses whichever key is set (OpenAI if both).
 
 **Notes from Todoist.** Copy your API token from Todoist (Settings →
 Integrations → Developer) and add it as the secret `TODOIST_API_TOKEN`. The
-coach reads today's notes from the project in `config.yaml` (`todoist.project`,
-default `Inbox`).
+coach reads the last 12 hours of notes from the project in `config.yaml`
+(`todoist.project`, default `Inbox`; `todoist.lookback_hours`).
 
 To use them when running on your computer, set the same names as
 environment variables (e.g. `export OPENAI_API_KEY=...`).

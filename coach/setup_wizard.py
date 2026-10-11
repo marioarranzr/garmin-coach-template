@@ -278,12 +278,13 @@ ai:
   anthropic_model: {answers.get('anthropic_model', 'claude-sonnet-5-5')}
 
 # Your own notes on how you feel, read from Todoist: anything added to this
-# project from `from_hour` this morning. Notes the AI coach uses are then
-# completed (not deleted). Needs TODOIST_API_TOKEN (see README).
+# project in the last `lookback_hours`, including notes already marked done.
+# Notes the AI coach uses are marked done (never deleted). Needs
+# TODOIST_API_TOKEN (see README).
 todoist:
   enabled: {str(answers.get('todoist_enabled', True)).lower()}
   project: {_yaml_str(answers.get('todoist_project', 'Inbox'))}
-  from_hour: {answers.get('todoist_from_hour', 3)}
+  lookback_hours: {answers.get('todoist_lookback_hours', 12)}
 """
 
 
@@ -515,7 +516,7 @@ def existing_setup(cfg: dict, workflow: str) -> dict:
                      or (cfg.get("ai") or {}).get("model", "claude-sonnet-5-5"),
                      "todoist_enabled": (cfg.get("todoist") or {}).get("enabled", True),
                      "todoist_project": (cfg.get("todoist") or {}).get("project", "Inbox"),
-                     "todoist_from_hour": (cfg.get("todoist") or {}).get("from_hour", 3)}
+                     "todoist_lookback_hours": (cfg.get("todoist") or {}).get("lookback_hours", 12)}
     return out
 
 
@@ -669,7 +670,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
                "until": extras.get("until", "10:00"), "prefix": extras.get("prefix", "Coach"),
                **{k: extras[k] for k in ("ai_enabled", "ai_provider", "openai_model", "anthropic_model",
                                          "todoist_enabled", "todoist_project",
-                                         "todoist_from_hour") if k in extras},
+                                         "todoist_lookback_hours") if k in extras},
                "templates": build_templates(st["sport"], st["run_days"], long_idx, rest_idx),
                "peaks": peaks_for(st["sport"], st["run_days"])}
 

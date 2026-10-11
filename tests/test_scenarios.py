@@ -576,16 +576,21 @@ def test_heavy_multisport_block_shortens_the_long_run():
 
 # ── AI coach and Todoist notes (fakes, no network) ─────────────────────────
 class FakeTodoist:
-    def __init__(self, notes):              # notes: list of (hh:mm, text) for "today"
+    """Inbox notes: (time "hh:mm" today or a datetime, text[, already done])."""
+    def __init__(self, notes):
         from types import SimpleNamespace as NS
         self.day = None
         self.notes = notes
         self.NS = NS
         self.completed = []
 
-    def complete_task(self, task_id):
-        self.completed.append(task_id)
-        return True
+    def _items(self):
+        for i, n in enumerate(self.notes):
+            when, text = n[0], n[1]
+            if isinstance(when, str):
+                when = dt.datetime.combine(self.day, dt.time(*map(int, when.split(":"))))
+            done = (len(n) > 2 and n[2]) or f"t{i}" in self.completed
+            yield self.NS(id=f"t{i}", content=text, description="", project_id="inbox", created_at=when), done
 
     def get_projects(self):
         yield [self.NS(id="p1", name="Work", is_inbox_project=False),
@@ -593,9 +598,17 @@ class FakeTodoist:
 
     def get_tasks(self, project_id=None):
         assert project_id == "inbox"
-        yield [self.NS(id=f"t{i}", content=text, description="",
-                       created_at=dt.datetime.combine(self.day, dt.time(*map(int, hhmm.split(":")))))
-               for i, (hhmm, text) in enumerate(self.notes)]
+        yield [t for t, done in self._items() if not done]
+
+    def get_completed_tasks_by_completion_date(self, since, until):
+        assert since.tzinfo is not None and until.tzinfo is not None
+        work = self.NS(id="w1", content="finish report", description="", project_id="p1",
+                       created_at=dt.datetime.combine(self.day, dt.time(7)))
+        yield [t for t, done in self._items() if done] + [work]
+
+    def complete_task(self, task_id):
+        self.completed.append(task_id)
+        return True
 
 
 class FakeClaude:
@@ -745,6 +758,37 @@ def test_ai_provider_selection():
         os.environ.pop("OPENAI_API_KEY", None)
         os.environ.pop("ANTHROPIC_API_KEY", None)
     assert ai.provider(cfg) is None
+
+
+def test_notes_from_the_last_12_hours_open_and_done():
+    """At 08:00: last night's 22:00 note counts, 18:00 doesn't; done notes are context, not re-completed."""
+    from coach.notes import recent_notes
+    day = dt.date(2026, 10, 18)
+    yesterday = day - dt.timedelta(days=1)
+    todo = FakeTodoist([(dt.datetime.combine(yesterday, dt.time(18)), "old note"),
+                        (dt.datetime.combine(yesterday, dt.time(22)), "very tired after the ride"),
+                        ("06:50", "slept badly", True),          # you ticked it off yourself
+                        ("07:30", "left calf tight")])
+    todo.day = day
+    os.environ["TODOIST_API_TOKEN"] = "x"
+    try:
+        notes = recent_notes(CFG, dt.datetime.combine(day, dt.time(8)), api=todo)
+    finally:
+        os.environ.pop("TODOIST_API_TOKEN", None)
+    assert [(n["text"], n["done"]) for n in notes] == [
+        ("very tired after the ride", False), ("slept badly", True), ("left calf tight", False)]
+    assert notes[0]["time"] == "Sat 22:00" and notes[2]["time"] == "07:30"
+    answer = {"decision": "adjust", "sessions": [{"kind": "run_easy", "distance_km": 4, "minutes": None}],
+              "why": "Easy 4 km: tight calf and a tiring ride yesterday.", "coach_note": "",
+              "notes_used": ["t1", "t2", "t3"]}                   # t2 is already done
+    with tempfile.TemporaryDirectory() as tmp:
+        res, claude, _ = _ai_day(answer, state_path=Path(tmp) / "s.json", todo=todo,
+                                 now=dt.datetime.combine(day, dt.time(8)))
+    sent = json.loads(claude.requests[0]["messages"][0]["content"].split("\n", 1)[1])
+    assert [n["text"] for n in sent["athlete_notes_today"]] == ["very tired after the ride", "left calf tight"]
+    assert sent["earlier_notes_today"] == [{"time": "06:50", "text": "slept badly"}]
+    assert sorted(todo.completed) == ["t1", "t3"]                 # open ones it used; not the done one
+    assert "“slept badly” (06:50, already done)" in res["report"]
 
 
 if __name__ == "__main__":

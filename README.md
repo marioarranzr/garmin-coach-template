@@ -33,7 +33,8 @@ course is hilly. Secondary (B) races get a 3-day mini taper so they don't
 interrupt your main build. Running volume starts from what you **actually** ran in
 the last 4 weeks and grows ~8-10 % per week at most. If you've barely been
 running (e.g. a cycling block), a **return-to-running mode** starts low and
-keeps everything easy until your legs adapt.
+keeps everything easy until your legs adapt. The long run never drops below
+your longest recent run (+10 %), or a minimum you set.
 
 **3. Scores your readiness (0-100)** and adjusts the day:
 
@@ -51,6 +52,8 @@ keeps everything easy until your legs adapt.
 - Skipped the long run? It isn't made up: better to lose one than pile up fatigue.
 - Ahead of this week's volume? 15 % cut.
 - Skipping swims? The next swim is flagged as a priority.
+- Re-planning later in the day? Sessions you've already done today aren't
+  added again, and after a big ride or swim today's run stays easy.
 
 **5. Uploads the workout to Garmin** with the reasons for any change in its
 description, and shows a daily report in the GitHub Actions run summary

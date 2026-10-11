@@ -118,6 +118,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     }
     r = compute(wellness, ctx)
     final, notes = adjust(planned, r, ctx, phase, tomorrow)
+    final = account_for_today(final, [a for a in acts if a["date"] == d.isoformat()], phase, notes)
 
     # ── Garmin ──
     prev = (state.data["days"].get(d.isoformat()) or {}).get("uploads", [])
@@ -156,6 +157,37 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         rep_dir.mkdir(exist_ok=True)
         (rep_dir / f"{d.isoformat()}.md").write_text(report, encoding="utf-8")
     return {"status": "planned", "report": report, "final": final, "readiness": r, "notes": notes}
+
+
+def account_for_today(final: list[Session], done_today: list[dict], phase, notes: list[str]) -> list[Session]:
+    """Takes into account what you've already trained today (when planning later in the day)."""
+    from .planner import make_run
+    if not done_today:
+        return final
+    kept = []
+    for s in final:
+        same = [a for a in done_today if a["sport"] == s.sport and s.sport in ("run", "bike", "swim")]
+        if same:
+            a = same[0]
+            notes.append(f"Already done today: {a['name']} ({a['distance_km']:g} km, {a['duration_min']:.0f}'), "
+                         f"so “{s.title}” isn't added to your calendar.")
+            continue
+        kept.append(s)
+    big = [a for a in done_today if a["sport"] in ("bike", "swim", "run")
+           and (a["duration_min"] >= 60 or (a.get("aerobic_te") or 0) >= 3.0)]
+    out = []
+    for s in kept:
+        other = [a for a in big if a["sport"] != s.sport]
+        if s.sport == "run" and other:
+            a = other[0]
+            if s.kind == "run_quality":
+                s = make_run("run_easy", (s.distance_km or 8) * 0.85, phase)
+                notes.append(f"You already did {a['name']} today ({a['duration_min']:.0f}'), "
+                             "so today's quality run becomes an easy run.")
+            else:
+                notes.append(f"You already did {a['name']} today ({a['duration_min']:.0f}'): keep this run easy, in Z2.")
+        out.append(s)
+    return out
 
 
 def _workout_description(s: Session, r: dict, notes: list[str], phase) -> str:
@@ -204,6 +236,8 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
     for s in final:
         star = " ⭐" if s.priority else ""
         L.append(f"- **{s.title}**{star}: {s.detail}")
+    if not final:
+        L.append("- Nothing left for today: you've already done it. 🎉")
     if notes:
         L += ["", "**Coach adjustments:**"] + [f"- {n}" for n in notes]
     L += ["", "## Garmin"]

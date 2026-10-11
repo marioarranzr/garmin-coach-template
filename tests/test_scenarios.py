@@ -905,28 +905,37 @@ def test_training_diary_feeds_later_decisions():
 
 
 def test_yesterday_is_read_back_from_the_garmin_calendar():
-    """No files: yesterday's plan comes from the marker in the workout the coach uploaded."""
-    from coach.calendar import parse
+    """No files: yesterday's plan is read from the workouts the coach put in the Garmin calendar."""
+    from coach.calendar import Calendar
     mon, tue = dt.date(2026, 10, 12), dt.date(2026, 10, 13)
     with fresh():
         api = FakeGarmin(mon, good=False)                  # a bad day: Monday's plan gets cut
-        first = engine.run_day(api, CFG, mon)
-        tag = parse(api.uploaded[-1]["description"]) if api.uploaded else None
+        first = engine.run_day(api, CFG, mon, now=dt.datetime(2026, 10, 12, 7, 42))
+        back = Calendar(api, CFG).plan(mon)
         res = engine.run_day(FakeGarmin(tue), CFG, tue)
+    uploaded = [s for s in first["final"] if s.steps]
+    assert [e["session"]["kind"] for e in back] == [s.kind for s in uploaded]
+    assert all(e["meta"]["r"] == first["readiness"]["score"] and e["meta"]["at"] == "07:42" for e in back)
     planned_km = sum(s.distance_km or 0 for s in first["final"] if s.sport == "run")
     assert f"Planned: {round(planned_km, 1)} km running" in res["report"]
-    if tag:
-        assert tag["k"] == first["final"][-1].kind and tag["r"] == first["readiness"]["score"]
 
 
-def test_marker_survives_long_descriptions():
-    from coach.calendar import marker, parse, with_marker
-    from coach.planner import Session
-    s = Session("run_easy", "run", "Easy run 8 km", "easy", 8)
-    tag = marker(s, {"r": 71, "n": ["a" * 16, "b" * 16], "u": []})
-    desc = with_marker("x" * 2000, tag)
-    assert len(desc) <= 1000 and parse(desc) == {"k": "run_easy", "s": "run", "i": "easy", "km": 8, "r": 71,
-                                                 "n": ["a" * 16, "b" * 16]}
+def test_workout_description_is_readable_and_read_back():
+    from coach.calendar import fit, footer, read_description, session_from
+    desc = fit("x" * 2000, footer("Base — 10K in 60 days", dt.datetime(2026, 10, 11, 18, 31), False))
+    assert len(desc) <= 1000 and "coach:" not in desc
+    assert read_description(desc) == {"sr": 0, "at": "18:31"}
+    api = FakeGarmin(dt.date(2026, 10, 18))
+    with fresh():
+        res = engine.run_day(api, CFG, dt.date(2026, 10, 18))
+    text = api.uploaded[0]["description"]
+    assert "coach:" not in text and "\n\nReadiness " in text and text.endswith(".")
+    assert read_description(text)["r"] == res["readiness"]["score"]
+    for title, kind, km in [("Quality · 5×1 km, 8 km", "run_quality", 8), ("Long run 12.5 km", "run_long", 12.5),
+                            ("Easy run 6 km + 6 strides", "run_strides", 6), ("Easy ride 60'", "bike_easy", None),
+                            ("Swim 12×100 hard", "swim_css", None), ("Rest / mobility 20'", "rest", None)]:
+        got = session_from(title)
+        assert (got["kind"], got["distance_km"]) == (kind, km), title
 
 
 if __name__ == "__main__":

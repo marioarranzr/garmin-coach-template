@@ -87,12 +87,13 @@ same window to suggest your settings.
 read back each run:
 
 - **Your training:** Garmin activities.
-- **What it planned:** your Garmin calendar. Every workout it uploads ends
-  its description with one short line, `coach:{…}`, holding the session type,
-  distance or minutes, intensity, that day's readiness score and the ids of
-  the notes it saw. That's how it knows yesterday's plan, this week's plan
-  so far, which workout to replace on a re-run, and whether today is already
-  planned. A day the coach left empty while it was running counts as a rest
+- **What it planned:** your Garmin calendar. It reads its own workouts back
+  from the readable parts: the name ("Coach · Long run 12 km") gives the
+  session and distance, "Readiness 63/100" that day's readiness, and the
+  footer "Planned 07:42" when it was planned (a Todoist note added after that
+  is new and triggers a re-plan). That's how it knows yesterday's plan, this
+  week's plan so far, which workout to replace on a re-run, and whether today
+  is already planned. A day the coach left empty while it was running counts as a rest
   day.
 - **Your training diary:** Todoist. Notes the coach used are labelled
   `coach` and completed, so they're in your completed tasks.
@@ -225,7 +226,26 @@ days in a row leave your legs heavy, or that a niggle keeps coming back.
 
 **On your watch:** the day's workout(s) in your Garmin calendar, with steps
 (warm-up, intervals, recoveries, cool-down), heart-rate zone targets, and a
-description that starts with the one-line why.
+description that starts with the one-line why:
+
+```
+Long run would add too much load after today's ride and heavy legs.
+
+Skip the run today. The bike already gave your legs a solid workout.
+Resume running tomorrow only if the legs feel normal.
+
+Your coach chose rest today. Full rest or 20' of gentle mobility and stretching.
+
+Readiness 63/100 · Some fatigue
+• Low Body Battery right now (37), after today's training.
+• You've trained 10.4 h in the last 4 days, about 1.6× your usual.
+
+Aerobic base + speed — Zürcher Silvesterlauf in 63 days
+Planned 18:31.
+```
+
+When the AI coach made the call, the rules' own changes are left out of the
+workout (they're in the run report, marked as the rules' proposal).
 
 **A daily report** in each GitHub Actions run summary (local runs also save it
 in `reports/`, which git ignores). Example:

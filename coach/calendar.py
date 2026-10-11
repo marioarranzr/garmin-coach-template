@@ -1,12 +1,16 @@
 """The coach's memory lives in your Garmin calendar, not in files.
 
-Every workout the coach uploads ends its description with one short line,
-`coach:{...}`, that records what it planned (kind, sport, distance or minutes,
-intensity), the readiness score, whether last night's sleep was in Garmin, and
-which of your notes it saw and used. Reading the calendar back gives the coach
-everything it needs from earlier runs: yesterday's plan (to check compliance),
-this week's plan so far, what to replace when it re-plans today, and what it
-planned on the days of your older notes. Nothing is stored in the repository.
+Everything it needs from an earlier run is in the workouts it uploaded, in text
+you can read anyway:
+- the workout name ("Coach · Long run 12 km") gives the kind of session, its
+  sport and distance (also stored as the workout's estimated distance);
+- "Readiness 63/100" gives that day's readiness;
+- the footer "Planned 07:42" says when it was planned, so a note you add
+  later is spotted as new;
+- "Planned without last night's sleep data" says the sleep hadn't arrived.
+
+That covers yesterday's plan (compliance), this week's plan so far, what to
+replace on a re-run, and what was planned on the days of your older notes.
 """
 from __future__ import annotations
 
@@ -18,55 +22,80 @@ import re
 from .garmin_api import find_key
 
 log = logging.getLogger(__name__)
-TAG = "coach:"
 MAX_DESCRIPTION = 1000
+NO_SLEEP = "Planned without last night's sleep data."
 
 
-def marker(s, extra: dict) -> str:
-    data = {"k": s.kind, "s": s.sport, "i": s.intensity}
-    if s.distance_km:
-        data["km"] = round(s.distance_km, 2)
-    if s.duration_min:
-        data["min"] = round(s.duration_min)
-    data.update({k: v for k, v in extra.items() if v not in (None, [], "")})
-    return TAG + json.dumps(data, separators=(",", ":"), ensure_ascii=False)
+def fit(body: str, footer: str) -> str:
+    """The description, with the body shortened if needed so the footer (which
+    the coach reads back) always fits Garmin's limit."""
+    room = MAX_DESCRIPTION - len(footer) - 2
+    if len(body) > room:
+        body = body[:room - 1].rstrip() + "…"
+    return f"{body}\n\n{footer}"
 
 
-def with_marker(text: str, tag: str) -> str:
-    """The human description, shortened if needed so the marker always fits."""
-    room = MAX_DESCRIPTION - len(tag) - 2
-    if len(text) > room:
-        text = text[:room - 1].rstrip() + "…"
-    return f"{text}\n\n{tag}"
+def footer(phase_text: str, planned_at: dt.datetime, sleep_ready: bool) -> str:
+    lines = [] if sleep_ready else [NO_SLEEP]
+    return "\n".join(lines + [f"{phase_text}", f"Planned {planned_at:%H:%M}."])
 
 
-def parse(description: str | None) -> dict | None:
-    for line in reversed((description or "").splitlines()):
-        line = line.strip()
-        if line.startswith(TAG):
+def read_description(description: str | None) -> dict:
+    """{r, sr, at} from a description the coach wrote (and from the older
+    `coach:{…}` line, for workouts uploaded before)."""
+    text = description or ""
+    meta: dict = {}
+    for line in reversed(text.splitlines()):
+        if line.strip().startswith("coach:"):
             try:
-                return json.loads(line[len(TAG):])
+                meta = json.loads(line.strip()[len("coach:"):])
             except ValueError:
-                return None
-    return None
+                pass
+            break
+    r = re.search(r"Readiness(?: today:)? (\d+)/100", text)
+    if r:
+        meta["r"] = int(r.group(1))
+    if NO_SLEEP in text:
+        meta["sr"] = 0
+    at = re.findall(r"^Planned (\d\d:\d\d)\.$", text, flags=re.M)
+    if at:
+        meta["at"] = at[-1]
+    return meta
 
 
-def _session_from(meta: dict | None, title: str, sport_key: str | None) -> dict:
-    """A planned session (as a dict) from the marker, or guessed from the title
-    for workouts uploaded before markers existed."""
-    if meta:
-        return {"kind": meta.get("k", ""), "sport": meta.get("s", "other"), "title": title,
-                "intensity": meta.get("i", "easy"), "distance_km": meta.get("km"), "duration_min": meta.get("min")}
-    sport = {"running": "run", "cycling": "bike", "swimming": "swim"}.get((sport_key or "").lower(), "other")
-    low = title.lower()
-    if sport == "other":
-        sport = "bike" if ("bike" in low or "ride" in low) else "swim" if "swim" in low else \
-                "run" if ("run" in low or "quality" in low) else "other"
-    km = re.search(r"(\d+(?:\.\d+)?)\s*km", title)
-    kind = ("run_long" if "long run" in low else "run_quality" if "quality" in low else
-            f"{sport}_easy" if sport in ("run", "bike") else "swim_technique" if sport == "swim" else "rest")
-    return {"kind": kind, "sport": sport, "title": title, "intensity": "hard" if "quality" in low else "easy",
-            "distance_km": float(km.group(1)) if km and sport == "run" else None, "duration_min": None}
+# workout name (without the prefix) → (kind, sport, intensity)
+_KINDS = [
+    (r"^Quality", ("run_quality", "run", "hard")),
+    (r"^Long run", ("run_long", "run", "moderate")),
+    (r"^Easy run .*strides", ("run_strides", "run", "easy")),
+    (r"^Brick run", ("run_brick", "run", "moderate")),
+    (r"^Easy run", ("run_easy", "run", "easy")),
+    (r"^Long ride", ("bike_long", "bike", "moderate")),
+    (r"^(Easy|Openers) ride", ("bike_easy", "bike", "easy")),
+    (r"^Bike .*tempo", ("bike_quality", "bike", "moderate")),
+    (r"^Bike", ("bike_quality", "bike", "hard")),
+    (r"^Swim .*hard", ("swim_css", "swim", "hard")),
+    (r"^Endurance swim", ("swim_endurance", "swim", "moderate")),
+    (r"^Technique swim", ("swim_technique", "swim", "easy")),
+    (r"^Rest", ("rest", "other", "rest")),
+]
+
+
+def session_from(title: str, meta: dict | None = None, km: float | None = None) -> dict:
+    """A planned session (as a dict) from the workout's name and details."""
+    meta = meta or {}
+    kind, sport, intensity = next((v for pat, v in _KINDS if re.search(pat, title)), ("other", "other", "easy"))
+    if meta.get("k"):            # older workouts with the coach:{…} line
+        kind, sport, intensity = meta["k"], meta.get("s", sport), meta.get("i", intensity)
+    if km is None:
+        km = meta.get("km")
+    if km is None and sport == "run":
+        found = re.findall(r"(\d+(?:\.\d+)?)\s*km", title)   # the last one: "Quality · 5×1 km, 8 km"
+        km = float(found[-1]) if found else None
+    mins = re.search(r"(\d+)'", title)
+    return {"kind": kind, "sport": sport, "title": title, "intensity": intensity,
+            "distance_km": km if sport in ("run", "swim") else None,
+            "duration_min": meta.get("min") or (int(mins.group(1)) if mins else None)}
 
 
 class Calendar:
@@ -76,7 +105,7 @@ class Calendar:
         self.api = api
         self.prefix = (cfg.get("garmin") or {}).get("workout_prefix", "Coach") + " ·"
         self._months: dict[tuple[int, int], list[dict]] = {}
-        self._details: dict[str, dict] = {}
+        self._details: dict[str, tuple[dict, float | None]] = {}
 
     def _month(self, y: int, m: int) -> list[dict]:
         if (y, m) not in self._months:
@@ -89,31 +118,33 @@ class Calendar:
             self._months[(y, m)] = [i for i in items if i.get("itemType") == "workout"]
         return self._months[(y, m)]
 
-    def _meta(self, workout_id) -> dict | None:
+    def _detail(self, workout_id) -> tuple[dict, float | None]:
         key = str(workout_id)
         if key not in self._details:
             try:
-                self._details[key] = parse((self.api.get_workout_by_id(workout_id) or {}).get("description")) or {}
+                w = self.api.get_workout_by_id(workout_id) or {}
+                dist = w.get("estimatedDistanceInMeters")
+                self._details[key] = (read_description(w.get("description")),
+                                      round(dist / 1000, 2) if dist else None)
             except Exception as e:  # noqa: BLE001
                 log.warning("Couldn't read Garmin workout %s: %s", workout_id, e)
-                self._details[key] = {}
-        return self._details[key] or None
+                self._details[key] = ({}, None)
+        return self._details[key]
 
     def plan(self, day: dt.date) -> list[dict]:
-        """[{name, workoutId, scheduleId, meta, session}] for the coach's workouts on `day`
-        (the month listing is cached; each workout's marker is read once)."""
+        """[{name, workoutId, scheduleId, meta, session}] for the coach's workouts on `day`."""
         out = []
         for item in self._month(day.year, day.month):
             title = str(item.get("title") or "")
             if str(item.get("date") or "")[:10] != day.isoformat() or not title.startswith(self.prefix):
                 continue
             wid = item.get("workoutId") or find_key(item, "workoutId")
-            meta = self._meta(wid) if wid else None
+            meta, km = self._detail(wid) if wid else ({}, None)
             out.append({
                 "name": title, "workoutId": wid,
                 "scheduleId": item.get("id") or find_key(item, "workoutScheduleId"),
-                "meta": meta or {},
-                "session": _session_from(meta, title[len(self.prefix):].strip(), item.get("sportTypeKey")),
+                "meta": meta,
+                "session": session_from(title[len(self.prefix):].strip(), meta, km),
             })
         return out
 

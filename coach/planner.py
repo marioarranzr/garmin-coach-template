@@ -427,7 +427,7 @@ def make_run(kind: str, km: float, phase: Phase, wk: int = 0) -> Session:
     if kind == "run_quality":
         opts = QUALITY.get((phase.focus, phase.name)) or QUALITY[(phase.focus, "base")]
         name, steps = opts[wk % len(opts)]
-        return Session(kind, "run", f"Quality · {name}", "hard", km, None,
+        return Session(kind, "run", f"Quality · {name}, {km:g} km", "hard", km, None,
                        "Easy warm-up, main set in the target zone, jog the recoveries. "
                        "If your heart rate doesn't come down during recovery, drop one rep.",
                        steps)

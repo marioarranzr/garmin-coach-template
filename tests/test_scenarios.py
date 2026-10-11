@@ -24,11 +24,13 @@ def act(date, typ, km, mins, aero=2.5, anae=0.5, load=None):
 
 
 class FakeGarmin:
-    def __init__(self, today, good=True, extra_yesterday=0.0, swims=True, synced=True, steps=0, today_acts=()):
+    def __init__(self, today, good=True, extra_yesterday=0.0, swims=True, synced=True, steps=0, today_acts=(),
+                 bb_now=None, tr_now=None):
         self.today = today
         self.good = good
         self.synced = synced          # False: last night's sleep hasn't reached Garmin yet
         self.steps = steps            # steps so far today (you're up and wearing the watch)
+        self.bb_now, self.tr_now = bb_now, tr_now   # later in the day, e.g. after a workout
         self.uploaded, self.scheduled, self.deleted = [], [], []
         acts = []
         for k in range(1, 36):
@@ -68,10 +70,14 @@ class FakeGarmin:
 
     def get_body_battery(self, d):
         v = 88 if self.good else 35
-        return [{"bodyBatteryValuesArray": [[1, v - 20], [2, v]]}]
+        values = [[1, v - 20], [2, v]] + ([[3, self.bb_now]] if self.bb_now is not None else [])
+        return [{"bodyBatteryValuesArray": values}]
 
     def get_training_readiness(self, d):
-        return [{"score": 82 if self.good else 22, "level": "HIGH" if self.good else "LOW"}]
+        morning = {"score": 82 if self.good else 22, "level": "HIGH" if self.good else "LOW",
+                   "timestampLocal": f"{d}T07:10:00"}
+        later = [{"score": self.tr_now, "level": "LOW", "timestampLocal": f"{d}T12:30:00"}] if self.tr_now else []
+        return later + [morning]          # Garmin doesn't promise any order
 
     def get_training_status(self, d):
         return {"mostRecentTrainingStatus": {"latestTrainingStatusData": {"123": {
@@ -495,6 +501,23 @@ def test_moderate_ride_today_is_counted():
     assert "Done today so far: road_biking (30 km, 55')" in res["report"]
     assert "Keep it easy: you already did a 30 km ride today." in res["report"]
     assert "(scores " in res["report"] and "→" not in res["report"].split("## Yesterday")[0]
+
+
+def test_after_training_uses_current_body_battery_and_readiness():
+    """Woke at Body Battery 88, rode in the morning, now 40 and Training Readiness down to 35."""
+    sunday = dt.date(2026, 10, 18)
+    ride = act(sunday.isoformat(), "road_biking", 30, 58, aero=2.3)
+    with tempfile.TemporaryDirectory() as tmp:
+        res = engine.run_day(FakeGarmin(sunday, today_acts=[ride], bb_now=40, tr_now=35), CFG, sunday,
+                             state_path=Path(tmp) / "s.json")
+    rep = res["report"]
+    assert "Body Battery now: 40" in rep and "Training Readiness now: 35" in rep
+    assert res["readiness"]["level"] != "green"
+    assert "Body Battery" in rep.splitlines()[2] or "Training Readiness" in rep.splitlines()[2]
+    # in the morning, before training, the waking values are used
+    with tempfile.TemporaryDirectory() as tmp:
+        res = engine.run_day(FakeGarmin(sunday, bb_now=86, tr_now=80), CFG, sunday, state_path=Path(tmp) / "s.json")
+    assert "- Body Battery: 88" in res["report"] and "- Training Readiness: 82" in res["report"]
 
 
 if __name__ == "__main__":

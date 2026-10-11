@@ -56,11 +56,12 @@ your longest recent run (+10 %), or a minimum you set.
   falls on the same weekday in 3 of the last 4 weeks, the week moves so the
   long run lands there (the report tells you).
 - Re-planning later in the day? Sessions you've already done today aren't
-  added again, and after a big ride or swim today's run stays easy.
+  added again, and readiness uses your Body Battery and Training Readiness
+  as they are now (after that morning ride), not as they were on waking.
 
 **5. Uploads the workout to Garmin**, starting with one short sentence on why
-today looks the way it does (e.g. *"Easier than planned: you slept 5.2 h and
-your Training Readiness is low (38)."*) and the details below it, and shows a daily report in the GitHub Actions run summary
+today looks the way it does (e.g. *"Easier than planned (readiness 48): you
+slept 5.2 h and your Training Readiness is low (38)."*) and the details below it, and shows a daily report in the GitHub Actions run summary
 (local runs also save it in `reports/`, which git ignores).
 
 Example report:

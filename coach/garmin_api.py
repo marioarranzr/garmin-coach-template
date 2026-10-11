@@ -192,6 +192,21 @@ def fetch_activities(api, start: dt.date, end: dt.date) -> list[dict]:
     return acts
 
 
+def _body_battery_latest(bb_raw) -> float | None:
+    """Most recent Body Battery reading of the day."""
+    readings = []
+    for day in bb_raw or []:
+        for entry in (day.get("bodyBatteryValuesArray") or []):
+            nums = [x for x in entry[1:] if isinstance(x, (int, float)) and 0 <= x <= 100]
+            if nums and isinstance(entry[0], (int, float)):
+                readings.append((entry[0], nums[0]))
+    return max(readings)[1] if readings else None
+
+
+def _readiness_ts(e: dict) -> str:
+    return str(e.get("timestampLocal") or e.get("timestamp") or e.get("calendarDate") or "")
+
+
 def _body_battery_wake(bb_raw) -> float | None:
     best = None
     for day in bb_raw or []:
@@ -228,6 +243,7 @@ def fetch_wellness(api, d: dt.date) -> dict:
     w["rhr_7d"] = stats.get("lastSevenDaysAvgRestingHeartRate")
     bb = _safe(api.get_body_battery, ds, default=[])
     w["body_battery_wake"] = _body_battery_wake(bb) or stats.get("bodyBatteryHighestValue")
+    w["body_battery_now"] = _body_battery_latest(bb) or stats.get("bodyBatteryMostRecentValue")
 
     stats_y = _safe(api.get_stats, yday, default={}) or {}
     w["stress_yesterday"] = stats_y.get("averageStressLevel")
@@ -236,8 +252,10 @@ def fetch_wellness(api, d: dt.date) -> dict:
     if isinstance(tr, dict):
         tr = [tr]
     tr = [t for t in tr if isinstance(t, dict) and t.get("score") is not None]
-    w["training_readiness"] = tr[0].get("score") if tr else None
+    tr = sorted(tr, key=_readiness_ts)   # Garmin updates it during the day (e.g. after a workout)
+    w["training_readiness"] = tr[0].get("score") if tr else None          # morning value
     w["training_readiness_level"] = tr[0].get("level") if tr else None
+    w["training_readiness_now"] = tr[-1].get("score") if tr else None     # latest value
 
     ts = _safe(api.get_training_status, ds, default={}) or {}
     w["acwr"] = find_key(ts, "dailyAcuteChronicWorkloadRatio")

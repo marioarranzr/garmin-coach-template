@@ -19,8 +19,9 @@ def recovery_causes(w: dict, r: dict, ctx: dict) -> list[str]:
     if flags.get("hrv_low") and flags.get("rhr_high"):
         out.append("low HRV with a raised resting HR (often a cold coming on)")
     tr = w.get("training_readiness")
+    after = w.get("after_training")
     if tr is not None and tr < 50:
-        out.append(f"your Training Readiness is low ({tr})")
+        out.append(f"your Training Readiness has dropped to {tr}" if after else f"your Training Readiness is low ({tr})")
     sh, ss = w.get("sleep_hours"), w.get("sleep_score")
     if sh is not None and sh < 6:
         out.append(f"you slept {sh:g} h")
@@ -32,7 +33,8 @@ def recovery_causes(w: dict, r: dict, ctx: dict) -> list[str]:
         out.append(f"your resting HR is up {w['rhr'] - w['rhr_7d']:+.0f} bpm")
     bb = w.get("body_battery_wake")
     if bb is not None and bb < 45:
-        out.append(f"your Body Battery is low ({bb})")
+        out.append(f"your Body Battery is down to {bb} after today's training" if after
+                   else f"your Body Battery is low ({bb})")
     acwr = w.get("acwr") or ctx.get("acwr_own")
     if acwr and acwr > 1.3:
         out.append("your training load has jumped recently")
@@ -83,7 +85,7 @@ def why_line(final: list, planned: list, r: dict, w: dict, ctx: dict, wt: dict, 
         return f"Rest today: {_join(causes[:2]) or 'your recovery is very low'}."
     if level in ("amber", "orange"):
         lead = "Much easier than planned" if level == "orange" else "Easier than planned"
-        return f"{lead}: {_join(causes[:2]) or 'your recovery is below normal'} (readiness {score})."
+        return f"{lead} (readiness {score}): {_join(causes[:2]) or 'your recovery is below normal'}."
 
     # green: say why the session looks the way it does
     if today and any(s.sport == "run" for s in final):

@@ -129,6 +129,11 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         "dist": run_distribution(template_for(phase, cfg), week_km, phase, ret),
         "week_idx": week_index(d, cfg),
     }
+    if ctx["today_acts"]:
+        # You've already trained today: judge readiness on how you are now, not on waking
+        wellness = dict(wellness, after_training=True,
+                        body_battery_wake=wellness.get("body_battery_now") or wellness.get("body_battery_wake"),
+                        training_readiness=wellness.get("training_readiness_now") or wellness.get("training_readiness"))
     r = compute(wellness, ctx)
     final, notes = adjust(planned, r, ctx, phase, tomorrow)
     kind, sport = key_session(phase)

@@ -12,7 +12,7 @@ from .adjust import adjust
 from .planner import (Session, compute_week_target, key_day, key_session, learn_long_day, monday_of,
                       phase_for, plan_day,
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
-from .readiness import compliance, compute, consecutive_days, own_acwr
+from .readiness import compliance, compute, consecutive_days, own_acwr, recent_load
 from .why import substantial, why_line
 from .workouts import to_garmin
 
@@ -123,6 +123,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         "today_acts": [a for a in acts if a["date"] == d.isoformat()],
         "acwr_own": own_acwr(past, d),
         "consecutive_days": consecutive_days(past, d),
+        "recent_load": recent_load(past, [a for a in acts if a["date"] == d.isoformat()], d),
         "week_over": week_over, "week_done": week_done, "week_planned_so_far": round(planned_so_far, 1),
         "swims_14d": swims_14d,
         "swim_target_week": sum(k.startswith("swim_") for day in template_for(phase, cfg).values() for k in day),

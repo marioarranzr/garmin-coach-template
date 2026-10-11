@@ -114,6 +114,12 @@ def compute(w: dict, ctx: dict) -> dict:
     if c.get("extra_intensity"):
         score -= 8
         reasons.append("Yesterday's session was harder than planned (high Training Effect on an easy day).")
+    load = ctx.get("recent_load") or {}
+    if load.get("ratio") and load["ratio"] >= 1.5 and load["hours"] >= 4:
+        # a heavy block of the last few days, any sport: legs are tired even if HRV/sleep look fine
+        score -= 16 if load["ratio"] >= 2 else 10
+        flags["heavy_block"] = True
+        reasons.append(f"You've trained {load['hours']:g} h in the last 4 days, about {load['ratio']:g}× your usual.")
     if ctx.get("consecutive_days", 0) >= 6:
         score -= 8
         reasons.append(f"You've trained {ctx['consecutive_days']} days in a row.")
@@ -147,6 +153,16 @@ def own_acwr(activities: list[dict], d: dt.date) -> float | None:
     acute = load_between(7, 0) / 7
     chronic = load_between(28, 0) / 28
     return round(acute / chronic, 2) if chronic > 0 else None
+
+
+def recent_load(past: list[dict], today: list[dict], d: dt.date) -> dict:
+    """Training hours (all sports) over the last 4 days, including today, vs your usual 4 days."""
+    lo = (d - dt.timedelta(days=3)).isoformat()
+    base_lo = (d - dt.timedelta(days=28)).isoformat()
+    recent = sum(a["duration_min"] for a in past if a["date"] >= lo) + sum(a["duration_min"] for a in today)
+    base = sum(a["duration_min"] for a in past if base_lo <= a["date"] < lo)
+    usual = base / 25 * 4
+    return {"hours": round(recent / 60, 1), "ratio": round(recent / usual, 1) if usual > 0 else None}
 
 
 def consecutive_days(activities: list[dict], d: dt.date) -> int:

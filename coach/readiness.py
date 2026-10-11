@@ -155,6 +155,10 @@ def consecutive_days(activities: list[dict], d: dt.date) -> int:
     return n
 
 
+def _km(x: float) -> str:
+    return f"{round(x)}" if x >= 10 else f"{x:g}"
+
+
 def compliance(planned: list[dict], done: list[dict]) -> dict:
     """Compares yesterday's plan with what was actually done."""
     run_planned = sum(s.get("distance_km") or 0 for s in planned if s["sport"] == "run")
@@ -174,5 +178,5 @@ def compliance(planned: list[dict], done: list[dict]) -> dict:
         "missed_quality": "run_quality" in planned_kinds and "run" not in sports_done,
         "missed_long": "run_long" in planned_kinds and "run" not in sports_done,
         "extra_intensity": planned_easy and hard_done,
-        "done_titles": [f"{a['name']} ({a['distance_km']} km, {a['duration_min']:.0f}')" for a in done],
+        "done_titles": [f"{a['name']} ({_km(a['distance_km'])} km, {a['duration_min']:.0f}')" for a in done],
     }

@@ -485,6 +485,18 @@ def test_one_line_why():
     assert "A few easy days before Autumn 8.5 km race" in res["report"]
 
 
+def test_moderate_ride_today_is_counted():
+    """A 30 km / 55' easy ride this morning: listed in the report, and today's run stays easy."""
+    sunday = dt.date(2026, 10, 18)
+    ride = act(sunday.isoformat(), "road_biking", 30, 55, aero=2.2)
+    with tempfile.TemporaryDirectory() as tmp:
+        api = FakeGarmin(sunday, today_acts=[ride])
+        res = engine.run_day(api, CFG, sunday, state_path=Path(tmp) / "s.json")
+    assert "Done today so far: road_biking (30 km, 55')" in res["report"]
+    assert "Keep it easy: you already did a 30 km ride today." in res["report"]
+    assert "(scores " in res["report"] and "→" not in res["report"].split("## Yesterday")[0]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

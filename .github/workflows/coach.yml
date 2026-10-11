@@ -31,6 +31,7 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}           # optional: AI coach (OpenAI)
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}     # optional: AI coach (Claude)
       TODOIST_API_TOKEN: ${{ secrets.TODOIST_API_TOKEN }}     # optional: your notes
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}                   # optional: today's plan as a notification
     steps:
       # Each run's summary (your sleep, HRV, readiness, notes) is visible to
       # anyone who can see the repository's Actions, and your encrypted Garmin

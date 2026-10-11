@@ -14,6 +14,7 @@ from .planner import (Session, compute_week_target, history_start, key_day, key_
 from .readiness import compliance, compute, consecutive_days, own_acwr, recent_load
 from . import ai
 from .calendar import Calendar, fit, footer
+from .notify import message, send
 from .notes import complete_notes, diary, diary_label, recent_notes
 from .why import substantial, why_line
 from .workouts import to_garmin
@@ -49,7 +50,7 @@ def planned_on(day: dt.date, calendar: Calendar, active: bool, acts: list[dict],
 
 
 def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: bool = False,
-            now: dt.datetime | None = None, notes_api=None, ai_client=None, **_ignored) -> dict:
+            now: dt.datetime | None = None, notes_api=None, ai_client=None, poster=None, **_ignored) -> dict:
     """Plans day `d`. With `wait_for_sleep` (scheduled runs), it does nothing if
     today is already planned, and waits (returns without planning) while last
     night's sleep hasn't reached Garmin yet, until the configured deadline.
@@ -198,6 +199,10 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                                             recurring={n["id"] for n in used if n.get("recurring")},
                                             labels={n["id"]: n.get("labels", []) for n in used},
                                             label=diary_label(cfg))
+
+    # a push to your phone (and so your watch) with the plan, if NTFY_TOPIC is set
+    coach["notified"] = upload and send(*message(final, why, coach.get("coach_note", ""), r, bool(today_cal)),
+                                        poster=poster)
 
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why,
                           coach, cfg)
@@ -383,6 +388,8 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
     L += ["", "## Garmin"]
     if upload:
         L.append(f"- Added to calendar: {', '.join(u['name'] for u in uploads) or 'nothing'}")
+        if (coach or {}).get("notified"):
+            L.append("- Sent to your phone and watch as a notification.")
     else:
         L.append("- Dry run: nothing was uploaded.")
     return "\n".join(L) + "\n"

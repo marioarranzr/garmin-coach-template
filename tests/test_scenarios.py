@@ -407,6 +407,61 @@ def test_planning_later_in_the_day_counts_what_you_already_did():
         assert "Already done today" in " ".join(res["notes"]) and "Nothing left for today" in res["report"]
 
 
+def test_learns_long_run_day_from_recent_weeks():
+    """Longest run on Wednesday in 3 of 4 weeks → the week rotates so the long run is on Wednesday."""
+    from coach.planner import learn_long_day, template_for, phase_for, key_day
+    mon = dt.date(2026, 10, 26)
+    def runs(long_offsets):
+        out = []
+        for k, off in enumerate(long_offsets, 1):
+            wk = mon - dt.timedelta(weeks=k)
+            out.append({"date": (wk + dt.timedelta(days=off)).isoformat(), "sport": "run", "distance_km": 9, "duration_min": 50})
+            out.append({"date": (wk + dt.timedelta(days=(off + 2) % 7)).isoformat(), "sport": "run", "distance_km": 5, "duration_min": 28})
+        return out
+    assert learn_long_day(runs([2, 2, 6, 2]), mon) == "wed"          # 3 of 4 on Wednesday
+    assert learn_long_day(runs([2, 6, 6, 2]), mon) is None           # no clear pattern: keep the plan
+    cfg = dict(CFG, _learned_days={"run": "wed"})
+    phase = phase_for(mon, cfg)
+    tpl, base = template_for(phase, cfg), template_for(phase, CFG)
+    assert key_day(tpl, "run_long") == 2 and key_day(base, "run_long") == 6
+    # spacing is preserved: quality is still 2 days after the long run
+    assert key_day(tpl, "run_quality") == (key_day(tpl, "run_long") + 2) % 7
+    # the daily report explains the move
+    with tempfile.TemporaryDirectory() as tmp:
+        api = FakeGarmin(mon)
+        api.acts = [a for a in api.acts if a["activityType"]["typeKey"] != "running"]
+        for a in runs([2, 2, 2, 6]):
+            api.acts.append(act(a["date"], "running", a["distance_km"], a["duration_min"]))
+        res = engine.run_day(api, CFG, mon, state_path=Path(tmp) / "s.json")
+        assert any("instead of Sunday" in n for n in res["notes"])
+
+
+def test_setup_rerun_keeps_current_settings_and_races():
+    """Re-running setup starts from config.yaml: Enter + Enter keeps everything, including tweaks."""
+    import shutil
+    from coach import setup_wizard
+    future = (dt.date.today() + dt.timedelta(days=60)).isoformat()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        wf = root / ".github" / "workflows"
+        wf.mkdir(parents=True)
+        shutil.copy(Path(__file__).resolve().parent.parent / ".github" / "workflows" / "coach.yml", wf)
+        first = iter(["3", "4", "sun", "mon", "", "Zürcher Silvesterlauf", "5", "8.5", future, "B", ""])
+        setup_wizard.run(root, ask=lambda p: next(first), suggestions={})
+        cfg_file = root / "config.yaml"
+        cfg_file.write_text(cfg_file.read_text().replace("min_long_run_km: 0", "min_long_run_km: 8"))
+        prompts = []
+        again = iter(["", ""])
+        sug = {"found": ["x"], "sport": "tri", "run_days": 3, "long_day": "wed", "rest_day": "thu", "pace": "5:18"}
+        setup_wizard.run(root, ask=lambda p: prompts.append(p) or next(again), suggestions=sug)
+        cfg = yaml.safe_load(cfg_file.read_text())
+    assert cfg["races"][0]["name"] == "Zürcher Silvesterlauf" and cfg["races"][0]["priority"] == "B"
+    assert cfg["min_long_run_km"] == 8
+    assert cfg["weekly_templates"]["run_focus"]["sun"] == ["run_long"]     # kept Sunday, not Garmin's Wednesday
+    assert cfg["weekly_templates"]["run_focus"]["mon"] == ["rest"]
+    assert any("keep them" in p for p in prompts) and not any("Race 1 name" in p for p in prompts)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -252,13 +252,62 @@ def _round_half(x: float) -> float:
     return round(x * 2) / 2
 
 
-def template_for(phase: Phase, cfg: dict) -> dict:
+def _configured_template(phase: Phase, cfg: dict) -> dict:
     tpls = cfg["weekly_templates"]
     if phase.focus == "tri":
         return tpls["triathlon"]
     if phase.focus == "bike":
         return tpls.get("cycling") or tpls["run_focus"]
     return tpls["run_focus"]
+
+
+def key_session(phase: Phase) -> tuple[str, str]:
+    """The session the week is built around: (template kind, sport learned from)."""
+    return ("bike_long", "bike") if phase.focus == "bike" else ("run_long", "run")
+
+
+def key_day(template: dict, kind: str) -> int | None:
+    for i, day in enumerate(WEEKDAYS):
+        if kind in (template.get(day) or []):
+            return i
+    return None
+
+
+def _rotate(template: dict, frm: int, to: int) -> dict:
+    """Shifts the whole week so the session on day `frm` lands on day `to`,
+    keeping the spacing between hard days, the long day and the rest day."""
+    off = (to - frm) % 7
+    return {WEEKDAYS[(i + off) % 7]: template.get(WEEKDAYS[i], []) for i in range(7)}
+
+
+def template_for(phase: Phase, cfg: dict) -> dict:
+    tpl = _configured_template(phase, cfg)
+    kind, sport = key_session(phase)
+    learned = (cfg.get("_learned_days") or {}).get(sport)
+    cur = key_day(tpl, kind)
+    if learned in WEEKDAYS and cur is not None and WEEKDAYS.index(learned) != cur:
+        tpl = _rotate(tpl, cur, WEEKDAYS.index(learned))
+    return tpl
+
+
+def learn_long_day(activities: list[dict], d: dt.date, sport: str = "run",
+                   weeks: int = 4, need: int = 3) -> str | None:
+    """Weekday of your longest run (or ride) if it was the same in at least
+    `need` of the last `weeks` complete weeks; otherwise None."""
+    from collections import Counter
+    mon = monday_of(d)
+    days = []
+    for k in range(1, weeks + 1):
+        lo, hi = mon - dt.timedelta(weeks=k), mon - dt.timedelta(weeks=k - 1)
+        items = [a for a in activities if a["sport"] == sport and lo.isoformat() <= a["date"] < hi.isoformat()]
+        if len(items) < 2:
+            continue
+        longest = max(items, key=lambda a: a["distance_km"] if sport == "run" else a["duration_min"])
+        days.append(dt.date.fromisoformat(longest["date"]).weekday())
+    if not days:
+        return None
+    day, n = Counter(days).most_common(1)[0]
+    return WEEKDAYS[day] if n >= need else None
 
 
 LONG_RIDE_SHARE = {"base": 0.55, "build": 0.7, "peak": 0.85, "taper": 0.5, "race_week": 0.3, "transition": 0.3}

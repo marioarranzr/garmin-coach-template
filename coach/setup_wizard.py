@@ -234,7 +234,7 @@ min_weekly_run_km: 15
 return_to_run_below_km: 10
 # The long run is never shorter than ~10 % above your longest run of the last
 # 6 weeks (outside taper and race weeks). Set a minimum here if you want one.
-min_long_run_km: 0
+min_long_run_km: {answers.get('min_long_run_km', 0):g}
 
 # Weekly riding hours in a cycling block: grows ≈ +8 %/week from your last
 # 4 weeks, between these limits. Long rides build towards the event's duration.
@@ -261,7 +261,7 @@ garmin:
   # data/garmin_tokens.enc instead.
   tokenstore: ~/.garminconnect
   upload: true
-  workout_prefix: "Coach"
+  workout_prefix: {_yaml_str(answers.get('prefix', 'Coach'))}
   # Morning runs wait for last night's sleep to reach Garmin (until you wake up
   # and your watch syncs). If the watch shows you're up but recorded no sleep,
   # or at this time at the latest, it plans without it.
@@ -452,6 +452,47 @@ def _guess_tz() -> str:
     return "UTC"
 
 
+def existing_setup(cfg: dict, workflow: str) -> dict:
+    """Reads the settings and races of an existing config.yaml (and workflow)."""
+    out: dict = {"races": [], "extras": {}}
+    ath = cfg.get("athlete") or {}
+    if ath.get("sports") in SPORT_NAME:
+        out["sport"] = ath["sports"]
+    if ath.get("easy_pace_min_per_km"):
+        out["pace"] = _fmt_pace(float(ath["easy_pace_min_per_km"]))
+    tpls = cfg.get("weekly_templates") or {}
+    rf = tpls.get("run_focus") or {}
+    runs = [d for d in DAYS if any(k.startswith("run_") for k in rf.get(d) or [])]
+    if runs:
+        out["run_days"] = len(runs)
+    long_tpl, long_kind = ((tpls.get("cycling") or {}), "bike_long") if out.get("sport") == "bike" else (rf, "run_long")
+    for d in DAYS:
+        if long_kind in (long_tpl.get(d) or []):
+            out["long_day"] = d
+        if (rf.get(d) or []) == ["rest"]:
+            out["rest_day"] = d
+    m = re.search(r"\n\s*TZ:\s*(\S+)", workflow)
+    if m and m.group(1) in available_timezones():
+        out["tz"] = m.group(1)
+        c = re.search(r'- cron:\s*"(\d+)\s+(\d+)', workflow)
+        if c:
+            zone = ZoneInfo(out["tz"])
+            std = min((dt.datetime(2026, 1, 15, 12, tzinfo=zone), dt.datetime(2026, 7, 15, 12, tzinfo=zone)),
+                      key=lambda x: x.utcoffset())
+            utc = dt.datetime(2026, std.month, 15, int(c.group(2)), int(c.group(1)), tzinfo=dt.timezone.utc)
+            out["wake"] = utc.astimezone(dt.timezone(std.utcoffset())).strftime("%H:%M")
+    for r in cfg.get("races") or []:
+        race = {k: r[k] for k in ("name", "kind", "distance_km", "elevation_m", "priority") if r.get(k) is not None}
+        race["date"] = str(r["date"])
+        out["races"].append(race)
+    g = cfg.get("garmin") or {}
+    out["extras"] = {"min_long_run_km": float(cfg.get("min_long_run_km") or 0),
+                     "until": str(g.get("wait_for_sleep_until", "10:00")),
+                     "prefix": g.get("workout_prefix", "Coach"),
+                     "pool": ath.get("pool_length_m")}
+    return out
+
+
 def _settings_lines(st: dict) -> list[tuple[str, str]]:
     bike = st["sport"] == "bike"
     return [
@@ -490,12 +531,13 @@ def _edit_setting(i: int, st: dict, ask) -> None:
                           lambda v: None if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", v) else "Use HH:MM", ask)
 
 
-def _review_settings(st: dict, from_garmin: bool, ask) -> None:
+def _review_settings(st: dict, title: str, ask, hints: dict | None = None) -> None:
+    hints = hints or {}
     while True:
-        title = "Proposed from your Garmin data" if from_garmin else "Proposed settings"
         print(f"{title}:")
         for n, (label, value) in enumerate(_settings_lines(st), 1):
-            print(f"  {n}. {label:<20} {value}")
+            hint = f"   (Garmin data suggests {hints[n]})" if n in hints and hints[n] != value else ""
+            print(f"  {n}. {label:<20} {value}{hint}")
         raw = ask("\nPress Enter to use these, or type the numbers to change (e.g. 3 4): ").strip()
         picks = [int(x) for x in re.findall(r"\d+", raw) if 1 <= int(x) <= 7]
         if not raw:
@@ -515,8 +557,26 @@ def _review_settings(st: dict, from_garmin: bool, ask) -> None:
         print()
 
 
-def _ask_races(sport: str, ask) -> list[dict]:
-    races = []
+def _race_line(r: dict) -> str:
+    label = next((v[1] for v in RACE_KINDS.values() if v[0] == r["kind"]), r["kind"])
+    extra = ""
+    if r["kind"] in ("road", "bike") and r.get("distance_km"):
+        extra = f", {r['distance_km']:g} km" + (f", {r['elevation_m']:g} m up" if r.get("elevation_m") else "")
+    return f"{r['date']}  {r['name']} ({label}{extra}), priority {r.get('priority', 'A')}"
+
+
+def _ask_races(sport: str, ask, existing: list[dict] | None = None) -> list[dict]:
+    races: list[dict] = []
+    upcoming = [r for r in existing or [] if str(r["date"]) >= dt.date.today().isoformat()]
+    if upcoming:
+        print("\nYour races:")
+        for r in upcoming:
+            print(f"  • {_race_line(r)}")
+        raw = ask("\nPress Enter to keep them, 'a' to add more, or 'n' to start over: ").strip().lower()
+        if raw in ("", "k", "keep", "y", "yes"):
+            return upcoming
+        if raw.startswith("a"):
+            races = list(upcoming)
     kinds = {k: RACE_KINDS[k] for k in KINDS_FOR_SPORT[sport]}
     default_kind = "8" if sport == "bike" else "2"
     print("\nYour races. Leave the name empty when you're done.")
@@ -545,7 +605,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
     sug = detect_from_garmin(root) if suggestions is None else suggestions
     if sug.get("found"):
         print("Found in your last 12 weeks: " + "; ".join(sug["found"]) + ".\n")
-    st = {
+    garmin = {
         "sport": sug.get("sport", "run"),
         "run_days": sug.get("run_days", 3),
         "long_day": sug.get("long_day", "sun"),
@@ -554,25 +614,43 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
         "tz": sug.get("tz") or _guess_tz(),
         "wake": "07:00",
     }
+    cfg_path = root / "config.yaml"
+    wf_path = root / ".github" / "workflows" / "coach.yml"
+    current: dict = {"races": [], "extras": {}}
+    if cfg_path.exists():
+        try:
+            import yaml
+            current = existing_setup(yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {},
+                                     wf_path.read_text(encoding="utf-8") if wf_path.exists() else "")
+        except Exception as e:  # noqa: BLE001 — a broken config just means starting fresh
+            print(f"(Couldn't read your current config.yaml: {e}. Starting from scratch.)\n")
+    st = dict(garmin)
+    st.update({k: current[k] for k in garmin if k in current})
     if st["rest_day"] == st["long_day"]:
         st["rest_day"] = "mon" if st["long_day"] != "mon" else "fri"
-    _review_settings(st, bool(sug.get("found")), ask)
-    races = _ask_races(st["sport"], ask)
+    if any(k in current for k in garmin):
+        hints = {n: v for n, (_, v) in enumerate(_settings_lines(garmin), 1)} if sug.get("found") else {}
+        _review_settings(st, "Your current settings", ask, hints)
+    else:
+        _review_settings(st, "Proposed from your Garmin data" if sug.get("found") else "Proposed settings", ask)
+    races = _ask_races(st["sport"], ask, current["races"])
+    extras = current["extras"]
 
     long_idx, rest_idx = DAYS.index(st["long_day"]), DAYS.index(st["rest_day"])
     answers = {"sport": st["sport"], "races": races, "easy_pace": _pace_to_float(st["pace"]),
-               "pool": sug.get("pool", 25),
+               "pool": sug.get("pool") or extras.get("pool") or 25,
+               "min_long_run_km": extras.get("min_long_run_km", 0),
+               "until": extras.get("until", "10:00"), "prefix": extras.get("prefix", "Coach"),
                "templates": build_templates(st["sport"], st["run_days"], long_idx, rest_idx),
                "peaks": peaks_for(st["sport"], st["run_days"])}
 
-    cfg_path = root / "config.yaml"
     if cfg_path.exists():
         backup = cfg_path.with_suffix(".yaml.bak")
         backup.write_text(cfg_path.read_text(encoding="utf-8"), encoding="utf-8")
         print(f"\nYour previous config was saved as {backup.name}.")
     cfg_path.write_text(render_config(answers), encoding="utf-8")
 
-    cron = cron_for(st["wake"], st["tz"])
+    cron = cron_for(st["wake"], st["tz"], answers["until"])
     wf = update_workflow(root / ".github" / "workflows" / "coach.yml", st["tz"], cron)
 
     def show(key, title):
@@ -592,6 +670,6 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
     print("\nDistances and intensities are set each day from your data and the phase of the plan.")
     if wf:
         print(f"GitHub workflow set to {st['tz']}: hourly from {st['wake']} until your sleep data arrives "
-              f"(at 10:00 at the latest; cron \"{cron}\" in UTC).")
+              f"(at {answers['until']} at the latest; cron \"{cron}\" in UTC).")
     print("\nNext: `python -m coach week` to preview it with your Garmin data.")
     return cfg_path

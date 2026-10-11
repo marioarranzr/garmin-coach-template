@@ -938,6 +938,26 @@ def test_workout_description_is_readable_and_read_back():
         assert (got["kind"], got["distance_km"]) == (kind, km), title
 
 
+def test_plan_is_pushed_to_your_phone_when_a_topic_is_set():
+    sent = []
+    day = dt.date(2026, 10, 18)
+    with fresh():
+        os.environ.pop("NTFY_TOPIC", None)
+        engine.run_day(FakeGarmin(day), CFG, day, poster=lambda url, p: sent.append(p))
+        assert sent == []                                   # off unless you set it up
+        os.environ["NTFY_TOPIC"] = "coach-test-topic"
+        try:
+            res = engine.run_day(FakeGarmin(day), CFG, day, poster=lambda url, p: sent.append((url, p)))
+            engine.run_day(FakeGarmin(day), CFG, day, upload=False, poster=lambda url, p: sent.append(p))
+        finally:
+            os.environ.pop("NTFY_TOPIC")
+    assert len(sent) == 1                                   # dry runs don't notify
+    url, p = sent[0]
+    assert url == "https://ntfy.sh" and p["topic"] == "coach-test-topic"
+    assert p["title"].startswith("Updated: Long run") and "Readiness" in p["message"]   # re-plan of the day
+    assert "Sent to your phone and watch" in res["report"]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

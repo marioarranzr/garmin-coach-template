@@ -305,6 +305,8 @@ session, refreshed so it stays logged in.
 - With the AI coach on, each day's data (Garmin metrics, recent activities,
   the plan and your notes) is sent to the AI provider's API (OpenAI or
   Anthropic). Leave both AI keys unset to keep everything rule-based.
+- With `NTFY_TOPIC` set, the day's plan, its why and your readiness score go
+  through ntfy.sh to your phone.
 
 ## Setup (about 15 minutes)
 
@@ -374,7 +376,7 @@ git push
 and variables → Actions → New repository secret**, name it
 `GARMIN_TOKENS_KEY` and paste the key.
 
-### 5. Optional: AI coach and notes
+### 5. Optional: AI coach, notes and watch notification
 
 **AI coach** (pay-per-use, one call per day with a few thousand tokens; set a
 monthly spending limit with your provider):
@@ -387,6 +389,20 @@ With `ai.provider: auto` it uses whichever key is set (OpenAI if both).
 
 **Notes from Todoist:** copy your API token (Todoist → Settings →
 Integrations → Developer) and add it as the secret `TODOIST_API_TOKEN`.
+
+**Today's plan on your watch.** Garmin watches only show calendar workouts
+when you start an activity, and the watch's Calendar glance shows your phone's
+calendar, not Garmin's. So the coach can also send the plan as a phone
+notification, which your watch mirrors and keeps in its notification list:
+1. Install the free [ntfy](https://ntfy.sh) app (iOS or Android), no account.
+2. Subscribe to a topic with a long random name, e.g. `coach-7f3k9q2xw8`.
+   Anyone who knows the name can read it, so don't use a guessable one.
+3. Add that name as the secret `NTFY_TOPIC`.
+4. Make sure your watch shows ntfy notifications (Garmin Connect app →
+   your watch → Notifications).
+
+You get "Today: Long run 12 km" with the why and the coach's note as soon as
+the day is planned, and "Updated: …" if it re-plans.
 
 ### 6. Test it
 
@@ -449,7 +465,7 @@ runs whatever is in your repository, so commit and push the file after
 changing them.
 
 **Secrets:** `GARMIN_TOKENS_KEY` (required), `OPENAI_API_KEY` or
-`ANTHROPIC_API_KEY` (AI coach), `TODOIST_API_TOKEN` (notes).
+`ANTHROPIC_API_KEY` (AI coach), `TODOIST_API_TOKEN` (notes), `NTFY_TOPIC` (plan as a watch notification).
 
 ## Keeping your copy up to date
 
@@ -511,6 +527,7 @@ Zones) or do your watch's guided threshold test.
 | `coach/why.py` | The one-line explanation of each day |
 | `coach/ai.py` | AI coach: final call within code-enforced limits |
 | `coach/notes.py` | Your notes and training diary in Todoist |
+| `coach/notify.py` | The optional notification with today's plan |
 | `coach/calendar.py` | Reads back what the coach planned from your Garmin calendar |
 | `coach/engine.py` | Orchestrates the day and writes the report |
 | `coach/workouts.py` | Conversion to Garmin structured workouts |

@@ -576,13 +576,18 @@ def test_heavy_multisport_block_shortens_the_long_run():
 
 # ── AI coach and Todoist notes (fakes, no network) ─────────────────────────
 class FakeTodoist:
-    """Inbox notes: (time "hh:mm" today or a datetime, text[, already done])."""
+    """Inbox notes: (time "hh:mm" today or a datetime, text[, already done[, recurring]])."""
     def __init__(self, notes):
         from types import SimpleNamespace as NS
         self.day = None
         self.notes = notes
         self.NS = NS
         self.completed = []
+        self.updated = []
+
+    def update_task(self, task_id, **kw):
+        self.updated.append((task_id, kw))
+        return True
 
     def _items(self):
         for i, n in enumerate(self.notes):
@@ -590,7 +595,9 @@ class FakeTodoist:
             if isinstance(when, str):
                 when = dt.datetime.combine(self.day, dt.time(*map(int, when.split(":"))))
             done = (len(n) > 2 and n[2]) or f"t{i}" in self.completed
-            yield self.NS(id=f"t{i}", content=text, description="", project_id="inbox", created_at=when), done
+            due = self.NS(is_recurring=True, string="every thu") if len(n) > 3 and n[3] else None
+            yield self.NS(id=f"t{i}", content=text, description="", project_id="inbox", created_at=when,
+                          due=due), done
 
     def get_projects(self):
         yield [self.NS(id="p1", name="Work", is_inbox_project=False),
@@ -833,6 +840,18 @@ def test_update_command_keeps_your_settings():
         assert "TZ: Asia/Tokyo" in flow and '"0 22-23,0-1 * * *"' in flow and "NEW_SECRET" in flow
         assert (mine / "coach" / "why.py").read_text().endswith("# improved\n")
         assert update(mine, url=str(tpl)) == 0                    # already up to date
+
+
+def test_recurring_note_is_really_completed():
+    """A note Todoist made recurring would just move to its next date: its date is removed first."""
+    answer = {"decision": "rest", "sessions": [{"kind": "rest", "distance_km": None, "minutes": None}],
+              "why": "Rest: heavy legs.", "coach_note": "", "notes_used": ["t0", "t1"]}
+    with tempfile.TemporaryDirectory() as tmp:
+        res, _, _ = _ai_day(answer, notes=[("07:40", "legs heavy", False, True), ("07:50", "slept badly")],
+                            state_path=Path(tmp) / "s.json")
+    todo = res["todo"]
+    assert todo.updated == [("t0", {"due_string": "no date"})]     # only the recurring one
+    assert sorted(todo.completed) == ["t0", "t1"]
 
 
 if __name__ == "__main__":

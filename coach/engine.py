@@ -195,7 +195,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     # notes the coach used: complete them in Todoist (real runs only) and remember them for today
     used = [n for n in open_notes if n["id"] in set(coach.get("notes_used") or [])]
     if upload and used:
-        completed = complete_notes([n["id"] for n in used], api=notes_api)
+        completed = complete_notes([n["id"] for n in used], api=notes_api,
+                                   recurring={n["id"] for n in used if n.get("recurring")})
         coach["completed"] = completed
     used_texts = today_rec.get("notes_used_texts", []) + [{"time": n["time"], "text": n["text"]} for n in used]
 

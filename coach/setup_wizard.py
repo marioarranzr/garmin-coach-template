@@ -285,6 +285,9 @@ todoist:
   enabled: {str(answers.get('todoist_enabled', True)).lower()}
   project: {_yaml_str(answers.get('todoist_project', 'Inbox'))}
   lookback_hours: {answers.get('todoist_lookback_hours', 12)}
+  # Notes the coach used are kept as a training diary, and the AI also sees
+  # the last `history_days` of it to learn how you respond to training.
+  history_days: {answers.get('todoist_history_days', 28)}
 """
 
 
@@ -516,7 +519,8 @@ def existing_setup(cfg: dict, workflow: str) -> dict:
                      or (cfg.get("ai") or {}).get("model", "claude-sonnet-5-5"),
                      "todoist_enabled": (cfg.get("todoist") or {}).get("enabled", True),
                      "todoist_project": (cfg.get("todoist") or {}).get("project", "Inbox"),
-                     "todoist_lookback_hours": (cfg.get("todoist") or {}).get("lookback_hours", 12)}
+                     "todoist_lookback_hours": (cfg.get("todoist") or {}).get("lookback_hours", 12),
+                     "todoist_history_days": (cfg.get("todoist") or {}).get("history_days", 28)}
     return out
 
 
@@ -670,7 +674,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
                "until": extras.get("until", "10:00"), "prefix": extras.get("prefix", "Coach"),
                **{k: extras[k] for k in ("ai_enabled", "ai_provider", "openai_model", "anthropic_model",
                                          "todoist_enabled", "todoist_project",
-                                         "todoist_lookback_hours") if k in extras},
+                                         "todoist_lookback_hours", "todoist_history_days") if k in extras},
                "templates": build_templates(st["sport"], st["run_days"], long_idx, rest_idx),
                "peaks": peaks_for(st["sport"], st["run_days"])}
 

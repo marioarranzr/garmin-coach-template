@@ -130,3 +130,6 @@ todoist:
   enabled: true
   project: Inbox
   lookback_hours: 12
+  # Notes the coach used are kept as a training diary, and the AI also sees
+  # the last `history_days` of it to learn how you respond to training.
+  history_days: 28

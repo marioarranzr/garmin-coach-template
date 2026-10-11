@@ -75,6 +75,10 @@ watch for). No generic motivation.
 - "notes_used": the ids of the athlete notes that are about how they feel or their training \
 and that you took into account, or []. Never include unrelated notes (they stay in the athlete's \
 to-do list). Notes listed under "earlier_notes_today" were already used; don't list them again.
+- "notes_history" holds the athlete's notes from previous weeks, each with what they trained that day \
+and the day before and their readiness. Use it to learn how this athlete responds (which loads leave \
+them heavy or sore, what they recover well from) and to spot recurring niggles. It describes the \
+past, not how they feel today; never list those notes in "notes_used".
 - Distances in km for runs, minutes for rides; null where not applicable."""
 
 
@@ -106,7 +110,8 @@ def _session_json(s: Session) -> dict:
 
 def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict, proposal: list[Session],
                   planned: list[Session], notes: list[dict], acts: list[dict], rule_notes: list[str],
-                  rule_why: str, earlier_notes: list[dict] | None = None) -> dict:
+                  rule_why: str, earlier_notes: list[dict] | None = None,
+                  notes_history: list[dict] | None = None) -> dict:
     keep_w = ("sleep_hours", "sleep_score", "hrv_last_night", "hrv_weekly_avg", "hrv_status", "hrv_baseline_low",
               "hrv_baseline_high", "body_battery_wake", "rhr", "rhr_7d", "stress_yesterday", "training_readiness",
               "training_status", "acwr", "steps_today", "after_training", "last_sync")
@@ -134,6 +139,7 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
         "rule_one_line_why": rule_why,
         "athlete_notes_today": notes,
         "earlier_notes_today": earlier_notes or [],
+        "notes_history": notes_history or [],
     }
 
 

@@ -854,6 +854,42 @@ def test_recurring_note_is_really_completed():
     assert sorted(todo.completed) == ["t0", "t1"]
 
 
+def test_training_diary_feeds_later_decisions():
+    """A note used on Sunday is in the AI's notes_history on Wednesday, with what was trained around it."""
+    sunday, wednesday = dt.date(2026, 10, 18), dt.date(2026, 10, 21)
+    answer = {"decision": "keep", "sessions": [{"kind": "run_long", "distance_km": 10, "minutes": None}],
+              "why": "As planned.", "coach_note": "", "notes_used": ["t0"]}
+    with tempfile.TemporaryDirectory() as tmp:
+        sp = Path(tmp) / "s.json"
+        todo = FakeTodoist([("07:40", "legs heavy after two long rides")])
+        todo.day = sunday
+        api = FakeGarmin(sunday)
+        engine.run_day(api, CFG, sunday, state_path=sp, notes_api=todo, ai_client=FakeClaude(answer),
+                       now=dt.datetime.combine(sunday, dt.time(8)))
+        assert json.loads(sp.read_text())["journal"] == [
+            {"date": "2026-10-18", "time": "07:40", "text": "legs heavy after two long rides"}]
+        later = FakeTodoist([])
+        later.day = wednesday
+        claude = FakeClaude(dict(answer, notes_used=[]))
+        res = engine.run_day(FakeGarmin(wednesday), CFG, wednesday, state_path=sp, notes_api=later,
+                             ai_client=claude, now=dt.datetime.combine(wednesday, dt.time(8)))
+    sent = json.loads(claude.requests[0]["messages"][0]["content"].split("\n", 1)[1])
+    hist = sent["notes_history"]
+    assert len(hist) == 1 and hist[0]["note"] == "legs heavy after two long rides"
+    assert hist[0]["trained_day_before"] and hist[0]["readiness"] is not None and hist[0]["coach_plan_that_day"]
+    assert "Coach memory: 1 of your notes" in res["report"]
+
+
+def test_diary_is_filled_from_earlier_records():
+    sp_data = {"days": {"2026-10-11": {"notes_used_texts": [{"time": "17:45", "text": "legs heavy"}],
+                                       "final": [], "readiness": {"score": 63}}}, "weeks": {}}
+    with tempfile.TemporaryDirectory() as tmp:
+        sp = Path(tmp) / "s.json"
+        sp.write_text(json.dumps(sp_data))
+        hist = engine.notes_history(engine.State(sp), [], dt.date(2026, 10, 14), CFG)
+    assert hist[0]["note"] == "legs heavy" and hist[0]["readiness"] == 63
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

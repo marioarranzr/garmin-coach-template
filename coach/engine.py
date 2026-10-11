@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import os
 from pathlib import Path
 
 from . import garmin_api as G
@@ -114,6 +115,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload)
     if upload:  # a dry run only prints the report and leaves no files behind
         state.save()
+    if upload and not os.environ.get("GITHUB_ACTIONS"):
+        # local runs keep a copy; on GitHub the report is in the run summary
         rep_dir = ROOT / "reports"
         rep_dir.mkdir(exist_ok=True)
         (rep_dir / f"{d.isoformat()}.md").write_text(report, encoding="utf-8")

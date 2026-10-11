@@ -44,8 +44,8 @@ everything easy until your legs adapt.
 - Skipping swims? The next swim is flagged as a priority.
 
 **5. Uploads the workout to Garmin** with the reasons for any change in its
-description, and saves a daily report in `reports/` (also shown in the
-GitHub Actions run summary).
+description, and shows a daily report in the GitHub Actions run summary
+(local runs also save it in `reports/`, which git ignores).
 
 Example report:
 
@@ -68,9 +68,11 @@ Return-to-running mode: volume grows ~20 %/week from 10 km and there are no hard
 
 ## Privacy: always use a private copy
 
-The daily job commits your health data (`data/state.json`, `reports/`) and your
-**encrypted** Garmin session (`data/garmin_tokens.enc`) to the repository so
-it can remember yesterday's plan and stay logged in. That's why:
+The daily job commits two files to the repository: `data/state.json` (each
+day's plan and readiness score, so it can compare yesterday's plan with what
+you did and replace a re-run's workout instead of duplicating it) and your
+**encrypted** Garmin session (`data/garmin_tokens.enc`, refreshed so it stays
+logged in). That's why:
 
 - You run it from your **own private** repository, never from a public one.
   The daily workflow checks this and refuses to run in a public repository.

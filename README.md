@@ -52,6 +52,9 @@ your longest recent run (+10 %), or a minimum you set.
 - Skipped the long run? It isn't made up: better to lose one than pile up fatigue.
 - Ahead of this week's volume? 15 % cut.
 - Skipping swims? The next swim is flagged as a priority.
+- Doing your long run on a different day than planned? If your longest run
+  falls on the same weekday in 3 of the last 4 weeks, the week moves so the
+  long run lands there (the report tells you).
 - Re-planning later in the day? Sessions you've already done today aren't
   added again, and after a big ride or swim today's run stays easy.
 
@@ -133,7 +136,9 @@ zone. Press Enter to accept them all, or type the numbers you want to change.
 Then add your races: name, type (with distance and elevation for cycling
 events), date and priority. It writes `config.yaml` and sets the time zone and
 daily time in `.github/workflows/coach.yml`. Run it again whenever your goals
-change, or edit `config.yaml` by hand for finer control.
+change: it starts from your current settings and races (Enter keeps them, and
+it shows where your Garmin data suggests something different), or edit
+`config.yaml` by hand for finer control.
 
 Check the result with your real data:
 

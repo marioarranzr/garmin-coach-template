@@ -87,6 +87,7 @@ def main(argv=None):
     if a.cmd == "week":
         state = State(ROOT / "data" / "state.json")
         acts = G.fetch_activities(api, d - dt.timedelta(days=35), d - dt.timedelta(days=1))
+        cfg = dict(cfg, _learned_days=state.data.get("schedule", {}))
         wt = week_target(state, acts, d, cfg)
         print(f"Phase: {phase_for(d, cfg).describe()}")
         print(f"Running target this week: {wt['target_km']} km "

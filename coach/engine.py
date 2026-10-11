@@ -9,7 +9,8 @@ from pathlib import Path
 
 from . import garmin_api as G
 from .adjust import adjust
-from .planner import (Session, compute_week_target, monday_of, phase_for, plan_day,
+from .planner import (Session, compute_week_target, key_day, key_session, learn_long_day, monday_of,
+                      phase_for, plan_day,
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
 from .readiness import compliance, compute, consecutive_days, own_acwr
 from .workouts import to_garmin
@@ -75,6 +76,15 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     acts = G.fetch_activities(api, d - dt.timedelta(days=35), d)
     past = [a for a in acts if a["date"] < d.isoformat()]
 
+    # learn where you actually do your long run/ride (3 of the last 4 weeks)
+    learned = state.data.setdefault("schedule", {})
+    for sport in ("run", "bike"):
+        day = learn_long_day(past, d, sport)
+        if day:
+            learned[sport] = day
+    configured = cfg
+    cfg = dict(cfg, _learned_days=dict(learned))
+
     wt = week_target(state, past, d, cfg)
     week_km = wt["target_km"]
     ret = wt.get("return_mode", False)
@@ -118,6 +128,13 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     }
     r = compute(wellness, ctx)
     final, notes = adjust(planned, r, ctx, phase, tomorrow)
+    kind, sport = key_session(phase)
+    was, now_day = key_day(template_for(phase, configured), kind), key_day(template_for(phase, cfg), kind)
+    if was is not None and now_day is not None and was != now_day:
+        what = "long ride" if sport == "bike" else "long run"
+        names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        notes.append(f"Your {what} has been on {names[now_day]} in most of the last 4 weeks, so the plan puts it "
+                     f"there instead of {names[was]} (the rest of the week moves with it).")
     final = account_for_today(final, [a for a in acts if a["date"] == d.isoformat()], phase, notes)
 
     # ── Garmin ──

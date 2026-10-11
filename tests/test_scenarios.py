@@ -15,7 +15,7 @@ from coach.planner import plan_day, phase_for  # noqa: E402
 from coach.workouts import to_garmin  # noqa: E402
 
 # the tests never call the real Claude or Todoist APIs
-for _k in ("ANTHROPIC_API_KEY", "TODOIST_API_TOKEN"):
+for _k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "TODOIST_API_TOKEN"):
     os.environ.pop(_k, None)
 
 CFG = yaml.safe_load((Path(__file__).resolve().parent / "test_config.yaml").read_text(encoding="utf-8"))
@@ -581,6 +581,11 @@ class FakeTodoist:
         self.day = None
         self.notes = notes
         self.NS = NS
+        self.completed = []
+
+    def complete_task(self, task_id):
+        self.completed.append(task_id)
+        return True
 
     def get_projects(self):
         yield [self.NS(id="p1", name="Work", is_inbox_project=False),
@@ -594,6 +599,8 @@ class FakeTodoist:
 
 
 class FakeClaude:
+    provider = "anthropic"
+
     def __init__(self, answer=None, fail=False):
         from types import SimpleNamespace as NS
         self.answer, self.fail, self.requests = answer, fail, []
@@ -607,14 +614,32 @@ class FakeClaude:
         return NS(content=[NS(type="text", text=json.dumps(self.answer))])
 
 
-def _ai_day(answer=None, notes=(), fail=False, now=None, state_path=None, wait=False, api=None):
+class FakeOpenAI:
+    provider = "openai"
+
+    def __init__(self, answer=None, fail=False):
+        from types import SimpleNamespace as NS
+        self.answer, self.fail, self.requests = answer, fail, []
+        self.chat = NS(completions=NS(create=self._create))
+
+    def _create(self, **kw):
+        from types import SimpleNamespace as NS
+        self.requests.append(kw)
+        if self.fail:
+            raise RuntimeError("rate limited")
+        return NS(choices=[NS(message=NS(content=json.dumps(self.answer), refusal=None))])
+
+
+def _ai_day(answer=None, notes=(), fail=False, now=None, state_path=None, wait=False, api=None,
+            client_cls=None, upload=True, todo=None):
     day = dt.date(2026, 10, 18)                     # Sunday: long run planned
-    todo = FakeTodoist(list(notes))
+    todo = todo or FakeTodoist(list(notes))
     todo.day = day
-    claude = FakeClaude(answer, fail)
+    claude = (client_cls or FakeClaude)(answer, fail)
     api = api or FakeGarmin(day)
     res = engine.run_day(api, CFG, day, state_path=state_path, notes_api=todo, ai_client=claude,
-                         now=now or dt.datetime.combine(day, dt.time(9)), wait_for_sleep=wait)
+                         now=now or dt.datetime.combine(day, dt.time(9)), wait_for_sleep=wait, upload=upload)
+    res["todo"] = todo
     return res, claude, api
 
 
@@ -622,7 +647,7 @@ def test_ai_coach_can_choose_rest_from_your_note():
     answer = {"decision": "rest", "sessions": [{"kind": "rest", "distance_km": None, "minutes": None}],
               "why": "Rest today: you mention knee pain, and running on it risks a longer layoff.",
               "coach_note": "Ice it and see how it feels tomorrow; an easy swim is fine if it doesn't hurt.",
-              "notes_used": ["knee hurts a bit"]}
+              "notes_used": ["t0"]}
     with tempfile.TemporaryDirectory() as tmp:
         res, claude, api = _ai_day(answer, notes=[("07:40", "knee hurts a bit"), ("08:05", "buy milk")],
                                    state_path=Path(tmp) / "s.json")
@@ -634,6 +659,7 @@ def test_ai_coach_can_choose_rest_from_your_note():
     assert sent["athlete_notes_today"][0]["text"] == "knee hurts a bit"
     assert sent["rule_proposal_today"] and sent["activities_last_14_days"]
     assert api.uploaded[0]["description"].startswith("Rest today")
+    assert res["todo"].completed == ["t0"]                  # the knee note, not "buy milk"
 
 
 def test_ai_coach_cannot_exceed_the_plan():
@@ -680,6 +706,45 @@ def test_ai_never_adds_training_to_a_rest_day():
                               {"kind": "swim_technique", "distance_km": None, "minutes": None}],
                              [make_rest()], phase, 0)
     assert [s.kind for s in out] == ["rest"]
+
+
+def test_openai_provider_and_note_completion():
+    """OpenAI decides; only the training note is completed, and only on real runs."""
+    answer = {"decision": "adjust", "sessions": [{"kind": "run_easy", "distance_km": 5, "minutes": None}],
+              "why": "Easy 5 km: you say your legs feel heavy after the rides.", "coach_note": "Keep it chatty.",
+              "notes_used": ["t1", "nonexistent"]}
+    notes = [("07:10", "call the bank"), ("07:45", "legs heavy")]
+    with tempfile.TemporaryDirectory() as tmp:
+        res, oai, _ = _ai_day(answer, notes=notes, state_path=Path(tmp) / "s.json", client_cls=FakeOpenAI)
+        assert [s.kind for s in res["final"]] == ["run_easy"] and res["final"][0].distance_km == 5
+        assert oai.requests[0]["response_format"]["json_schema"]["strict"] is True
+        assert res["todo"].completed == ["t1"]                    # not "call the bank", not unknown ids
+        assert "Completed in Todoist: 1 note(s)" in res["report"]
+        # a later re-plan the same day still knows the note it already used
+        later, oai2, _ = _ai_day(answer, notes=[("07:10", "call the bank"), ("09:30", "feeling better")],
+                                 state_path=Path(tmp) / "s.json", client_cls=FakeOpenAI,
+                                 now=dt.datetime.combine(dt.date(2026, 10, 18), dt.time(10)))
+        sent = json.loads(oai2.requests[0]["messages"][1]["content"].split("\n", 1)[1])
+        assert sent["earlier_notes_today"] == [{"time": "07:45", "text": "legs heavy"}]
+    with tempfile.TemporaryDirectory() as tmp:                     # dry run: nothing completed
+        res, _, _ = _ai_day(answer, notes=notes, state_path=Path(tmp) / "s.json", client_cls=FakeOpenAI,
+                            upload=False)
+        assert res["todo"].completed == []
+
+
+def test_ai_provider_selection():
+    from coach import ai
+    cfg = {"ai": {"provider": "auto"}}
+    os.environ["OPENAI_API_KEY"] = "x"
+    try:
+        assert ai.provider(cfg) == "openai" and ai.model_for(cfg, "openai") == "gpt-5.4-mini"
+        os.environ["ANTHROPIC_API_KEY"] = "y"
+        assert ai.provider({"ai": {"provider": "anthropic"}}) == "anthropic"
+        assert ai.provider({"ai": {"enabled": False}}) is None
+    finally:
+        os.environ.pop("OPENAI_API_KEY", None)
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+    assert ai.provider(cfg) is None
 
 
 if __name__ == "__main__":

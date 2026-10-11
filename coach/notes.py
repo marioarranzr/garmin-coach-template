@@ -64,3 +64,27 @@ def todays_notes(cfg: dict, now: dt.datetime, api=None) -> list[dict]:
     except Exception as e:  # noqa: BLE001 — notes are optional
         log.warning("Couldn't read Todoist notes: %s", e)
         return []
+
+
+def complete_notes(ids: list[str], api=None) -> list[str]:
+    """Completes (not deletes) the notes the coach used, so they leave your Inbox
+    but stay in Todoist's completed history. Returns the ids completed."""
+    if not ids:
+        return []
+    token = os.environ.get(TOKEN_ENV)
+    if api is None and not token:
+        return []
+    done = []
+    try:
+        if api is None:
+            from todoist_api_python.api import TodoistAPI
+            api = TodoistAPI(token)
+        for task_id in ids:
+            try:
+                api.complete_task(task_id)
+                done.append(task_id)
+            except Exception as e:  # noqa: BLE001
+                log.warning("Couldn't complete Todoist note %s: %s", task_id, e)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Couldn't complete Todoist notes: %s", e)
+    return done

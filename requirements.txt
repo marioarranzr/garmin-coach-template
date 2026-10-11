@@ -3,3 +3,4 @@ pyyaml>=6.0
 cryptography>=42
 anthropic>=1.13
 todoist-api-python>=4.0
+openai>=3.0

@@ -37,12 +37,35 @@ def _apply_schedule(path: Path, tz: str | None, cron: str | None) -> None:
 
 
 def run(root: Path, url: str = TEMPLATE_URL, branch: str = "main") -> int:
+    try:
+        return _run(root, url, branch)
+    except subprocess.CalledProcessError as e:
+        cmd = " ".join(e.cmd)
+        detail = (e.stderr or e.stdout or "").strip()
+        print(f"\n❌ `{cmd}` failed:\n{detail}\n")
+        if "fetch" in e.cmd:
+            print(f"Check the template remote with `git remote -v` (it should be {url})\n"
+                  "and that you're online. Fix it with:\n"
+                  f"  git remote set-url template {url}")
+        elif "Please tell me who you are" in detail:
+            print("Git needs your name and email once:\n"
+                  '  git config --global user.name "Your Name"\n'
+                  '  git config --global user.email "you@example.com"')
+        print("Nothing was changed. If a merge was started, `git merge --abort` undoes it.")
+        return 1
+
+
+def _run(root: Path, url: str, branch: str) -> int:
     if _git("status", "--porcelain", root=root).stdout.strip():
         print("You have uncommitted changes. Commit or stash them first, then run the update again.")
         return 1
     remotes = _git("remote", root=root).stdout.split()
     if "template" not in remotes:
         _git("remote", "add", "template", url, root=root)
+    else:
+        current = _git("remote", "get-url", "template", root=root).stdout.strip()
+        if current.rstrip("/").removesuffix(".git") != url.rstrip("/").removesuffix(".git"):
+            print(f"Note: your 'template' remote points to {current}, not {url}.")
     print(f"Fetching the template ({url})…")
     _git("fetch", "template", branch, root=root)
     ref = f"template/{branch}"

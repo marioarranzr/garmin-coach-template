@@ -1,0 +1,79 @@
+name: Daily workout
+
+on:
+  schedule:
+    # GitHub cron runs in UTC: 06:00 UTC = 7:00 CET / 8:00 CEST.
+    # Change it to suit your time zone. Scheduled runs can be delayed a few minutes.
+    - cron: "0 6 * * *"
+  workflow_dispatch:        # "Run workflow" button (also from the GitHub mobile app)
+    inputs:
+      dry_run:
+        description: "Analyze only, don't upload to Garmin"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write           # to save history, reports and refreshed tokens
+
+concurrency:
+  group: coach
+  cancel-in-progress: false
+
+jobs:
+  coach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TZ: Europe/Madrid     # your time zone, so "today" is your local date
+      GARMIN_TOKENS_KEY: ${{ secrets.GARMIN_TOKENS_KEY }}
+    steps:
+      # The coach commits your health data and your encrypted Garmin session,
+      # so it refuses to run in a public repository.
+      - name: Safety check
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          private=$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)
+          if [ "$private" != "true" ]; then
+            echo "::warning::This repository is public. Garmin Coach stores personal health data and your Garmin session in the repository, so it only runs in a PRIVATE copy. See the README."
+            echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "$GARMIN_TOKENS_KEY" ]; then
+            echo "::notice::The GARMIN_TOKENS_KEY secret isn't set yet. Follow the setup in the README."
+            echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v5
+        if: steps.guard.outputs.run == 'true'
+
+      - uses: actions/setup-python@v6
+        if: steps.guard.outputs.run == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        if: steps.guard.outputs.run == 'true'
+        run: pip install -r requirements.txt
+
+      - name: Daily workout
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            python -m coach run --dry-run
+          else
+            python -m coach run
+          fi
+
+      - name: Save history and tokens
+        if: always() && steps.guard.outputs.run == 'true'
+        run: |
+          git config user.name "garmin-coach-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data reports || true
+          if ! git diff --cached --quiet; then
+            git commit -m "Workout $(date +%F)"
+            git push
+          fi

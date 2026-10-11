@@ -1,0 +1,77 @@
+# ─────────────────────────────────────────────────────────────
+#  Fixed configuration used by the tests (independent of config.yaml)
+# ─────────────────────────────────────────────────────────────
+
+athlete:
+  # Approximate easy pace (min/km). Only used to estimate workout duration
+  # in Garmin; intensity targets are heart-rate zones.
+  easy_pace_min_per_km: 5.8
+  pool_length_m: 25
+
+# Monday from which the 4-week cycles (3 load + 1 deload) are counted.
+plan_start: 2026-10-12
+
+# Target races.
+#   kind: road (with distance_km) | 5k | 10k | half | marathon | tri_sprint | tri_olympic
+races:
+  - name: Autumn 8.5 km race
+    date: 2026-12-13
+    kind: road
+    distance_km: 8.5
+    priority: B
+  - name: Spring half marathon
+    date: 2027-04-11
+    kind: half
+    distance_km: 21.1
+    priority: A
+  - name: Summer sprint triathlon
+    date: 2027-06-27
+    kind: tri_sprint
+    priority: A
+
+# Maximum weekly running km per goal. The script ramps volume up gradually
+# (≈ +8 %/week) from what you actually ran over the last 4 weeks.
+peak_weekly_run_km:
+  short: 32
+  half: 42
+  tri: 30
+min_weekly_run_km: 15
+# Return-to-running mode: if your last 4 weeks average less than this many
+# km/week of running, the plan starts at this volume, grows ~20 %/week up to
+# min_weekly_run_km, and replaces hard sessions with easy runs + strides.
+return_to_run_below_km: 10
+
+# Weekly template. Days: mon tue wed thu fri sat sun
+# Available sessions:
+#   rest
+#   run_easy  run_strides  run_quality  run_long  run_brick
+#   bike_easy bike_long    bike_quality
+#   swim_technique swim_endurance swim_css
+weekly_templates:
+  # Running focus (short race and half marathon):
+  # 3 run days with rest in between, 2 bike days, 1 swim.
+  run_focus:
+    mon: [rest]
+    tue: [run_quality]
+    wed: [bike_easy]
+    thu: [run_strides]
+    fri: [swim_technique]
+    sat: [bike_long]
+    sun: [run_long]
+  # After the half marathon (→ sprint triathlon): 2 swims, bike intensity
+  # and a bike→run brick on Saturdays.
+  triathlon:
+    mon: [swim_technique]
+    tue: [run_quality]
+    wed: [bike_quality]
+    thu: [swim_endurance]
+    fri: [rest]
+    sat: [bike_long, run_brick]
+    sun: [run_long]
+
+garmin:
+  # Only used when running on your computer. On GitHub the tokens are
+  # stored encrypted in data/garmin_tokens.enc (see README).
+  tokenstore: ~/.garminconnect
+  upload: true
+  workout_prefix: "Coach"

@@ -149,6 +149,7 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
         "rule_readiness": {"score": r["score"], "level": r["level"], "reasons": r["reasons"]},
         "last_4_days_load": ctx.get("recent_load"),
         "consecutive_training_days": ctx.get("consecutive_days"),
+        "this_week_key_sessions": ctx.get("this_week"),
         "yesterday_vs_plan": {k: (ctx.get("compliance") or {}).get(k)
                               for k in ("run_planned", "run_done", "missed", "done_titles", "extra_intensity")},
         "done_today_so_far": ctx.get("today_acts"),

@@ -266,6 +266,10 @@ garmin:
   # and your watch syncs). If the watch shows you're up but recorded no sleep,
   # or at this time at the latest, it plans without it.
   wait_for_sleep_until: "{answers.get('until', '10:00')}"
+  # Drafts of the next days in your Garmin calendar ("Coach draft · …"), so you
+  # can see the week ahead. Each morning today's draft becomes the real plan
+  # and the drafts are redrawn. 0 turns them off.
+  preview_days: {answers.get('preview_days', 6)}
 
 # AI coach: each day an AI makes the final call (keep, shorten, make easier
 # or rest) within the plan's safety limits, using all your data and notes.
@@ -510,7 +514,7 @@ def existing_setup(cfg: dict, workflow: str) -> dict:
     g = cfg.get("garmin") or {}
     out["extras"] = {"min_long_run_km": float(cfg.get("min_long_run_km") or 0),
                      "until": str(g.get("wait_for_sleep_until", "10:00")),
-                     "prefix": g.get("workout_prefix", "Coach"),
+                     "prefix": g.get("workout_prefix", "Coach"), "preview_days": g.get("preview_days", 6),
                      "pool": ath.get("pool_length_m"),
                      "ai_enabled": (cfg.get("ai") or {}).get("enabled", True),
                      "ai_provider": (cfg.get("ai") or {}).get("provider", "auto"),
@@ -672,6 +676,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
                "pool": sug.get("pool") or extras.get("pool") or 25,
                "min_long_run_km": extras.get("min_long_run_km", 0),
                "until": extras.get("until", "10:00"), "prefix": extras.get("prefix", "Coach"),
+               "preview_days": extras.get("preview_days", 6),
                **{k: extras[k] for k in ("ai_enabled", "ai_provider", "openai_model", "anthropic_model",
                                          "todoist_enabled", "todoist_project",
                                          "todoist_lookback_hours", "todoist_diary_label") if k in extras},

@@ -551,8 +551,8 @@ def make_rest(reason: str = "") -> Session:
                    [run_t(20 * 60, None)])
 
 
-def plan_day(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = False) -> tuple[Phase, list[Session]]:
-    """`week` is the week target dict from compute_week_target (or just the running km)."""
+def week_parts(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = False):
+    """(phase, template, run distances, ride minutes or None) for the week of day d."""
     wt = week if isinstance(week, dict) else {"target_km": week}
     return_mode = return_mode or wt.get("return_mode", False)
     phase = phase_for(d, cfg)
@@ -560,6 +560,14 @@ def plan_day(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = Fals
     long_floor = max(float(cfg.get("min_long_run_km") or 0), _round_half(wt.get("longest_run_km", 0) * 1.1))
     dist = run_distribution(tpl, wt["target_km"], phase, return_mode, long_floor)
     bdist = bike_distribution(tpl, wt, phase) if phase.focus == "bike" else None
+    return phase, tpl, dist, bdist
+
+
+def plan_day(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = False) -> tuple[Phase, list[Session]]:
+    """`week` is the week target dict from compute_week_target (or just the running km)."""
+    wt = week if isinstance(week, dict) else {"target_km": week}
+    return_mode = return_mode or wt.get("return_mode", False)
+    phase, tpl, dist, bdist = week_parts(d, cfg, wt, return_mode)
     wk = week_index(d, cfg)
     sessions: list[Session] = []
     races_today = [r for r in load_races(cfg) if r.date == d]

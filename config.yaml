@@ -80,6 +80,10 @@ garmin:
   # and your watch syncs). If the watch shows you're up but recorded no sleep,
   # or at this time at the latest, it plans without it.
   wait_for_sleep_until: "10:00"
+  # Drafts of the next days in your Garmin calendar ("Coach draft · …"), so you
+  # can see the week ahead. Each morning today's draft becomes the real plan
+  # and the drafts are redrawn. 0 turns them off.
+  preview_days: 6
 
 # AI coach: each day an AI makes the final call (keep, shorten, make easier
 # or rest) within the plan's safety limits, using all your data and notes.

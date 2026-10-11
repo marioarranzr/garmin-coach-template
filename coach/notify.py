@@ -18,11 +18,13 @@ TOPIC_ENV = "NTFY_TOPIC"
 SERVER_ENV = "NTFY_SERVER"
 
 
-def message(final, why: str, coach_note: str, r: dict, replanned: bool) -> tuple[str, str]:
+def message(final, why: str, coach_note: str, r: dict, replanned: bool, ahead=()) -> tuple[str, str]:
     sessions = [s.title for s in final] or ["Nothing left: already done 🎉"]
     title = ("Updated: " if replanned else "Today: ") + " + ".join(sessions)
     lines = [x for x in (why, coach_note) if x]
     lines.append(f"Readiness {r['score']}/100. The workout is in your Garmin calendar.")
+    if ahead:
+        lines.append("Next: " + "; ".join(f"{day:%a} " + " + ".join(s.title for s in sess) for day, _, sess, _ in ahead))
     return title[:120], "\n\n".join(lines)
 
 

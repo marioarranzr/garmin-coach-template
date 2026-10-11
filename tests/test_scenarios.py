@@ -958,6 +958,80 @@ def test_plan_is_pushed_to_your_phone_when_a_topic_is_set():
     assert "Sent to your phone and watch" in res["report"]
 
 
+def _with_preview(days=6):
+    return dict(CFG, garmin=dict(CFG["garmin"], preview_days=days))
+
+
+def test_long_run_done_early_in_the_week_is_not_repeated():
+    sunday = dt.date(2026, 10, 18)
+    api = FakeGarmin(sunday)
+    sat = "2026-10-17"
+    api.acts = [a for a in api.acts if not a["startTimeLocal"].startswith(sat)] + [act(sat, "running", 13, 78)]
+    with fresh():
+        res = engine.run_day(api, CFG, sunday)
+    assert not any(s.kind == "run_long" for s in res["final"])
+    assert any(s.kind == "run_easy" for s in res["final"])
+    assert "already did your long run this week (Saturday, 13 km), so today is an easy run of 8 km instead" in res["report"] and "more than planned" not in res["report"]
+    assert "long run done Saturday, 13 km" in res["report"]
+
+
+def test_swim_done_earlier_in_the_week_is_dropped():
+    friday = dt.date(2026, 10, 16)                       # template: technique swim on Friday
+    api = FakeGarmin(friday)
+    api.acts.append(act("2026-10-13", "lap_swimming", 1.5, 40))
+    with fresh():
+        res = engine.run_day(api, CFG, friday)
+    assert not any(s.sport == "swim" for s in res["final"])
+    assert "already swum 1× this week (1 planned): no swim today" in res["report"]
+    assert "No swim today: you've already swum as often as planned this week." in res["report"]
+
+
+def test_quality_skipped_on_tuesday_moves_to_a_later_green_day():
+    thursday = dt.date(2026, 10, 15)                     # template: Tuesday quality, Thursday strides
+    api = FakeGarmin(thursday)
+    api.acts = [a for a in api.acts if not a["startTimeLocal"].startswith("2026-10-13")]   # skipped Tuesday
+    with fresh():
+        res = engine.run_day(api, CFG, thursday)
+    assert any(s.kind == "run_quality" for s in res["final"])
+    assert "skipped this week's quality session" in res["report"]
+    api = FakeGarmin(thursday)                           # Tuesday was run (moderate TE): no second quality
+    with fresh():
+        res = engine.run_day(api, CFG, thursday)
+    assert not any(s.kind == "run_quality" for s in res["final"])
+
+
+def test_drafts_show_the_week_ahead_and_are_replaced():
+    monday = dt.date(2026, 10, 12)
+    cfg = _with_preview(6)
+    with fresh():
+        api = FakeGarmin(monday)
+        res = engine.run_day(api, cfg, monday, now=dt.datetime(2026, 10, 12, 8))
+        drafts = [i for i in api.cal["items"] if i["title"].startswith("Coach draft ·")]
+        assert sorted({i["date"] for i in drafts}) == [f"2026-10-{n}" for n in range(13, 19)]
+        assert any(i["date"] == "2026-10-18" and "Long run" in i["title"] for i in drafts)
+        assert "## Coming up" in res["report"] and "Drafts for the next 6 days" in res["report"]
+        # the next morning: Tuesday's draft becomes the real workout, the drafts are redrawn once
+        tue = dt.date(2026, 10, 13)
+        api2 = FakeGarmin(tue)
+        engine.run_day(api2, cfg, tue, now=dt.datetime(2026, 10, 13, 8))
+        items = api2.cal["items"]
+        on_tue = [i["title"] for i in items if i["date"] == "2026-10-13"]
+        assert on_tue and all(t.startswith("Coach ·") for t in on_tue)
+        for day in ("2026-10-14", "2026-10-18"):
+            assert len([i for i in items if i["date"] == day]) == len({i["title"] for i in items if i["date"] == day})
+        assert any(i["date"] == "2026-10-19" for i in items)   # one more day ahead
+
+
+def test_drafts_follow_the_week_when_you_train_early():
+    """Long run done on Saturday → Sunday's draft is an easy run, already on Saturday's plan."""
+    saturday = dt.date(2026, 10, 17)
+    api = FakeGarmin(saturday, today_acts=[act("2026-10-17", "running", 13, 78)])
+    with fresh():
+        res = engine.run_day(api, _with_preview(2), saturday, now=dt.datetime(2026, 10, 17, 18))
+        sunday = [i["title"] for i in api.cal["items"] if i["date"] == "2026-10-18"]
+    assert sunday and not any("Long run" in t for t in sunday), sunday
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

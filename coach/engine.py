@@ -8,7 +8,8 @@ from pathlib import Path
 
 from . import garmin_api as G
 from .adjust import adjust
-from .planner import (Session, compute_week_target, history_start, key_day, key_session, learn_long_day, monday_of,
+from . import week as W
+from .planner import (Session, compute_week_target, history_start, week_parts, key_day, key_session, learn_long_day, monday_of,
                       phase_for, plan_day,
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
 from .readiness import compliance, compute, consecutive_days, own_acwr, recent_load
@@ -23,6 +24,7 @@ log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent
 
 
+DRAFT_LINE = "Draft: the coach sets the final workout that morning from your sleep, recovery and notes."
 COACH_ACTIVE_DAYS = 14  # if the coach put workouts in your calendar recently, an empty day was a rest day
 
 
@@ -40,7 +42,7 @@ def sleep_deadline(cfg: dict) -> dt.time:
 def planned_on(day: dt.date, calendar: Calendar, active: bool, acts: list[dict], cfg: dict) -> list[dict]:
     """What the coach planned for a past day: read from your Garmin calendar.
     Days before the coach was used (or never uploaded) fall back to the base plan."""
-    found = calendar.plan(day)
+    found = calendar.plan(day) or calendar.plan(day, draft=True)   # a draft if it never planned that day
     if found:
         return [e["session"] for e in found]
     if active:
@@ -103,9 +105,35 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     # what the coach planned on earlier days, from your Garmin calendar
     active = calendar.active_since(d - dt.timedelta(days=COACH_ACTIVE_DAYS), d - dt.timedelta(days=1))
 
+    # ── the week as a whole: key sessions you've already done since Monday aren't repeated ──
+    _, tpl, dist, bdist = week_parts(d, cfg, wt)
+    quality_days = set()
+    cur = monday_of(d)
+    while cur < d:
+        if any(x.get("kind") == "run_quality" for x in planned_on(cur, calendar, active, acts, cfg)):
+            quality_days.add(cur.isoformat())
+        cur += dt.timedelta(days=1)
+    led = W.ledger(past, d, tpl, dist, bdist, quality_ok=not ret and phase.name != "transition",
+                   quality_days=quality_days)
+    for_today, week_notes, week_why = W.apply(planned, led, phase, dist)
+
+    # a long run done early counts as the week's long run, moved to that day
+    moved = {}
+    if led["long_run"]:
+        a = led["long_run"]
+        moved[a["date"]] = {"kind": "run_long", "sport": "run", "title": "Long run (moved)",
+                            "intensity": "moderate", "distance_km": a["distance_km"], "duration_min": None}
+
+    def planned_for(day: dt.date) -> list[dict]:
+        plan = planned_on(day, calendar, active, acts, cfg)
+        extra = moved.get(day.isoformat())
+        if extra and not any(x.get("kind") == "run_long" for x in plan):
+            plan = [x for x in plan if x.get("sport") != "run"] + [extra]
+        return plan
+
     # ── yesterday's compliance ──
     yday = d - dt.timedelta(days=1)
-    y_planned = planned_on(yday, calendar, active, acts, cfg)
+    y_planned = planned_for(yday)
     y_done = [a for a in acts if a["date"] == yday.isoformat()]
     comp = compliance(y_planned, y_done)
 
@@ -115,8 +143,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     planned_so_far = 0.0
     cur = mon
     while cur < d:
-        planned_so_far += sum(s.get("distance_km") or 0 for s in planned_on(cur, calendar, active, acts, cfg)
-                              if s.get("sport") == "run")
+        planned_so_far += sum(s.get("distance_km") or 0 for s in planned_for(cur) if s.get("sport") == "run")
         cur += dt.timedelta(days=1)
     week_over = planned_so_far > 0 and week_done > planned_so_far * 1.15 and week_done - planned_so_far >= 4
 
@@ -132,8 +159,10 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         "week_over": week_over, "week_done": week_done, "week_planned_so_far": round(planned_so_far, 1),
         "swims_14d": swims_14d,
         "swim_target_week": sum(k.startswith("swim_") for day in template_for(phase, cfg).values() for k in day),
-        "dist": run_distribution(template_for(phase, cfg), week_km, phase, ret),
+        "dist": dist,
         "week_idx": week_index(d, cfg),
+        "quality_owed": led["quality_owed"], "hard_yesterday": led["hard_yesterday"],
+        "this_week": W.summary(led),
     }
     # Always judge readiness on the latest values Garmin has (first thing in the
     # morning they're the waking values; later in the day, how you are now).
@@ -147,7 +176,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         current["training_readiness"] = tr_now
     wellness = current
     r = compute(wellness, ctx)
-    final, notes = adjust(planned, r, ctx, phase, tomorrow)
+    final, notes = adjust(for_today, r, ctx, phase, tomorrow)
+    notes = week_notes + notes
     kind, sport = key_session(phase)
     was, now_day = key_day(template_for(phase, configured), kind), key_day(template_for(phase, cfg), kind)
     if was is not None and now_day is not None and was != now_day:
@@ -157,6 +187,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                      f"there instead of {names[was]} (the rest of the week moves with it).")
     final = account_for_today(final, ctx["today_acts"], phase, notes)
     why = why_line(final, planned, r, wellness, ctx, wt, phase)
+    if week_why and r["level"] == "green" and len(notes) == len(week_notes):
+        why = week_why       # the only change today comes from what you've already done this week
 
     # ── AI coach: final call within the rule-based limits ──
     coach = {"used": False, "configured": ai_client is not None or ai.enabled(cfg)}
@@ -193,6 +225,24 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     else:
         uploads = today_cal
 
+    # ── the days ahead, as drafts in your Garmin calendar (replaced each morning) ──
+    preview = int((cfg.get("garmin") or {}).get("preview_days", 6))
+    ahead = W.drafts(d, cfg, acts, final, preview, quality_days) if preview > 0 else []
+    if upload:
+        draft_cfg = dict(cfg, garmin=dict(cfg.get("garmin") or {},
+                                          workout_prefix=(cfg.get("garmin") or {}).get("workout_prefix", "Coach") + " draft"))
+        for i in range(0, max(preview, 7) + 1):
+            G.remove_uploaded(api, calendar.plan(d + dt.timedelta(days=i), draft=True))
+        for day, ph, sess, wnotes in ahead:
+            for s in sess:
+                if not s.steps:
+                    continue
+                body = "\n\n".join(x for x in (DRAFT_LINE, s.detail, " ".join(wnotes), ph.describe()) if x)
+                try:
+                    G.upload_and_schedule(api, to_garmin(s, draft_cfg, fit(body, "")), day.isoformat())
+                except Exception as e:  # noqa: BLE001
+                    log.error("Could not upload the draft for %s to Garmin: %s", day, e)
+
     # notes the coach used: label them for your diary and complete them in Todoist (real runs only)
     if upload and used:
         coach["completed"] = complete_notes([n["id"] for n in used], api=notes_api,
@@ -201,11 +251,11 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                                             label=diary_label(cfg))
 
     # a push to your phone (and so your watch) with the plan, if NTFY_TOPIC is set
-    coach["notified"] = upload and send(*message(final, why, coach.get("coach_note", ""), r, bool(today_cal)),
-                                        poster=poster)
+    coach["notified"] = upload and send(*message(final, why, coach.get("coach_note", ""), r, bool(today_cal),
+                                                 ahead[:2]), poster=poster)
 
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why,
-                          coach, cfg)
+                          coach, cfg, ahead)
     report += sync_note(wellness.get("last_sync"), now)
     if not sleep_ready:
         no_sleep = ("your watch shows you're up but recorded no sleep last night (not worn, or another watch)"
@@ -335,7 +385,7 @@ def _workout_description(s: Session, r: dict, notes: list[str], why: str = "", c
 
 
 def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, upload, why="",
-                 coach: dict | None = None, cfg: dict | None = None) -> str:
+                 coach: dict | None = None, cfg: dict | None = None, ahead: list | None = None) -> str:
     L = [f"# Training for {d.strftime('%A %d %b %Y')}", ""]
     if why:
         L += [f"**{why}**", ""]
@@ -384,10 +434,18 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
         title = ("**What the rules proposed** (the AI coach made the final call):" if (coach or {}).get("used")
                  else "**Coach adjustments:**")
         L += ["", title] + [f"- {n}" for n in notes]
+    if ctx.get("this_week"):
+        L += ["", "**This week before today:** " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in ctx["this_week"].items())]
+    if ahead:
+        L += ["", "## Coming up (drafts, set each morning)"]
+        for day, _, sess, wnotes in ahead:
+            L.append(f"- {day:%a %d/%m}: " + " + ".join(s.title for s in sess) + (f" — {wnotes[0]}" if wnotes else ""))
     L += coach_section(coach or {}, cfg or {})
     L += ["", "## Garmin"]
     if upload:
         L.append(f"- Added to calendar: {', '.join(u['name'] for u in uploads) or 'nothing'}")
+        if ahead:
+            L.append(f"- Drafts for the next {len(ahead)} days are in your calendar too.")
         if (coach or {}).get("notified"):
             L.append("- Sent to your phone and watch as a notification.")
     else:

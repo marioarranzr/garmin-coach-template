@@ -672,4 +672,6 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
         print(f"GitHub workflow set to {st['tz']}: hourly from {st['wake']} until your sleep data arrives "
               f"(at {answers['until']} at the latest; cron \"{cron}\" in UTC).")
     print("\nNext: `python -m coach week` to preview it with your Garmin data.")
+    print("Then commit and push config.yaml" + (" and .github/workflows/coach.yml" if wf else "")
+          + " so the daily run on GitHub uses them.")
     return cfg_path

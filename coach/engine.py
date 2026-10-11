@@ -49,8 +49,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     wt = week_target(state, past, d, cfg)
     week_km = wt["target_km"]
     ret = wt.get("return_mode", False)
-    phase, planned = plan_day(d, cfg, week_km, ret)
-    _, tomorrow = plan_day(d + dt.timedelta(days=1), cfg, week_km, ret)
+    phase, planned = plan_day(d, cfg, wt)
+    _, tomorrow = plan_day(d + dt.timedelta(days=1), cfg, wt)
 
     # ── yesterday's compliance ──
     yday = d - dt.timedelta(days=1)
@@ -59,7 +59,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         y_planned = yrec["final"]
     else:
         ywt = week_target(state, [a for a in acts if a["date"] < yday.isoformat()], yday, cfg)
-        y_planned = [s.to_dict() for s in plan_day(yday, cfg, ywt["target_km"], ywt.get("return_mode", False))[1]]
+        y_planned = [s.to_dict() for s in plan_day(yday, cfg, ywt)[1]]
     y_done = [a for a in acts if a["date"] == yday.isoformat()]
     comp = compliance(y_planned, y_done)
 
@@ -70,7 +70,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     cur = mon
     while cur < d:
         rec = state.data["days"].get(cur.isoformat())
-        sess = [Session.from_dict(x) for x in rec["final"]] if rec else plan_day(cur, cfg, week_km, ret)[1]
+        sess = [Session.from_dict(x) for x in rec["final"]] if rec else plan_day(cur, cfg, wt)[1]
         planned_so_far += planned_run_km(sess)
         cur += dt.timedelta(days=1)
     week_over = planned_so_far > 0 and week_done > planned_so_far * 1.15 and week_done - planned_so_far >= 4
@@ -138,7 +138,12 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
          f"**Phase:** {phase.describe()}  ",
          f"**Weekly running target:** {wt['target_km']} km "
          f"(last 4 weeks average {wt['chronic_km']} km, last week {wt['last_week_km']} km)  ",
-         f"**Run so far this week:** {ctx['week_done']} km", ""]
+         f"**Run so far this week:** {ctx['week_done']} km  "]
+    if phase.focus == "bike":
+        L.append(f"**Riding this week:** {wt.get('bike_hours')} h target "
+                 f"(4-week average {wt.get('bike_chronic_hours')} h, longest recent ride "
+                 f"{wt.get('longest_ride_min')}', typical speed {wt.get('ride_speed_kmh')} km/h)  ")
+    L.append("")
     if wt.get("return_mode"):
         L.insert(-1, "**Return-to-running mode:** volume grows ~20 %/week from 10 km and there are "
                      "no hard sessions until you average 10+ km/week.  ")

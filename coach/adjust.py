@@ -1,7 +1,7 @@
 """Adjusts the planned sessions to recovery and plan compliance."""
 from __future__ import annotations
 
-from .planner import Phase, Session, make_bike, make_rest, make_run, make_swim, _round_half
+from .planner import Phase, Session, make_bike, make_rest, make_run, make_swim, run_t, _round_half
 
 
 def adjust(planned: list[Session], r: dict, ctx: dict, phase: Phase, tomorrow: list[Session]) -> tuple[list[Session], list[str]]:
@@ -44,6 +44,12 @@ def adjust(planned: list[Session], r: dict, ctx: dict, phase: Phase, tomorrow: l
             elif s.kind == "bike_quality":
                 out.append(make_bike("bike_easy", phase, 60))
                 notes.append("Intensity ride swapped for an easy ride.")
+            elif s.kind == "bike_long" and (s.duration_min or 0) > 90:
+                m = max(round((s.duration_min or 90) * 0.75 / 15) * 15, 60)
+                ride = make_bike("bike_long", phase, m, ctx.get("week_idx", 0))
+                ride.steps, ride.detail = [run_t(m * 60, 2)], f"{m}' steady in Z2: no climbing efforts today."
+                out.append(ride)
+                notes.append(f"Long ride cut to {m}' and kept in Z2.")
             elif s.kind == "swim_css":
                 out.append(make_swim("swim_technique", phase))
                 notes.append("Hard swim swapped for technique.")

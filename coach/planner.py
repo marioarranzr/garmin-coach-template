@@ -17,8 +17,8 @@ from typing import Any
 WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 FAMILY = {"road": "short", "5k": "short", "10k": "short", "half": "half", "marathon": "half",
-          "tri_sprint": "tri", "tri_olympic": "tri"}
-RECOVERY_DAYS = {"short": 4, "half": 9, "tri": 6}
+          "tri_sprint": "tri", "tri_olympic": "tri", "bike": "bike"}
+RECOVERY_DAYS = {"short": 4, "half": 9, "tri": 6, "bike": 4}
 KIND_DISTANCE_KM = {"5k": 5, "10k": 10, "half": 21.1, "marathon": 42.2}
 
 
@@ -30,6 +30,16 @@ class Race:
     kind: str
     priority: str = "A"
     distance_km: float | None = None
+    elevation_m: float | None = None
+
+    @property
+    def hilly(self) -> bool:
+        """Cycling course with ≥ 10 m of climbing per km (e.g. 1000 m over 100 km)."""
+        return bool(self.elevation_m and self.distance_km and self.elevation_m / self.distance_km >= 10)
+
+    def est_hours(self, speed_kmh: float) -> float:
+        """Rough cycling event duration: flat speed plus ~45 min per 1000 m climbed."""
+        return (self.distance_km or 100) / speed_kmh + (self.elevation_m or 0) / 1000 * 0.75
 
     @property
     def family(self) -> str:
@@ -40,7 +50,7 @@ class Race:
 
 @dataclass
 class Phase:
-    focus: str            # short | half | tri
+    focus: str            # short | half | tri | bike
     name: str             # base | specific | build | peak | taper | race_week | transition
     label: str
     race: Race | None
@@ -92,7 +102,8 @@ def load_races(cfg: dict) -> list[Race]:
     for r in cfg.get("races", []):
         d = r["date"] if isinstance(r["date"], dt.date) else dt.date.fromisoformat(str(r["date"]))
         dist = r.get("distance_km") or KIND_DISTANCE_KM.get(r.get("kind", "half"))
-        races.append(Race(r["name"], d, r.get("kind", "half"), r.get("priority", "A"), dist))
+        races.append(Race(r["name"], d, r.get("kind", "half"), str(r.get("priority", "A")).upper(),
+                          dist, r.get("elevation_m")))
     return sorted(races, key=lambda r: r.date)
 
 
@@ -109,7 +120,10 @@ def phase_for(d: dt.date, cfg: dict) -> Phase:
     if past:
         last = past[-1]
         since = (d - last.date).days
-        if since <= RECOVERY_DAYS[last.family]:
+        recovery = RECOVERY_DAYS[last.family]
+        if last.priority == "B":
+            recovery = max(2, recovery // 2)   # tune-up race: shorter recovery
+        if since <= recovery:
             nxt = future[0] if future else None
             return Phase(nxt.family if nxt else "tri", "transition",
                          f"Recovery after {last.name}", nxt,
@@ -122,10 +136,13 @@ def phase_for(d: dt.date, cfg: dict) -> Phase:
     fam = nxt.family
     days_out = (nxt.date - d).days
 
-    if days_out <= 6:
-        vol = {"short": 0.7, "half": 0.55, "tri": 0.6}[fam]
+    if nxt.priority == "B" and days_out <= 3:
+        # tune-up race: a few easy days before it, no full taper
+        return Phase(fam, "race_week", "Mini taper (B race)", nxt, days_out, 0.8, False, 8)
+    if days_out <= 6 and nxt.priority != "B":
+        vol = {"short": 0.7, "half": 0.55, "tri": 0.6, "bike": 0.6}[fam]
         return Phase(fam, "race_week", "Race week", nxt, days_out, vol, False, 8)
-    if days_out <= 13:
+    if days_out <= 13 and nxt.priority != "B":
         vol = 0.85 if fam == "short" else 0.7
         cap = 11 if fam == "short" else 13
         return Phase(fam, "taper", "Taper", nxt, days_out, vol, False, cap)
@@ -146,6 +163,13 @@ def phase_for(d: dt.date, cfg: dict) -> Phase:
         if weeks > 4:
             return Phase(fam, "build", "Half marathon build", nxt, days_out, vol, deload, 18)
         return Phase(fam, "peak", "Half marathon specific", nxt, days_out, vol, deload, 20)
+    if fam == "bike":
+        terrain = "hilly " if nxt.hilly else ""
+        if weeks > 10:
+            return Phase(fam, "base", f"Cycling base ({terrain}event)", nxt, days_out, vol, deload, 10)
+        if weeks > 4:
+            return Phase(fam, "build", f"Cycling build ({terrain}event)", nxt, days_out, vol, deload, 10)
+        return Phase(fam, "peak", f"Cycling specific ({terrain}event)", nxt, days_out, vol, deload, 10)
     # triathlon
     if weeks > 8:
         return Phase(fam, "base", "Triathlon base", nxt, days_out, vol, deload, 14)
@@ -193,9 +217,32 @@ def compute_week_target(activities: list[dict], d: dt.date, cfg: dict) -> dict:
         target = max(target, chronic * 0.75, floor)     # after a light week, don't drop off a cliff
     target = min(target, peak)
     target *= phase.volume_factor
-    return {"target_km": round(target, 1), "chronic_km": round(chronic, 1),
-            "last_week_km": last, "phase": phase.name, "deload": phase.deload,
-            "return_mode": return_mode}
+    out = {"target_km": round(target, 1), "chronic_km": round(chronic, 1),
+           "last_week_km": last, "phase": phase.name, "deload": phase.deload,
+           "return_mode": return_mode}
+    out.update(_bike_week(activities, mon, cfg, phase))
+    return out
+
+
+def _bike_week(activities: list[dict], mon: dt.date, cfg: dict, phase: Phase) -> dict:
+    """Weekly riding hours, current longest ride and typical speed from the last weeks."""
+    def hours(k):
+        lo, hi = (mon - dt.timedelta(weeks=k)).isoformat(), (mon - dt.timedelta(weeks=k - 1)).isoformat()
+        return sum(a["duration_min"] for a in activities if a["sport"] == "bike" and lo <= a["date"] < hi) / 60
+    weeks = [hours(k) for k in range(1, 5)]
+    chronic, last = sum(weeks) / 4, weeks[0]
+    recent = [a for a in activities if a["sport"] == "bike"
+              and a["date"] >= (mon - dt.timedelta(weeks=4)).isoformat()]
+    longest = max((a["duration_min"] for a in recent), default=0)
+    long_rides = [a for a in activities if a["sport"] == "bike" and a["duration_min"] >= 60 and a["distance_km"] > 0]
+    speeds = sorted(a["distance_km"] / (a["duration_min"] / 60) for a in long_rides)
+    speed = speeds[len(speeds) // 2] if speeds else 25.0
+    floor = cfg.get("min_weekly_bike_hours", 3)
+    peak = cfg.get("peak_weekly_bike_hours", 10)
+    target = min(chronic * 1.08, last * 1.10 + 0.5)
+    target = min(max(target, chronic * 0.75, floor), peak) * phase.volume_factor
+    return {"bike_hours": round(target, 1), "bike_chronic_hours": round(chronic, 1),
+            "longest_ride_min": round(longest), "ride_speed_kmh": round(min(max(speed, 15), 40), 1)}
 
 
 # ── sessions ────────────────────────────────────────────────────────────────
@@ -205,7 +252,33 @@ def _round_half(x: float) -> float:
 
 def template_for(phase: Phase, cfg: dict) -> dict:
     tpls = cfg["weekly_templates"]
-    return tpls["triathlon"] if phase.focus == "tri" else tpls["run_focus"]
+    if phase.focus == "tri":
+        return tpls["triathlon"]
+    if phase.focus == "bike":
+        return tpls.get("cycling") or tpls["run_focus"]
+    return tpls["run_focus"]
+
+
+LONG_RIDE_SHARE = {"base": 0.55, "build": 0.7, "peak": 0.85, "taper": 0.5, "race_week": 0.3, "transition": 0.3}
+
+
+def bike_distribution(template: dict, wt: dict, phase: Phase) -> dict:
+    """Minutes for long, quality and easy rides in a cycling-focused week."""
+    kinds = [k for day in WEEKDAYS for k in template.get(day, [])]
+    n_q, n_easy = kinds.count("bike_quality"), kinds.count("bike_easy")
+    week_min = wt.get("bike_hours", 6) * 60
+    speed = wt.get("ride_speed_kmh", 25)
+    event_min = phase.race.est_hours(speed) * 60 if phase.race and phase.race.family == "bike" else 240
+    current = max(wt.get("longest_ride_min", 0), 60)
+    long_min = min(event_min * LONG_RIDE_SHARE.get(phase.name, 0.6),   # what the phase calls for
+                   current * 1.15,                                     # +15 % over your longest recent ride
+                   360)
+    long_min = max(round(long_min / 15) * 15, 60) if "bike_long" in kinds else 0
+    q_min = 60 if phase.name in ("taper", "race_week") else 75
+    rest = week_min - long_min - q_min * n_q
+    easy_cap = {"race_week": 60, "taper": 75}.get(phase.name, 90)
+    easy_min = min(max(round(rest / n_easy / 15) * 15, 45), easy_cap) if n_easy else 0
+    return {"long": long_min, "quality": q_min, "easy": easy_min, "event_min": round(event_min)}
 
 
 def run_distribution(template: dict, week_km: float, phase: Phase, return_mode: bool = False) -> dict:
@@ -313,9 +386,48 @@ def make_run(kind: str, km: float, phase: Phase, wk: int = 0) -> Session:
                    [run_d(km * 1000, 2)])
 
 
-def make_bike(kind: str, phase: Phase, minutes: float | None = None) -> Session:
+BIKE_QUALITY = {
+    # (phase, hilly course?) → options rotated week by week
+    ("base", False): [
+        ("Tempo 3×12'", [warmup(15), repeat(3, [run_t(720, 3), jog(300, 2)]), cooldown(10)]),
+        ("Cadence + tempo 4×8'", [warmup(15), repeat(4, [run_t(480, 3), jog(240, 2)]), cooldown(10)]),
+    ],
+    ("build", False): [
+        ("Sweet spot 3×15'", [warmup(15), repeat(3, [run_t(900, 3), jog(300, 2)]), cooldown(10)]),
+        ("Threshold 4×8'", [warmup(15), repeat(4, [run_t(480, 4), jog(240, 2)]), cooldown(10)]),
+    ],
+    ("build", True): [
+        ("Hill repeats 6×5'", [warmup(15), repeat(6, [run_t(300, 4), jog(180, 2)]), cooldown(10)]),
+        ("Sweet spot 3×15'", [warmup(15), repeat(3, [run_t(900, 3), jog(300, 2)]), cooldown(10)]),
+    ],
+    ("peak", False): [
+        ("Threshold 2×20'", [warmup(15), repeat(2, [run_t(1200, 4), jog(360, 2)]), cooldown(10)]),
+        ("Race pace 60'", [warmup(15), run_t(3600, 3), cooldown(10)]),
+    ],
+    ("peak", True): [
+        ("Long climbs 3×12'", [warmup(15), repeat(3, [run_t(720, 4), jog(360, 2)]), cooldown(10)]),
+        ("Threshold 2×20'", [warmup(15), repeat(2, [run_t(1200, 4), jog(360, 2)]), cooldown(10)]),
+    ],
+    ("taper", False): [("Openers 4×4'", [warmup(15), repeat(4, [run_t(240, 4), jog(240, 2)]), cooldown(10)])],
+    ("race_week", False): [("Openers 3×3'", [warmup(15), repeat(3, [run_t(180, 4), jog(240, 2)]), cooldown(10)])],
+}
+
+
+def make_bike(kind: str, phase: Phase, minutes: float | None = None, wk: int = 0) -> Session:
     tri = phase.focus == "tri"
+    cycling = phase.focus == "bike"
+    hilly = bool(cycling and phase.race and phase.race.hilly)
     if kind == "bike_quality":
+        if cycling:
+            opts = (BIKE_QUALITY.get((phase.name, hilly)) or BIKE_QUALITY.get((phase.name, False))
+                    or BIKE_QUALITY[("base", False)])
+            name, steps = opts[wk % len(opts)]
+            m = round(sum(st["value"] * (st.get("iterations", 1)) if st["type"] != "repeat" else
+                          st["iterations"] * sum(x["value"] for x in st["steps"]) for st in steps) / 60)
+            return Session(kind, "bike", f"Bike · {name}", "hard", None, m,
+                           "Warm up easy, main set in the target zone, spin easy between reps"
+                           + (" — do the reps on a climb if you can." if "Hill" in name or "climb" in name else "."),
+                           steps)
         if phase.name in ("transition", "race_week") or not tri:
             return Session(kind, "bike", "Bike 5×5' tempo", "moderate", None, 60,
                            "Ride with 5×5' in Z3 (3' easy between).",
@@ -325,9 +437,16 @@ def make_bike(kind: str, phase: Phase, minutes: float | None = None) -> Session:
                        [warmup(15), repeat(4, [run_t(480, 4), jog(240)]), cooldown(12)])
     if kind == "bike_long":
         m = minutes or (120 if tri and phase.name == "build" else 90)
-        return Session(kind, "bike", f"Long ride {m:g}'", "moderate", None, m,
-                       f"{m:g}' steady in Z2. Practise eating/drinking every 30'.",
-                       [run_t(m * 60, 2)])
+        if cycling and hilly and phase.name in ("build", "peak") and m >= 120:
+            # rehearse the climbing: two 20' blocks in Z3 in the middle of the ride
+            z2 = (m - 50) / 2
+            steps = [run_t(z2 * 60, 2), repeat(2, [run_t(1200, 3), jog(300, 2)]), run_t(z2 * 60, 2)]
+            detail = (f"{m:g}' mostly in Z2 with 2×20' steady climbing in Z3 in the middle. "
+                      "Eat every 30' and drink regularly, as on race day.")
+        else:
+            steps = [run_t(m * 60, 2)]
+            detail = f"{m:g}' steady in Z2. Practise eating/drinking every 30'."
+        return Session(kind, "bike", f"Long ride {m:g}'", "moderate", None, m, detail, steps)
     m = minutes or 60
     return Session("bike_easy", "bike", f"Easy ride {m:g}'", "easy", None, m,
                    f"{m:g}' in Z1-Z2, high cadence (85-95 rpm).", [run_t(m * 60, 2)])
@@ -365,18 +484,28 @@ def make_rest(reason: str = "") -> Session:
                    [run_t(20 * 60, None)])
 
 
-def plan_day(d: dt.date, cfg: dict, week_km: float, return_mode: bool = False) -> tuple[Phase, list[Session]]:
+def plan_day(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = False) -> tuple[Phase, list[Session]]:
+    """`week` is the week target dict from compute_week_target (or just the running km)."""
+    wt = week if isinstance(week, dict) else {"target_km": week}
+    return_mode = return_mode or wt.get("return_mode", False)
     phase = phase_for(d, cfg)
     tpl = template_for(phase, cfg)
-    dist = run_distribution(tpl, week_km, phase, return_mode)
+    dist = run_distribution(tpl, wt["target_km"], phase, return_mode)
+    bdist = bike_distribution(tpl, wt, phase) if phase.focus == "bike" else None
     wk = week_index(d, cfg)
     sessions: list[Session] = []
     races_today = [r for r in load_races(cfg) if r.date == d]
     if races_today:
         r = races_today[0]
-        return phase, [Session("race", "run" if r.family != "tri" else "other", f"RACE: {r.name}", "hard",
-                               None, None, "Race day! Warm up 15' with 3 strides. Start controlled.", [])]
+        sport = {"tri": "other", "bike": "bike"}.get(r.family, "run")
+        tip = ("Race day! Start conservatively, eat every 30' and drink regularly." if r.family == "bike"
+               else "Race day! Warm up 15' with 3 strides. Start controlled.")
+        return phase, [Session("race", sport, f"RACE: {r.name}", "hard", None, None, tip, [])]
     if phase.name == "race_week" and phase.days_out is not None and phase.days_out <= 1:
+        if phase.days_out == 1 and phase.focus == "bike":
+            return phase, [Session("bike_easy", "bike", "Openers ride 45'", "easy", None, 45,
+                                   "45' easy with 3×1' brisk (Z4) to wake the legs up.",
+                                   [warmup(20), repeat(3, [run_t(60, 4), jog(180, 2)]), cooldown(13)])]
         return phase, [make_run("run_strides", 4, phase)] if phase.days_out == 1 else [make_rest()]
 
     for kind in tpl.get(WEEKDAYS[d.weekday()], []):
@@ -390,9 +519,19 @@ def plan_day(d: dt.date, cfg: dict, week_km: float, return_mode: bool = False) -
             key = {"run_long": "long", "run_quality": "quality", "run_brick": "brick"}.get(kind, "easy")
             sessions.append(make_run(kind, dist[key], phase, wk))
         elif kind.startswith("bike_"):
-            if phase.name in ("transition", "race_week") and kind != "bike_easy":
+            if phase.name == "transition" and kind != "bike_easy":
                 kind = "bike_easy"
-            sessions.append(make_bike(kind, phase))
+            if phase.name == "race_week" and kind == "bike_long":
+                kind = "bike_easy"
+            if phase.name == "race_week" and kind == "bike_quality" and phase.focus != "bike":
+                kind = "bike_easy"
+            if bdist:
+                minutes = {"bike_long": bdist["long"], "bike_easy": bdist["easy"]}.get(kind)
+                # alternate the interval sessions within the week and from week to week
+                nth = sum(k == "bike_quality" for day in WEEKDAYS[:d.weekday()] for k in tpl.get(day, []))
+                sessions.append(make_bike(kind, phase, minutes or None, wk * 2 + nth))
+            else:
+                sessions.append(make_bike(kind, phase))
         elif kind.startswith("swim_"):
             sessions.append(make_swim(kind, phase, short=phase.name == "transition"))
     return phase, sessions or [make_rest()]

@@ -3,7 +3,7 @@
 [![Tests](https://github.com/marioarranzr/garmin-coach-template/actions/workflows/tests.yml/badge.svg)](https://github.com/marioarranzr/garmin-coach-template/actions/workflows/tests.yml)
 
 A self-adjusting training coach for Garmin users, set up for **your** races and
-your week: running only, running with cycling, or triathlon. Every morning it
+your week: running, cycling, triathlon, or a mix. Every morning it
 reads your recovery data from Garmin Connect, decides what you should train
 today, and **puts the workout on your Garmin calendar** so it's on your watch,
 with structured steps and heart-rate zones.
@@ -22,12 +22,15 @@ yesterday's stress, Training Readiness, acute/chronic load and your activities
 from the last 5 weeks.
 
 **2. Builds a periodized plan** towards your races (5K to marathon, sprint or
-olympic triathlon) around your own weekly schedule: which days you run, ride,
-swim and rest. Cycling is used as cross-training in your week; cycling races
-aren't a goal type yet. Each race gets base → specific → taper → recovery,
-with 3 load weeks + 1 deload week and ~80 % easy / 20 % quality training, and
-the week switches to triathlon mode (more swims, bike intervals, bricks)
-before a triathlon. Running volume starts from what you **actually** ran in
+olympic triathlon, and cycling events with their distance and elevation gain)
+around your own weekly schedule: which days you run, ride, swim and rest.
+Each race gets base → specific → taper → recovery, with 3 load weeks + 1
+deload week and ~80 % easy / 20 % quality training. The week adapts to what's
+next: more swims, bike intervals and bricks before a triathlon; interval
+rides and long rides before a cycling event, with long rides growing from your
+current longest ride towards the event's duration, and climbing work if the
+course is hilly. Secondary (B) races get a 3-day mini taper so they don't
+interrupt your main build. Running volume starts from what you **actually** ran in
 the last 4 weeks and grows ~8-10 % per week at most. If you've barely been
 running (e.g. a cycling block), a **return-to-running mode** starts low and
 keeps everything easy until your legs adapt.
@@ -120,11 +123,12 @@ it worked. Avoid logging in many times in a row.
 .venv/bin/python -m coach setup
 ```
 
-It reads your last 12 weeks from Garmin and suggests the answers: what you
-train (running, running + cycling, or triathlon), how many days a week you
-run, your usual long-run and rest days, your easy pace, pool length and time
-zone. Press Enter to accept a suggestion or type your own. Then add your races
-(name, date and type). It writes `config.yaml` and sets the time zone and
+It reads your last 12 weeks from Garmin and proposes your settings in one list:
+what you train (running, running + cycling, triathlon or cycling), run days per
+week, your usual long-run (or long-ride) and rest days, easy pace and time
+zone. Press Enter to accept them all, or type the numbers you want to change.
+Then add your races: name, type (with distance and elevation for cycling
+events), date and priority. It writes `config.yaml` and sets the time zone and
 daily time in `.github/workflows/coach.yml`. Run it again whenever your goals
 change, or edit `config.yaml` by hand for finer control.
 

@@ -129,7 +129,11 @@ def test_phases():
     assert phase_for(dt.date(2026, 10, 12), CFG).name == "base"
     assert phase_for(dt.date(2026, 11, 20), CFG).name == "specific"
     assert phase_for(dt.date(2026, 12, 10), CFG).name == "race_week"
-    assert phase_for(dt.date(2026, 12, 16), CFG).name == "transition"
+    # the 8.5 km race is priority B: 3-day mini taper and 2 days of recovery
+    assert phase_for(dt.date(2026, 12, 8), CFG).name != "taper"
+    assert phase_for(dt.date(2026, 12, 10), CFG).label == "Mini taper (B race)"
+    assert phase_for(dt.date(2026, 12, 15), CFG).name == "transition"
+    assert phase_for(dt.date(2026, 12, 16), CFG).name == "base"
     assert phase_for(dt.date(2027, 3, 20), CFG).name == "peak"
     assert phase_for(dt.date(2027, 4, 15), CFG).name == "transition"
     assert phase_for(dt.date(2027, 5, 10), CFG).focus == "tri"
@@ -202,30 +206,51 @@ def test_setup_wizard_writes_a_working_config():
     """Scripted answers → config.yaml + workflow time zone, usable by the planner."""
     import shutil
     from coach import setup_wizard
-    future = (dt.date.today() + dt.timedelta(days=120)).isoformat()
-    later = (dt.date.today() + dt.timedelta(days=250)).isoformat()
+    d1 = (dt.date.today() + dt.timedelta(days=120)).isoformat()
+    d2 = (dt.date.today() + dt.timedelta(days=200)).isoformat()
+    d3 = (dt.date.today() + dt.timedelta(days=250)).isoformat()
     answers = iter([
-        "3",                                   # triathlon
-        "City half", future, "3", "A",         # race 1: half marathon
-        "Lake sprint", later, "6", "",         # race 2: sprint tri, default priority A
+        "1 2 3 4 5 6 7",                       # change every proposed setting
+        "3", "4", "sun", "mon", "5:30", "America/New_York", "06:30",
+        "",                                    # accept the reviewed settings
+        "City half", "3", d1, "A",             # name → type → date → priority
+        "Lake sprint", "6", d2, "",            # default priority A
+        "Alpine fondo", "8", "120", "2400", d3, "b",
         "",                                    # done with races
-        "4", "sun", "mon", "5:30", "50", "America/New_York", "06:30",
     ])
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         wf = root / ".github" / "workflows"
         wf.mkdir(parents=True)
         shutil.copy(Path(__file__).resolve().parent.parent / ".github" / "workflows" / "coach.yml", wf)
-        setup_wizard.run(root, ask=lambda prompt: next(answers), suggestions={})
+        setup_wizard.run(root, ask=lambda prompt: next(answers), suggestions={"pool": 50})
         cfg = yaml.safe_load((root / "config.yaml").read_text())
         flow = (wf / "coach.yml").read_text()
-    assert [r["kind"] for r in cfg["races"]] == ["half", "tri_sprint"]
+    assert [r["kind"] for r in cfg["races"]] == ["half", "tri_sprint", "bike"]
+    assert cfg["races"][2]["elevation_m"] == 2400 and cfg["races"][2]["priority"] == "B"
     assert cfg["athlete"]["easy_pace_min_per_km"] == 5.5 and cfg["athlete"]["pool_length_m"] == 50
     runs = [k for day in cfg["weekly_templates"]["run_focus"].values() for k in day if k.startswith("run_")]
     assert len(runs) == 4
+    assert "cycling" in cfg["weekly_templates"]
     assert "TZ: America/New_York" in flow and '"30 11 * * *"' in flow
-    for i in range(0, 260, 5):   # the planner accepts it for the whole season
+    for i in range(0, 260, 3):   # the planner accepts it for the whole season
         plan_day(dt.date.today() + dt.timedelta(days=i), cfg, 30)
+
+
+def test_setup_accepts_proposed_settings_with_enter():
+    """With suggestions from Garmin, pressing Enter keeps them; only races are typed."""
+    from coach import setup_wizard
+    d1 = (dt.date.today() + dt.timedelta(days=90)).isoformat()
+    answers = iter(["", "Gran fondo", "", "150", "2000", d1, "", ""])
+    sug = {"found": ["x"], "sport": "bike", "run_days": 1, "long_day": "sat", "rest_day": "mon",
+           "pace": "5:20", "tz": "Europe/Zurich", "pool": 25}
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_wizard.run(Path(tmp), ask=lambda prompt: next(answers), suggestions=sug)
+        cfg = yaml.safe_load((Path(tmp) / "config.yaml").read_text())
+    assert cfg["athlete"]["sports"] == "bike" and cfg["races"][0]["kind"] == "bike"
+    cyc = cfg["weekly_templates"]["cycling"]
+    assert cyc["sat"] == ["bike_long"] and cyc["mon"] == ["rest"]
+    assert sum(k.startswith("run_") for day in cyc.values() for k in day) == 1
 
 
 def test_setup_suggestions_from_garmin_history():
@@ -243,14 +268,64 @@ def test_setup_suggestions_from_garmin_history():
         swim.update(poolLength=5000.0, unitOfPoolLength={"unitKey": "meter", "factor": 100.0})
         raw.append(swim)
     sug = suggest_from_activities([normalize_activity(a) for a in raw], "Europe/Zurich")
-    assert sug["sport"] == "3"            # swims + rides → triathlon
-    assert sug["run_days"] == "3"
+    assert sug["sport"] == "tri"          # swims + rides → triathlon
+    assert sug["run_days"] == 3
     assert sug["long_day"] == "sun"
     assert sug["rest_day"] == "mon"       # the only day with nothing logged
     assert sug["pace"] == "5:34"          # median of the easy runs (5:30 and 5:39/km); the hard run is excluded
-    assert sug["pool"] == "50"
+    assert sug["pool"] == 50
     assert sug["tz"] == "Europe/Zurich"
     assert suggest_from_activities([], None) == {"found": []}
+    # mostly riding → cyclist, long-ride day from the longest rides
+    rides = [act((start + dt.timedelta(weeks=w, days=d)).isoformat(), "road_biking", km, mins)
+             for w in range(8) for d, km, mins in ((1, 30, 70), (3, 35, 80), (5, 90, 220))]
+    sug = suggest_from_activities([normalize_activity(a) for a in rides])
+    assert sug["sport"] == "bike" and sug["long_day"] == "sat"
+
+
+def _cycling_cfg():
+    import copy
+    cfg = copy.deepcopy(CFG)
+    cfg["races"] = [{"name": "Alpine gran fondo", "date": dt.date(2027, 6, 27), "kind": "bike",
+                     "distance_km": 120, "elevation_m": 2400, "priority": "A"}]
+    cfg["weekly_templates"]["cycling"] = {
+        "mon": ["rest"], "tue": ["bike_quality"], "wed": ["run_easy"], "thu": ["bike_quality"],
+        "fri": ["bike_easy"], "sat": ["bike_long"], "sun": ["run_strides"]}
+    return cfg
+
+
+def test_cycling_event_plan():
+    """Hilly 120 km / 2400 m event: long rides grow from your current longest ride, with climbing work."""
+    from coach.planner import compute_week_target, phase_for
+    cfg = _cycling_cfg()
+    mon = dt.date(2027, 3, 1)
+    rides = [{"date": (mon - dt.timedelta(days=d)).isoformat(), "sport": "bike", "distance_km": 50,
+              "duration_min": 120} for d in (2, 9, 16, 23)] + \
+            [{"date": (mon - dt.timedelta(days=d)).isoformat(), "sport": "bike", "distance_km": 25,
+              "duration_min": 60} for d in (5, 12, 19, 26)]
+    wt = compute_week_target(rides, mon, cfg)
+    assert wt["bike_chronic_hours"] == 3.0 and wt["longest_ride_min"] == 120 and wt["ride_speed_kmh"] == 25.0
+    assert phase_for(mon, cfg).focus == "bike" and phase_for(mon, cfg).race.hilly
+    week = [s for i in range(7) for s in plan_day(mon + dt.timedelta(days=i), cfg, wt)[1]]
+    long_ride = next(s for s in week if s.kind == "bike_long")
+    assert long_ride.duration_min <= 120 * 1.15          # never more than +15 % over your longest recent ride
+    assert sum(s.kind == "bike_quality" for s in week) == 2
+    assert sum(s.sport == "run" for s in week) == 2       # running kept as maintenance
+    # peak phase on a hilly course: climbing reps and a long ride with climbing blocks
+    peak_mon = dt.date(2027, 6, 7)
+    wt_peak = dict(wt, longest_ride_min=300, bike_hours=10)
+    peak = [s for i in range(7) for s in plan_day(peak_mon + dt.timedelta(days=i), cfg, wt_peak)[1]]
+    assert any("climb" in s.title.lower() for s in peak if s.kind == "bike_quality")
+    lr = next(s for s in peak if s.kind == "bike_long")
+    assert lr.duration_min >= 240 and any(st["type"] == "repeat" for st in lr.steps)
+    # race day and the day before
+    assert plan_day(dt.date(2027, 6, 26), cfg, wt)[1][0].title == "Openers ride 45'"
+    assert plan_day(dt.date(2027, 6, 27), cfg, wt)[1][0].sport == "bike"
+    # every session of the season converts to a Garmin workout
+    for i in range(0, 130, 2):
+        for s in plan_day(mon + dt.timedelta(days=i), cfg, wt)[1]:
+            if s.steps:
+                assert to_garmin(s, cfg, "x")["workoutSegments"][0]["workoutSteps"]
 
 
 if __name__ == "__main__":

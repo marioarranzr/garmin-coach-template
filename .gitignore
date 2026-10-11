@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+logs/
+reports/
+config.yaml.bak
+*.pyc

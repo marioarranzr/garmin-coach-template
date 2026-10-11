@@ -791,6 +791,45 @@ def test_notes_from_the_last_12_hours_open_and_done():
     assert "“slept badly” (06:50, already done)" in res["report"]
 
 
+def test_update_command_keeps_your_settings():
+    """`coach update` on a "Use this template" copy: latest code, your config/data/schedule kept."""
+    import shutil
+    import subprocess
+    from coach.update import run as update
+    root = Path(__file__).resolve().parent.parent
+    git = lambda cwd, *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@x", *a],
+                                         cwd=cwd, check=True, capture_output=True, text=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        tpl, mine = Path(tmp) / "template", Path(tmp) / "mine"
+        for d in (tpl, mine):
+            shutil.copytree(root / "coach", d / "coach", ignore=shutil.ignore_patterns("__pycache__"))
+            (d / ".github" / "workflows").mkdir(parents=True)
+            shutil.copy(root / ".github" / "workflows" / "coach.yml", d / ".github" / "workflows")
+            shutil.copy(root / "config.yaml", d)
+            git(d, "init", "-q", "-b", "main")
+            git(d, "add", "-A")
+            git(d, "commit", "-qm", "Initial commit")          # unrelated histories, like the template button
+        cfg = (mine / "config.yaml").read_text().replace("min_long_run_km: 0", "min_long_run_km: 9")
+        (mine / "config.yaml").write_text(cfg)
+        wf = mine / ".github" / "workflows" / "coach.yml"
+        wf.write_text(wf.read_text().replace("TZ: Europe/Madrid", "TZ: Asia/Tokyo").replace('"0 6-9 * * *"', '"0 22-23,0-1 * * *"'))
+        (mine / "data").mkdir()
+        (mine / "data" / "garmin_tokens.enc").write_text("secret")
+        git(mine, "add", "-A")
+        git(mine, "commit", "-qm", "My setup")
+        (tpl / "coach" / "why.py").write_text((tpl / "coach" / "why.py").read_text() + "\n# improved\n")
+        twf = tpl / ".github" / "workflows" / "coach.yml"
+        twf.write_text(twf.read_text().replace("TODOIST_API_TOKEN:", "NEW_SECRET: x\n      TODOIST_API_TOKEN:"))
+        git(tpl, "commit", "-qam", "Improvement")
+        assert update(mine, url=str(tpl)) == 0
+        assert "min_long_run_km: 9" in (mine / "config.yaml").read_text()
+        assert (mine / "data" / "garmin_tokens.enc").read_text() == "secret"
+        flow = wf.read_text()
+        assert "TZ: Asia/Tokyo" in flow and '"0 22-23,0-1 * * *"' in flow and "NEW_SECRET" in flow
+        assert (mine / "coach" / "why.py").read_text().endswith("# improved\n")
+        assert update(mine, url=str(tpl)) == 0                    # already up to date
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

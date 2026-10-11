@@ -6,6 +6,7 @@
     python -m coach run --date 2026-10-14
     python -m coach week                  # preview of the next 7 days
     python -m coach export-tokens         # prepares the encrypted tokens for GitHub
+    python -m coach update                # brings in the latest template code, keeps your settings
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ def load_cfg(path: str | None) -> dict:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="coach")
-    ap.add_argument("cmd", choices=["setup", "login", "run", "week", "semana", "export-tokens"])
+    ap.add_argument("cmd", choices=["setup", "login", "run", "week", "semana", "export-tokens", "update"])
     ap.add_argument("--date", help="YYYY-MM-DD (default: today)")
     ap.add_argument("--dry-run", action="store_true", help="don't upload anything to Garmin")
     ap.add_argument("--wait-for-sleep", action="store_true",
@@ -47,6 +48,9 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:  # noqa: BLE001
         pass
+    if a.cmd == "update":
+        from .update import run as update
+        raise SystemExit(update(ROOT))
     if a.cmd == "setup":
         from .setup_wizard import run as setup
         setup(ROOT)

@@ -41,7 +41,7 @@ def week_target(state: State, acts, d, cfg) -> dict:
 
 
 def sleep_deadline(cfg: dict) -> dt.time:
-    raw = str((cfg.get("garmin") or {}).get("wait_for_sleep_until", "12:00"))
+    raw = str((cfg.get("garmin") or {}).get("wait_for_sleep_until", "10:00"))
     h, m = (int(x) for x in raw.split(":"))
     return dt.time(h, m)
 
@@ -64,7 +64,10 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     if wait_for_sleep and today_rec.get("uploads") and not sleep_ready:
         # planned at the deadline without sleep data, and it still hasn't arrived
         return {"status": "done", "report": "Today's workout is already in your Garmin calendar.\n"}
-    if wait_for_sleep and not sleep_ready and now.time() < deadline:
+    # Steps today mean you're up and wearing the watch: if it still has no sleep
+    # for last night, it didn't record one (not worn, or another watch) — don't wait.
+    awake = (wellness.get("steps_today") or 0) >= 500
+    if wait_for_sleep and not sleep_ready and not awake and now.time() < deadline:
         msg = (f"Last night's sleep isn't in Garmin yet (watch not synced, or still asleep). "
                f"Trying again next hour; planning anyway at {deadline:%H:%M} at the latest.")
         return {"status": "waiting", "report": msg + "\n"}
@@ -140,8 +143,11 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     }
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload)
     if not sleep_ready:
-        report += ("\n> No sleep data from last night reached Garmin, so readiness is based on the rest. "
-                   "Sync your watch and press *Run workflow* to re-plan with it.\n")
+        why = ("your watch shows you're up but recorded no sleep last night (not worn, or another watch)"
+               if awake else "no sleep data from last night reached Garmin")
+        report += (f"\n> Planned without sleep data: {why}. Readiness uses Body Battery, resting HR "
+                   "and training load instead. If last night's sleep shows up later, press *Run workflow* "
+                   "to re-plan with it.\n")
     if upload:  # a dry run only prints the report and leaves no files behind
         state.save()
     if upload and not os.environ.get("GITHUB_ACTIONS"):

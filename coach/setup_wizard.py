@@ -129,7 +129,7 @@ def build_templates(sport: str, run_days: int, long_day: int, rest_day: int) -> 
     return templates
 
 
-def cron_for(wake: str, tz: str, until: str = "12:00") -> str:
+def cron_for(wake: str, tz: str, until: str = "10:00") -> str:
     """GitHub cron (UTC): hourly from `wake` (local), with the last run at or
     just after `until` so it plans even without sleep data. Uses the winter
     offset, so in summer everything happens one hour later, never too early."""
@@ -259,9 +259,10 @@ garmin:
   tokenstore: ~/.garminconnect
   upload: true
   workout_prefix: "Coach"
-  # Morning runs wait for last night's sleep to reach Garmin (i.e. until you
-  # wake up and your watch syncs). At this time it plans anyway.
-  wait_for_sleep_until: "{answers.get('until', '12:00')}"
+  # Morning runs wait for last night's sleep to reach Garmin (until you wake up
+  # and your watch syncs). If the watch shows you're up but recorded no sleep,
+  # or at this time at the latest, it plans without it.
+  wait_for_sleep_until: "{answers.get('until', '10:00')}"
 """
 
 
@@ -588,6 +589,6 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
     print("\nDistances and intensities are set each day from your data and the phase of the plan.")
     if wf:
         print(f"GitHub workflow set to {st['tz']}: hourly from {st['wake']} until your sleep data arrives "
-              f"(at 12:00 at the latest; cron \"{cron}\" in UTC).")
+              f"(at 10:00 at the latest; cron \"{cron}\" in UTC).")
     print("\nNext: `python -m coach week` to preview it with your Garmin data.")
     return cfg_path

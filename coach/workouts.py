@@ -83,6 +83,8 @@ def to_garmin(s: Session, cfg: dict, description: str) -> dict:
             "workoutSteps": _steps(s.steps, [0], swim),
         }],
     }
+    if s.distance_km and s.sport in ("run", "swim"):
+        w["estimatedDistanceInMeters"] = round(s.distance_km * 1000)   # read back by the coach next day
     if swim:
         w["poolLength"] = float(cfg.get("athlete", {}).get("pool_length_m", 25))
         w["poolLengthUnit"] = {"unitId": 1, "unitKey": "meter", "factor": 100.0}

@@ -13,7 +13,7 @@ from .planner import (Session, compute_week_target, history_start, key_day, key_
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
 from .readiness import compliance, compute, consecutive_days, own_acwr, recent_load
 from . import ai
-from .calendar import Calendar, marker, with_marker
+from .calendar import Calendar, fit, footer
 from .notes import complete_notes, diary, diary_label, recent_notes
 from .why import substantial, why_line
 from .workouts import to_garmin
@@ -58,12 +58,11 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     deadline = sleep_deadline(cfg)
     calendar = Calendar(api, cfg)
     today_cal = calendar.day(d)
-    seen_ids = {i for e in today_cal for i in e["meta"].get("n", [])}
     planned_sleep = all(e["meta"].get("sr", 1) for e in today_cal)
     # your own notes for today (Todoist); a new one after planning means re-plan
     notes_today = recent_notes(cfg, now, api=notes_api)          # last 12 h, open and done
     open_notes = [n for n in notes_today if not n["done"]]
-    new_notes = [n for n in open_notes if n["id"] not in seen_ids]
+    new_notes = [n for n in open_notes if _added_after(n, today_cal, d)]
     if wait_for_sleep and today_cal and planned_sleep and not new_notes:
         msg = f"Today's workout is already in your Garmin calendar ({', '.join(e['name'] for e in today_cal)})."
         return {"status": "done", "report": msg + "\n"}
@@ -184,9 +183,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         for s in final:
             if not s.steps:
                 continue
-            tag = marker(s, {"r": r["score"], "sr": 0 if not sleep_ready else None,
-                             "n": [n["id"] for n in open_notes], "u": [n["id"] for n in used]})
-            desc = with_marker(_workout_description(s, r, notes, phase, why, coach.get("coach_note", "")), tag)
+            body = _workout_description(s, r, [] if coach.get("used") else notes, why, coach.get("coach_note", ""))
+            desc = fit(body, footer(phase.describe(), now, sleep_ready))
             try:
                 uploads.append(G.upload_and_schedule(api, to_garmin(s, cfg, desc), d.isoformat()))
             except Exception as e:  # noqa: BLE001
@@ -307,15 +305,28 @@ def account_for_today(final: list[Session], done_today: list[dict], phase, notes
     return out
 
 
-def _workout_description(s: Session, r: dict, notes: list[str], phase, why: str = "", coach_note: str = "") -> str:
-    parts = ([why] if why else []) + ([coach_note] if coach_note else []) + \
-            [s.detail, f"Readiness today: {r['score']}/100 – {r['label'][2:]}."]
-    if r["reasons"]:
-        parts.append("Details: " + " ".join(r["reasons"][:3]))
+def _added_after(note: dict, today_cal: list[dict], d: dt.date) -> bool:
+    """Whether an open note was written after today's workout was planned."""
+    if not today_cal:
+        return True
+    times = [e["meta"]["at"] for e in today_cal if e["meta"].get("at")]
+    if times:
+        return note["created"] >= f"{d.isoformat()}T{max(times)}"
+    seen = {i for e in today_cal for i in e["meta"].get("n", [])}   # workouts from before the footer
+    return bool(seen) and note["id"] not in seen
+
+
+def _workout_description(s: Session, r: dict, notes: list[str], why: str = "", coach_note: str = "") -> str:
+    """What you read on the watch and in Garmin Connect: the why first, then
+    the advice, the session, readiness with its main reasons, and the rules'
+    changes (only when no AI coach made the final call)."""
+    blocks = [why, coach_note, s.detail]
+    level = r["label"][2:].split(":")[0].strip()
+    lines = [f"Readiness {r['score']}/100 · {level}"] + [f"• {x}" for x in r["reasons"][:3]]
+    blocks.append("\n".join(lines))
     if notes:
-        parts.append("Changes: " + " ".join(notes[:3]))
-    parts.append(f"Phase: {phase.describe()}.")
-    return "\n".join(parts)
+        blocks.append("\n".join(["Changes:"] + [f"• {n}" for n in notes[:3]]))
+    return "\n\n".join(b.strip() for b in blocks if b and b.strip())
 
 
 def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, upload, why="",
@@ -365,7 +376,9 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
     if not final:
         L.append("- Nothing left for today: you've already done it. 🎉")
     if notes:
-        L += ["", "**Coach adjustments:**"] + [f"- {n}" for n in notes]
+        title = ("**What the rules proposed** (the AI coach made the final call):" if (coach or {}).get("used")
+                 else "**Coach adjustments:**")
+        L += ["", title] + [f"- {n}" for n in notes]
     L += coach_section(coach or {}, cfg or {})
     L += ["", "## Garmin"]
     if upload:

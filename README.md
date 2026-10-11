@@ -158,9 +158,11 @@ paste the key.
 The report appears in the run summary. From then on it runs on its own every
 morning: it checks hourly from the time you chose, waits until last night's
 sleep and HRV have reached Garmin (i.e. you're up and your watch has synced),
-plans the day once and puts the workout in your Garmin calendar. If no sleep
-data has arrived by 12:00 (`wait_for_sleep_until` in `config.yaml`), it plans
-with what's available and says so in the report.
+plans the day once and puts the workout in your Garmin calendar. If your watch
+shows you're up but recorded no sleep (you didn't wear it, or used another
+watch), it plans right away without it; if nothing reaches Garmin at all, it
+plans at 10:00 (`wait_for_sleep_until` in `config.yaml`). Either way the
+report says so.
 
 You can re-run it any time from the GitHub mobile app: a manual run plans
 straight away and replaces the day's earlier workout.

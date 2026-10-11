@@ -224,6 +224,7 @@ def fetch_wellness(api, d: dt.date) -> dict:
 
     stats = _safe(api.get_stats, ds, default={}) or {}
     w["rhr"] = stats.get("restingHeartRate")
+    w["steps_today"] = stats.get("totalSteps")
     w["rhr_7d"] = stats.get("lastSevenDaysAvgRestingHeartRate")
     bb = _safe(api.get_body_battery, ds, default=[])
     w["body_battery_wake"] = _body_battery_wake(bb) or stats.get("bodyBatteryHighestValue")

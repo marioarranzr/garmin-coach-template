@@ -104,6 +104,7 @@ garmin:
   tokenstore: ~/.garminconnect
   upload: true
   workout_prefix: "Coach"
-  # Morning runs wait for last night's sleep to reach Garmin (i.e. until you
-  # wake up and your watch syncs). At this time it plans anyway.
-  wait_for_sleep_until: "12:00"
+  # Morning runs wait for last night's sleep to reach Garmin (until you wake up
+  # and your watch syncs). If the watch shows you're up but recorded no sleep,
+  # or at this time at the latest, it plans without it.
+  wait_for_sleep_until: "10:00"

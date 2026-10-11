@@ -14,7 +14,7 @@ from .planner import (Session, compute_week_target, key_day, key_session, learn_
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
 from .readiness import compliance, compute, consecutive_days, own_acwr, recent_load
 from . import ai
-from .notes import todays_notes
+from .notes import complete_notes, todays_notes
 from .why import substantial, why_line
 from .workouts import to_garmin
 
@@ -162,8 +162,11 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     # ── AI coach: final call within the rule-based limits ──
     coach = {"used": False, "configured": ai_client is not None or ai.enabled(cfg)}
     if coach["configured"] and final:
-        context = ai.build_context(d, phase, wt, wellness, r, ctx, final, planned, notes_today, acts, notes, why)
-        coach.update(ai.decide(cfg, context, final, phase, week_index(d, cfg), client=ai_client))
+        earlier = today_rec.get("notes_used_texts", [])
+        context = ai.build_context(d, phase, wt, wellness, r, ctx, final, planned, notes_today, acts, notes, why,
+                                   earlier)
+        coach.update(ai.decide(cfg, context, final, phase, week_index(d, cfg), client=ai_client,
+                               prov=getattr(ai_client, "provider", None)))
         if coach.get("used"):
             final, why = coach["sessions"], coach["why"] or why
             notes += [f"Safety limit: {x}." for x in coach.get("limited", [])]
@@ -185,12 +188,20 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
     else:
         uploads = prev
 
+    # notes the coach used: complete them in Todoist (real runs only) and remember them for today
+    used = [n for n in notes_today if n["id"] in set(coach.get("notes_used") or [])]
+    if upload and used:
+        completed = complete_notes([n["id"] for n in used], api=notes_api)
+        coach["completed"] = completed
+    used_texts = today_rec.get("notes_used_texts", []) + [{"time": n["time"], "text": n["text"]} for n in used]
+
     state.data["days"][d.isoformat()] = {
         "phase": phase.describe(), "week_target_km": week_km,
         "planned": [s.to_dict() for s in planned], "final": [s.to_dict() for s in final],
         "readiness": {k: r[k] for k in ("score", "level", "reasons")},
         "compliance_yesterday": comp, "uploads": uploads, "sleep_ready": sleep_ready, "why": why,
         "note_ids": [n["id"] for n in notes_today],
+        "notes_used_texts": used_texts,
         "coach": {k: coach.get(k) for k in ("used", "decision", "coach_note", "notes_used", "error")},
     }
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why,
@@ -227,20 +238,23 @@ def sync_note(last_sync: str | None, now: dt.datetime) -> str:
 def coach_section(coach: dict, cfg: dict) -> list[str]:
     L = ["", "## Coach"]
     if coach.get("used"):
-        model = (cfg.get("ai") or {}).get("model", ai.DEFAULT_MODEL)
-        L.append(f"- Decided by the AI coach ({model}), within the plan's safety limits.")
+        L.append(f"- Decided by the AI coach ({coach.get('model')}), within the plan's safety limits.")
         if coach.get("coach_note"):
             L.append(f"- {coach['coach_note']}")
     elif coach.get("configured"):
         L.append(f"- AI coach unavailable today ({coach.get('error', 'no answer')}): rule-based plan used.")
     else:
-        L.append("- Rule-based plan (add an ANTHROPIC_API_KEY to let the AI coach make the final call).")
+        L.append("- Rule-based plan (add an OPENAI_API_KEY or ANTHROPIC_API_KEY to let the AI coach decide).")
     notes = coach.get("notes_today") or []
     if notes:
-        used = coach.get("notes_used") or []
+        used_ids = set(coach.get("notes_used") or [])
         L.append("- Your notes today: " + "; ".join(f"“{n['text']}” ({n['time']})" for n in notes))
         if coach.get("used"):
-            L.append("- Taken into account: " + ("; ".join(f"“{u}”" for u in used) if used else "none were about training"))
+            used = [n for n in notes if n["id"] in used_ids]
+            L.append("- Taken into account: " + ("; ".join(f"“{n['text']}”" for n in used) if used
+                                                  else "none were about training"))
+            if coach.get("completed"):
+                L.append(f"- Completed in Todoist: {len(coach['completed'])} note(s) (they're in your completed tasks).")
     return L
 
 

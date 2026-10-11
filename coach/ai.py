@@ -1,4 +1,5 @@
-"""AI coach: Claude reviews the day and makes the final call, within safety limits.
+"""AI coach: an LLM (OpenAI or Claude) reviews the day and makes the final call,
+within safety limits.
 
 The rule-based plan is the proposal and the ceiling. The AI sees everything
 (Garmin data, the last two weeks of all sports, the plan, your own notes) and
@@ -17,8 +18,10 @@ import os
 from .planner import Phase, Session, make_bike, make_rest, make_run, make_swim
 
 log = logging.getLogger(__name__)
-KEY_ENV = "ANTHROPIC_API_KEY"
-DEFAULT_MODEL = "claude-sonnet-5-5"
+KEY_ENV = "ANTHROPIC_API_KEY"          # Claude
+OPENAI_KEY_ENV = "OPENAI_API_KEY"       # OpenAI
+DEFAULT_MODELS = {"openai": "gpt-5.4-mini", "anthropic": "claude-sonnet-5-5"}
+DEFAULT_MODEL = DEFAULT_MODELS["anthropic"]
 
 KINDS = ["rest", "run_easy", "run_strides", "run_quality", "run_long", "run_brick",
          "bike_easy", "bike_long", "bike_quality", "swim_technique", "swim_endurance", "swim_css"]
@@ -41,7 +44,7 @@ SCHEMA = {
         },
         "why": {"type": "string"},
         "coach_note": {"type": "string"},
-        "notes_used": {"type": "array", "items": {"type": "string"}},
+        "notes_used": {"type": "array", "items": {"type": "string"}},   # ids of the notes you used
     },
     "required": ["decision", "sessions", "why", "coach_note", "notes_used"],
     "additionalProperties": False,
@@ -69,12 +72,31 @@ Write for the athlete, in English, plainly:
 shown first on their watch.
 - "coach_note": 1-3 short sentences of practical advice for today (how it should feel, what to \
 watch for). No generic motivation.
-- "notes_used": the athlete notes you actually took into account (quote them briefly), or [].
+- "notes_used": the ids of the athlete notes that are about how they feel or their training \
+and that you took into account, or []. Never include unrelated notes (they stay in the athlete's \
+to-do list). Notes listed under "earlier_notes_today" were already used; don't list them again.
 - Distances in km for runs, minutes for rides; null where not applicable."""
 
 
+def provider(cfg: dict) -> str | None:
+    """Which AI to use: `ai.provider` (openai | anthropic | auto); auto picks whichever key is set."""
+    settings = cfg.get("ai") or {}
+    if not settings.get("enabled", True):
+        return None
+    wanted = str(settings.get("provider", "auto")).lower()
+    have = {"openai": bool(os.environ.get(OPENAI_KEY_ENV)), "anthropic": bool(os.environ.get(KEY_ENV))}
+    if wanted in have:
+        return wanted if have[wanted] else None
+    return next((p for p in ("openai", "anthropic") if have[p]), None)
+
+
 def enabled(cfg: dict) -> bool:
-    return bool((cfg.get("ai") or {}).get("enabled", True) and os.environ.get(KEY_ENV))
+    return provider(cfg) is not None
+
+
+def model_for(cfg: dict, prov: str) -> str:
+    settings = cfg.get("ai") or {}
+    return settings.get(f"{prov}_model") or DEFAULT_MODELS[prov]
 
 
 def _session_json(s: Session) -> dict:
@@ -84,7 +106,7 @@ def _session_json(s: Session) -> dict:
 
 def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict, proposal: list[Session],
                   planned: list[Session], notes: list[dict], acts: list[dict], rule_notes: list[str],
-                  rule_why: str) -> dict:
+                  rule_why: str, earlier_notes: list[dict] | None = None) -> dict:
     keep_w = ("sleep_hours", "sleep_score", "hrv_last_night", "hrv_weekly_avg", "hrv_status", "hrv_baseline_low",
               "hrv_baseline_high", "body_battery_wake", "rhr", "rhr_7d", "stress_yesterday", "training_readiness",
               "training_status", "acwr", "steps_today", "after_training", "last_sync")
@@ -111,6 +133,7 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
         "rule_adjustments": rule_notes,
         "rule_one_line_why": rule_why,
         "athlete_notes_today": notes,
+        "earlier_notes_today": earlier_notes or [],
     }
 
 
@@ -166,29 +189,56 @@ def apply_limits(raw: list[dict], proposal: list[Session], phase: Phase, wk: int
     return out or [make_rest("Your coach chose rest today.")], limited
 
 
-def decide(cfg: dict, context: dict, proposal: list[Session], phase: Phase, wk: int, client=None) -> dict:
-    """Returns {"used": bool, "sessions", "why", "coach_note", "notes_used", "limited", "error"}."""
-    settings = cfg.get("ai") or {}
-    if client is None and not enabled(cfg):
+def _ask_openai(client, model: str, context: dict) -> str:
+    resp = client.chat.completions.create(
+        model=model,
+        max_completion_tokens=4000,
+        messages=[{"role": "system", "content": SYSTEM},
+                  {"role": "user", "content": "Today's data (JSON):\n" + json.dumps(context, default=str)}],
+        response_format={"type": "json_schema",
+                         "json_schema": {"name": "coach_decision", "schema": SCHEMA, "strict": True}},
+    )
+    msg = resp.choices[0].message
+    if getattr(msg, "refusal", None):
+        raise RuntimeError(f"refused: {msg.refusal}")
+    return msg.content or ""
+
+
+def _ask_anthropic(client, model: str, context: dict) -> str:
+    resp = client.messages.create(
+        model=model,
+        max_tokens=1500,
+        system=SYSTEM,
+        messages=[{"role": "user", "content": "Today's data (JSON):\n" + json.dumps(context, default=str)}],
+        output_config={"format": {"type": "json_schema", "schema": SCHEMA}},
+    )
+    return "".join(getattr(b, "text", "") for b in resp.content)
+
+
+def decide(cfg: dict, context: dict, proposal: list[Session], phase: Phase, wk: int, client=None,
+           prov: str | None = None) -> dict:
+    """Returns {"used": bool, "sessions", "why", "coach_note", "notes_used", "limited", "error", "model"}."""
+    prov = prov or provider(cfg)
+    if prov is None:
         return {"used": False}
+    model = model_for(cfg, prov)
     try:
         if client is None:
-            import anthropic
-            client = anthropic.Anthropic()
-        resp = client.messages.create(
-            model=settings.get("model", DEFAULT_MODEL),
-            max_tokens=1500,
-            system=SYSTEM,
-            messages=[{"role": "user", "content": "Today's data (JSON):\n" + json.dumps(context, default=str)}],
-            output_config={"format": {"type": "json_schema", "schema": SCHEMA}},
-        )
-        text = "".join(getattr(b, "text", "") for b in resp.content)
+            if prov == "openai":
+                import openai
+                client = openai.OpenAI()
+            else:
+                import anthropic
+                client = anthropic.Anthropic()
+        text = _ask_openai(client, model, context) if prov == "openai" else _ask_anthropic(client, model, context)
         data = json.loads(text)
         sessions, limited = apply_limits(data.get("sessions") or [], proposal, phase, wk)
         why = (data.get("why") or "").strip().split("\n")[0][:200]
-        return {"used": True, "decision": data.get("decision"), "sessions": sessions, "why": why,
+        known = {str(n["id"]) for n in context.get("athlete_notes_today") or []}
+        return {"used": True, "model": model, "decision": data.get("decision"), "sessions": sessions, "why": why,
                 "coach_note": (data.get("coach_note") or "").strip()[:600],
-                "notes_used": [n for n in data.get("notes_used") or [] if n][:5], "limited": limited}
+                "notes_used": [str(n) for n in data.get("notes_used") or [] if str(n) in known][:10],
+                "limited": limited}
     except Exception as e:  # noqa: BLE001 — never leave the athlete without a plan
         log.warning("AI coach unavailable, using the rule-based plan: %s", e)
-        return {"used": False, "error": str(e)[:200]}
+        return {"used": False, "model": model, "error": str(e)[:200]}

@@ -112,16 +112,19 @@ garmin:
   # or at this time at the latest, it plans without it.
   wait_for_sleep_until: "10:00"
 
-# AI coach: each day Claude makes the final call (keep, shorten, make easier
+# AI coach: each day an AI makes the final call (keep, shorten, make easier
 # or rest) within the plan's safety limits, using all your data and notes.
-# Needs the ANTHROPIC_API_KEY secret (see README); without it the rule-based
-# plan is used.
+# Needs an OPENAI_API_KEY or ANTHROPIC_API_KEY secret (see README); without
+# one the rule-based plan is used. provider: auto | openai | anthropic
 ai:
   enabled: true
-  model: claude-sonnet-5-5
+  provider: auto
+  openai_model: gpt-5.4-mini
+  anthropic_model: claude-sonnet-5-5
 
 # Your own notes on how you feel, read from Todoist: anything added to this
-# project from `from_hour` this morning. Needs TODOIST_API_TOKEN (see README).
+# project from `from_hour` this morning. Notes the AI coach uses are then
+# completed (not deleted). Needs TODOIST_API_TOKEN (see README).
 todoist:
   enabled: true
   project: Inbox

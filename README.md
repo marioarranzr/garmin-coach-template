@@ -67,7 +67,7 @@ weekly targets are recomputed each time. The report shows when your watch
 last synced and warns you if it's been more than 2 hours, since anything
 after that sync isn't in Garmin yet.
 
-**5. Lets an AI coach make the final call** (optional). Claude gets the whole
+**5. Lets an AI coach make the final call** (optional, OpenAI or Claude). The AI gets the whole
 picture (your Garmin data, the last two weeks of every sport, the plan and
 your own notes from that morning) and decides: keep the plan, shorten it,
 make it easier, swap it for an easy swim or spin, or rest. It can never add
@@ -76,8 +76,8 @@ if the AI is unavailable the rule-based plan is used.
 
 **Your notes:** anything you add to your Todoist Inbox in the morning ("legs
 heavy", "knee sore", "slept badly"), typed, dictated or from a gadget, is
-passed to the AI coach. Unrelated notes are ignored and nothing in Todoist is
-changed. If you add a note after the day is planned, the next morning check
+passed to the AI coach. Notes it uses are then completed in Todoist (not
+deleted: they're in your completed tasks); unrelated notes are left alone. If you add a note after the day is planned, the next morning check
 re-plans with it.
 
 **6. Uploads the workout to Garmin**, starting with one short sentence on why
@@ -122,8 +122,9 @@ logged in). That's why:
 - The session token is encrypted with a key that only lives in your
   repository's GitHub secrets.
 - With the AI coach on, each day's data (Garmin metrics, recent activities,
-  the plan and your notes) is sent to the Claude API to make the call.
-  Leave `ANTHROPIC_API_KEY` unset to keep everything rule-based.
+  the plan and your notes) is sent to the AI provider's API (OpenAI or
+  Anthropic) to make the call. Leave both AI keys unset to keep everything
+  rule-based.
 
 ## Setup (about 10 minutes)
 
@@ -192,11 +193,16 @@ paste the key.
 
 ### 5. Optional: AI coach and your notes
 
-**AI coach.** Create an API key in the [Claude Console](https://console.anthropic.com)
-(Settings → API keys) and add it as the repository secret `ANTHROPIC_API_KEY`.
-It's pay-per-use: one call per day, a few thousand tokens. Set a monthly
-spending limit in the Console so there are no surprises. The model is set in
-`config.yaml` (`ai.model`).
+**AI coach.** Use either provider; it's pay-per-use, one call per day with a
+few thousand tokens. Set a monthly spending limit with your provider.
+
+- OpenAI: create a key at [platform.openai.com](https://platform.openai.com/api-keys)
+  and add it as the secret `OPENAI_API_KEY` (model: `ai.openai_model`,
+  default `gpt-5.4-mini`).
+- Claude: create a key in the [Claude Console](https://console.anthropic.com)
+  and add it as the secret `ANTHROPIC_API_KEY` (model: `ai.anthropic_model`).
+
+With `ai.provider: auto` it uses whichever key is set (OpenAI if both).
 
 **Notes from Todoist.** Copy your API token from Todoist (Settings →
 Integrations → Developer) and add it as the secret `TODOIST_API_TOKEN`. The
@@ -204,7 +210,7 @@ coach reads today's notes from the project in `config.yaml` (`todoist.project`,
 default `Inbox`).
 
 To use them when running on your computer, set the same names as
-environment variables (`export ANTHROPIC_API_KEY=...`).
+environment variables (e.g. `export OPENAI_API_KEY=...`).
 
 ### 6. Test it
 

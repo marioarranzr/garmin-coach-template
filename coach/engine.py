@@ -168,13 +168,14 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         earlier += [e for e in today_rec.get("notes_used_texts", []) if e["text"] not in {x["text"] for x in earlier}]
         context = ai.build_context(d, phase, wt, wellness, r, ctx, final, planned,
                                    [{k: n[k] for k in ("id", "time", "text")} for n in open_notes],
-                                   acts, notes, why, earlier)
+                                   acts, notes, why, earlier, notes_history(state, acts, d, cfg))
         coach.update(ai.decide(cfg, context, final, phase, week_index(d, cfg), client=ai_client,
                                prov=getattr(ai_client, "provider", None)))
         if coach.get("used"):
             final, why = coach["sessions"], coach["why"] or why
             notes += [f"Safety limit: {x}." for x in coach.get("limited", [])]
     coach["notes_today"] = notes_today
+    coach["history_count"] = len(notes_history(state, acts, d, cfg)) if coach.get("used") else 0
 
     # ── Garmin ──
     prev = (state.data["days"].get(d.isoformat()) or {}).get("uploads", [])
@@ -199,6 +200,14 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
                                    recurring={n["id"] for n in used if n.get("recurring")})
         coach["completed"] = completed
     used_texts = today_rec.get("notes_used_texts", []) + [{"time": n["time"], "text": n["text"]} for n in used]
+    # training diary: every note the coach used, kept to learn how you respond over the weeks
+    journal = state.data.setdefault("journal", [])
+    seen = {(e["date"], e["text"]) for e in journal}
+    for n in used:
+        if (d.isoformat(), n["text"]) not in seen:
+            journal.append({"date": d.isoformat(), "time": n["time"], "text": n["text"]})
+    keep_from = (d - dt.timedelta(days=int((cfg.get("todoist") or {}).get("keep_days", 365)))).isoformat()
+    state.data["journal"] = [e for e in journal if e["date"] >= keep_from]
 
     state.data["days"][d.isoformat()] = {
         "phase": phase.describe(), "week_target_km": week_km,
@@ -240,6 +249,33 @@ def sync_note(last_sync: str | None, now: dt.datetime) -> str:
     return line
 
 
+def notes_history(state: State, acts: list[dict], d: dt.date, cfg: dict) -> list[dict]:
+    """Your notes from previous weeks, each with what you trained around it."""
+    if "journal" not in state.data:   # first run with the diary: fill it from earlier days' used notes
+        state.data["journal"] = [{"date": day, "time": n.get("time"), "text": n["text"]}
+                                 for day, rec in sorted(state.data["days"].items())
+                                 for n in rec.get("notes_used_texts", [])]
+    days = int((cfg.get("todoist") or {}).get("history_days", 28))
+    since = (d - dt.timedelta(days=days)).isoformat()
+
+    def trained(day: str) -> list[str]:
+        return [f"{a['sport']} {a['distance_km']:g} km, {a['duration_min']:.0f}'"
+                + (f", TE {a['aerobic_te']}" if a.get("aerobic_te") else "")
+                for a in acts if a["date"] == day]
+
+    out = []
+    for e in state.data.get("journal", []):
+        if not (since <= e["date"] < d.isoformat()):
+            continue
+        prev = (dt.date.fromisoformat(e["date"]) - dt.timedelta(days=1)).isoformat()
+        rec = state.data["days"].get(e["date"]) or {}
+        out.append({"date": e["date"], "time": e.get("time"), "note": e["text"],
+                    "trained_that_day": trained(e["date"]), "trained_day_before": trained(prev),
+                    "readiness": (rec.get("readiness") or {}).get("score"),
+                    "coach_plan_that_day": [s.get("title") for s in rec.get("final", [])]})
+    return out[-40:]
+
+
 def coach_section(coach: dict, cfg: dict) -> list[str]:
     L = ["", "## Coach"]
     if coach.get("used"):
@@ -250,6 +286,8 @@ def coach_section(coach: dict, cfg: dict) -> list[str]:
         L.append(f"- AI coach unavailable today ({coach.get('error', 'no answer')}): rule-based plan used.")
     else:
         L.append("- Rule-based plan (add an OPENAI_API_KEY or ANTHROPIC_API_KEY to let the AI coach decide).")
+    if coach.get("history_count"):
+        L.append(f"- Coach memory: {coach['history_count']} of your notes from the last weeks were considered.")
     notes = coach.get("notes_today") or []
     if notes:
         used_ids = set(coach.get("notes_used") or [])

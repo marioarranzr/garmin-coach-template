@@ -174,6 +174,12 @@ alone. Notes already marked done in that window, by the coach or by you, are
 still passed as context, so a re-plan later in the day remembers them. Notes
 are only marked done on real runs, never on "Analyze only" test runs.
 
+**Training diary.** Every note the AI uses is also kept in `data/state.json`.
+Each day the AI sees the last 4 weeks of it (`history_days`), each note next
+to what you trained that day and the day before, your readiness and the
+coach's plan. That lets it learn how *you* respond, e.g. that two big ride
+days in a row leave your legs heavy, or that a niggle keeps coming back.
+
 ## What you get
 
 **On your watch:** the day's workout(s) in your Garmin calendar, with steps
@@ -222,7 +228,7 @@ _Garmin data as of your watch's last sync: Sun 08:12._
 ## Privacy
 
 The daily job commits two files to your repository:
-- `data/state.json`: each day's plan and readiness. The coach uses it to compare yesterday's plan with what you did, and to replace a re-run's workout instead of duplicating it.
+- `data/state.json`: each day's plan and readiness, and your training diary of notes. The coach uses it to compare yesterday's plan with what you did, to replace a re-run's workout instead of duplicating it, and to learn from your past notes.
 - `data/garmin_tokens.enc`: your **encrypted** Garmin session, refreshed so it stays logged in.
 
 That's why:
@@ -367,7 +373,8 @@ workflow file, and keys in GitHub secrets.
 | `ai.openai_model` / `ai.anthropic_model` | `gpt-5.4-mini` / `claude-sonnet-5-5` | Model per provider |
 | `todoist.enabled` | `true` | Read your notes if a token is set |
 | `todoist.project` | `Inbox` | Todoist project the notes are read from |
-| `todoist.lookback_hours` | 12 | How far back notes count |
+| `todoist.lookback_hours` | 12 | How far back notes count as today's state |
+| `todoist.history_days` | 28 | How many days of your training diary the AI sees |
 
 **Session types** for the weekly templates: `rest`, `run_easy`,
 `run_strides`, `run_quality`, `run_long`, `run_brick`, `bike_easy`,

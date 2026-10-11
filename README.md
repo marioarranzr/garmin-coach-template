@@ -16,7 +16,7 @@ no app, and your data never leaves your Garmin account and your repository.
 
 ## What it does
 
-**1. Reads your Garmin data:** sleep score and hours, overnight HRV and its
+**1. Reads your Garmin data** as soon as you're up (it waits for your watch to sync last night's sleep): sleep score and hours, overnight HRV and its
 normal range, Body Battery on waking, resting heart rate vs your 7-day average,
 yesterday's stress, Training Readiness, acute/chronic load and your activities
 from the last 5 weeks.
@@ -155,12 +155,15 @@ paste the key.
 ### 5. Test it
 
 **Actions → Daily workout → Run workflow**, tick *Analyze only*, and run it.
-The report appears in the run summary. From then on it runs every morning on
-its own and the workout shows up in your Garmin calendar. Sync your watch when
-you wake up so it sees last night's sleep and HRV.
+The report appears in the run summary. From then on it runs on its own every
+morning: it checks hourly from the time you chose, waits until last night's
+sleep and HRV have reached Garmin (i.e. you're up and your watch has synced),
+plans the day once and puts the workout in your Garmin calendar. If no sleep
+data has arrived by 12:00 (`wait_for_sleep_until` in `config.yaml`), it plans
+with what's available and says so in the report.
 
-You can re-run it any time from the GitHub mobile app (e.g. after syncing your
-watch late): the day's earlier workout is replaced.
+You can re-run it any time from the GitHub mobile app: a manual run plans
+straight away and replaces the day's earlier workout.
 
 **If a run fails with a session error** (Garmin sometimes expires sessions),
 repeat `login` (step 2) and step 4.

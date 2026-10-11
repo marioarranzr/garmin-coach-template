@@ -40,11 +40,37 @@ def week_target(state: State, acts, d, cfg) -> dict:
     return state.data["weeks"][key]
 
 
-def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | None = None) -> dict:
+def sleep_deadline(cfg: dict) -> dt.time:
+    raw = str((cfg.get("garmin") or {}).get("wait_for_sleep_until", "12:00"))
+    h, m = (int(x) for x in raw.split(":"))
+    return dt.time(h, m)
+
+
+def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | None = None,
+            wait_for_sleep: bool = False, now: dt.datetime | None = None) -> dict:
+    """Plans day `d`. With `wait_for_sleep` (scheduled runs), it does nothing if
+    today is already planned, and waits (returns without planning) while last
+    night's sleep hasn't reached Garmin yet, until the configured deadline."""
     state = State(state_path or ROOT / "data" / "state.json")
+    now = now or dt.datetime.now()
+    deadline = sleep_deadline(cfg)
+    today_rec = state.data["days"].get(d.isoformat()) or {}
+    if wait_for_sleep and today_rec.get("uploads") and today_rec.get("sleep_ready", True):
+        msg = f"Today's workout is already in your Garmin calendar ({', '.join(u['name'] for u in today_rec['uploads'])})."
+        return {"status": "done", "report": msg + "\n"}
+
+    wellness = G.fetch_wellness(api, d)
+    sleep_ready = wellness.get("sleep_hours") is not None or wellness.get("sleep_score") is not None
+    if wait_for_sleep and today_rec.get("uploads") and not sleep_ready:
+        # planned at the deadline without sleep data, and it still hasn't arrived
+        return {"status": "done", "report": "Today's workout is already in your Garmin calendar.\n"}
+    if wait_for_sleep and not sleep_ready and now.time() < deadline:
+        msg = (f"Last night's sleep isn't in Garmin yet (watch not synced, or still asleep). "
+               f"Trying again next hour; planning anyway at {deadline:%H:%M} at the latest.")
+        return {"status": "waiting", "report": msg + "\n"}
+
     acts = G.fetch_activities(api, d - dt.timedelta(days=35), d)
     past = [a for a in acts if a["date"] < d.isoformat()]
-    wellness = G.fetch_wellness(api, d)
 
     wt = week_target(state, past, d, cfg)
     week_km = wt["target_km"]
@@ -110,9 +136,12 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         "phase": phase.describe(), "week_target_km": week_km,
         "planned": [s.to_dict() for s in planned], "final": [s.to_dict() for s in final],
         "readiness": {k: r[k] for k in ("score", "level", "reasons")},
-        "compliance_yesterday": comp, "uploads": uploads,
+        "compliance_yesterday": comp, "uploads": uploads, "sleep_ready": sleep_ready,
     }
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload)
+    if not sleep_ready:
+        report += ("\n> No sleep data from last night reached Garmin, so readiness is based on the rest. "
+                   "Sync your watch and press *Run workflow* to re-plan with it.\n")
     if upload:  # a dry run only prints the report and leaves no files behind
         state.save()
     if upload and not os.environ.get("GITHUB_ACTIONS"):
@@ -120,7 +149,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, state_path: Path | 
         rep_dir = ROOT / "reports"
         rep_dir.mkdir(exist_ok=True)
         (rep_dir / f"{d.isoformat()}.md").write_text(report, encoding="utf-8")
-    return {"report": report, "final": final, "readiness": r, "notes": notes}
+    return {"status": "planned", "report": report, "final": final, "readiness": r, "notes": notes}
 
 
 def _workout_description(s: Session, r: dict, notes: list[str], phase) -> str:

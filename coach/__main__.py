@@ -3,6 +3,8 @@
     python -m coach login                 # first time: saves your Garmin session tokens
     python -m coach run                   # today's workout → Garmin calendar
     python -m coach run --dry-run         # same, but uploads nothing
+    python -m coach run --tomorrow        # plan tomorrow, as the evening run does
+    python -m coach run --scheduled       # what GitHub runs: morning check or evening plan, by the time
     python -m coach run --date 2026-10-14
     python -m coach week                  # preview of the next 7 days
     python -m coach export-tokens         # prepares the encrypted tokens for GitHub
@@ -20,7 +22,7 @@ from pathlib import Path
 import yaml
 
 from . import garmin_api as G
-from .engine import ROOT, run_day, week_target
+from .engine import ROOT, evening_plan, run_day, scheduled, week_target
 from .planner import history_start, learn_long_day, plan_day, phase_for
 
 
@@ -35,7 +37,12 @@ def main(argv=None):
     ap.add_argument("--date", help="YYYY-MM-DD (default: today)")
     ap.add_argument("--dry-run", action="store_true", help="don't upload anything to Garmin")
     ap.add_argument("--wait-for-sleep", action="store_true",
-                    help="scheduled runs: skip if today is planned, wait until last night's sleep reaches Garmin")
+                    help="morning check: skip if today was checked, wait until last night's sleep reaches Garmin")
+    ap.add_argument("--scheduled", action="store_true",
+                    help="scheduled runs: the morning check or, after the evening plan time, tomorrow's plan")
+    ap.add_argument("--tomorrow", action="store_true", help="plan tomorrow (like the evening run)")
+    ap.add_argument("--auto", action="store_true",
+                    help="manual runs: tomorrow after the evening plan time, otherwise today")
     ap.add_argument("--config")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
@@ -60,7 +67,7 @@ def main(argv=None):
         raise SystemExit("No config.yaml yet: run 'python -m coach setup' first.")
     cfg = load_cfg(a.config)
     tokens = cfg.get("garmin", {}).get("tokenstore", "~/.garminconnect")
-    d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
+    d = dt.date.fromisoformat(a.date) if a.date else dt.datetime.now().date()
 
     if a.cmd == "login":
         api = G.connect(tokens, interactive=True)
@@ -78,7 +85,13 @@ def main(argv=None):
     try:
         if a.cmd == "run":
             upload = cfg.get("garmin", {}).get("upload", True) and not a.dry_run
-            res = run_day(api, cfg, d, upload=upload, wait_for_sleep=a.wait_for_sleep)
+            now = dt.datetime.now()
+            if a.scheduled and not a.date:
+                res = scheduled(api, cfg, now, upload=upload)
+            elif a.tomorrow or (a.auto and not a.date and now.time() >= evening_plan(cfg)):
+                res = run_day(api, cfg, d + dt.timedelta(days=1), upload=upload, now=now, evening=True)
+            else:
+                res = run_day(api, cfg, d, upload=upload, wait_for_sleep=a.wait_for_sleep)
             print(res["report"])
             summary = os.environ.get("GITHUB_STEP_SUMMARY")
             if summary:

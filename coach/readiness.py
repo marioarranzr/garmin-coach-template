@@ -199,3 +199,27 @@ def compliance(planned: list[dict], done: list[dict]) -> dict:
         "extra_intensity": planned_easy and hard_done,
         "done_titles": [f"{a['name']} ({_km(a['distance_km'])} km, {a['duration_min']:.0f}')" for a in done],
     }
+
+
+def evening(ctx: dict) -> dict:
+    """The evening before there's no sleep data yet: plan from training load and
+    compliance only. The morning check redoes this with sleep, HRV and Body Battery."""
+    reasons: list[str] = []
+    flags: dict[str, bool] = {}
+    level = "green"
+    c = ctx.get("compliance") or {}
+    if c.get("excess_km", 0) >= 2:
+        reasons.append(f"Today you ran {c['run_done']:.1f} km vs {c['run_planned']:.1f} planned (+{c['excess_km']:.1f} km).")
+    if c.get("extra_intensity"):
+        reasons.append("Today's session was harder than planned.")
+    load = ctx.get("recent_load") or {}
+    if load.get("ratio") and load["ratio"] >= 1.5 and load["hours"] >= 4:
+        flags["heavy_block"] = True
+        reasons.append(f"You've trained {load['hours']:g} h in the last 4 days, about {load['ratio']:g}× your usual.")
+    acwr = ctx.get("acwr_own")
+    if (acwr and acwr > 1.5) or ctx.get("consecutive_days", 0) >= 6:
+        level = "amber"
+        reasons.append(f"Very high acute/chronic load ratio ({acwr:.2f})." if acwr and acwr > 1.5
+                       else f"You've trained {ctx['consecutive_days']} days in a row.")
+    return {"score": None, "level": level, "label": "🌙 Planned the evening before",
+            "components": {}, "reasons": reasons, "flags": flags}

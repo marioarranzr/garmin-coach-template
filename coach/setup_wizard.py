@@ -129,31 +129,36 @@ def build_templates(sport: str, run_days: int, long_day: int, rest_day: int) -> 
     return templates
 
 
-def cron_for(wake: str, tz: str, until: str = "10:00") -> str:
-    """GitHub cron (UTC): hourly from `wake` (local), with the last run at or
-    just after `until` so it plans even without sleep data. Uses the winter
-    offset, so in summer everything happens one hour later, never too early."""
-    # standard (non-daylight-saving) offset, whichever hemisphere you're in
+def cron_for(morning: str, tz: str, until: str = "10:00", evening: str | None = "21:00") -> str:
+    """GitHub cron (UTC) for the morning check (hourly from `morning` until the
+    first run at or after `until`) and the evening plan (at `evening`, plus one
+    retry an hour later). GitHub cron has no time zones, so it lists the UTC
+    hours for both your winter and summer offsets; the coach then checks your
+    local time and only acts from `morning` and from `evening`, so the first
+    check is at 08:00 local all year. Runs are on the minute of `morning`."""
     zone = ZoneInfo(tz)
-    std_day = min((dt.datetime(2026, 1, 15, 12, tzinfo=zone), dt.datetime(2026, 7, 15, 12, tzinfo=zone)),
-                  key=lambda x: x.utcoffset())
-
-    def utc(hhmm):
-        h, m = (int(x) for x in hhmm.split(":"))
-        return std_day.replace(hour=h, minute=m).astimezone(dt.timezone.utc)
-    start, end = utc(wake), utc(until)
-    minute = start.minute
-    if end <= start:                       # deadline before wake-up: a single run
-        return f"{minute} {start.hour} * * *"
-    last = (end.hour if end.minute <= minute else end.hour + 1) % 24
-
-    def span(a, b):
-        return f"{a}-{b}" if a != b else f"{a}"
-    if last >= start.hour:
-        hours = span(start.hour, last)
-    else:                                  # the morning crosses midnight UTC (e.g. Asia)
-        hours = f"{span(start.hour, 23)},{span(0, last)}"
-    return f"{minute} {hours} * * *"
+    offsets = {dt.datetime(2026, m, 15, 12, tzinfo=zone).utcoffset() for m in (1, 7)}
+    mh, mm = (int(x) for x in morning.split(":"))
+    uh, um = (int(x) for x in until.split(":"))
+    local = [mh]
+    while (local[-1], mm) < (uh, um) and len(local) < 12:
+        local.append(local[-1] + 1)
+    if evening:
+        eh, em = (int(x) for x in evening.split(":"))
+        first = eh if em <= mm else eh + 1      # the first run on the minute at or after `evening`
+        local += [first, first + 1]
+    hours = set()
+    for h in local:
+        for off in offsets:
+            t = dt.datetime(2026, 1, 1, h % 24, mm) - off
+            hours.add(t.hour)
+    hs = sorted(hours)
+    spans, start = [], hs[0]
+    for a, b in zip(hs, hs[1:] + [None]):
+        if b != a + 1:
+            spans.append(f"{start}-{a}" if a != start else f"{a}")
+            start = b
+    return f"{mm} {','.join(spans)} * * *"
 
 
 def peaks_for(sport: str, run_days: int) -> dict:
@@ -262,14 +267,20 @@ garmin:
   tokenstore: ~/.garminconnect
   upload: true
   workout_prefix: {_yaml_str(answers.get('prefix', 'Coach'))}
-  # Morning runs wait for last night's sleep to reach Garmin (until you wake up
-  # and your watch syncs). If the watch shows you're up but recorded no sleep,
-  # or at this time at the latest, it plans without it.
+  # Every evening the coach plans tomorrow (the real workout in your calendar),
+  # and every morning it checks it with last night's sleep, HRV and Body
+  # Battery, changing it (and telling you) only if needed. Times are local;
+  # `python -m coach setup` sets the GitHub schedule to match.
+  evening_plan: "{answers.get('evening', '21:00')}"
+  morning_check: "{answers.get('morning', '08:00')}"
+  # The morning check waits for last night's sleep to reach Garmin (until your
+  # watch syncs). If the watch shows you're up but recorded no sleep, or at
+  # this time at the latest, it checks without it.
   wait_for_sleep_until: "{answers.get('until', '10:00')}"
-  # Drafts of the next days in your Garmin calendar ("Coach draft · …"), so you
-  # can see the week ahead. Each morning today's draft becomes the real plan
-  # and the drafts are redrawn. 0 turns them off.
-  preview_days: {answers.get('preview_days', 6)}
+  # How far ahead your Garmin calendar shows the plan: tomorrow is the real
+  # workout, the days after are drafts ("Coach draft · …") redrawn every
+  # evening from what you did. 0 turns the drafts off.
+  preview_days: {answers.get('preview_days', 7)}
 
 # AI coach: each day an AI makes the final call (keep, shorten, make easier
 # or rest) within the plan's safety limits, using all your data and notes.
@@ -289,7 +300,7 @@ ai:
 todoist:
   enabled: {str(answers.get('todoist_enabled', True)).lower()}
   project: {_yaml_str(answers.get('todoist_project', 'Inbox'))}
-  lookback_hours: {answers.get('todoist_lookback_hours', 12)}
+  lookback_hours: {answers.get('todoist_lookback_hours', 14)}
   diary_label: {_yaml_str(answers.get('todoist_diary_label', 'coach'))}
 """
 
@@ -507,6 +518,11 @@ def existing_setup(cfg: dict, workflow: str) -> dict:
                       key=lambda x: x.utcoffset())
             utc = dt.datetime(2026, std.month, 15, int(c.group(2)), int(c.group(1)), tzinfo=dt.timezone.utc)
             out["wake"] = utc.astimezone(dt.timezone(std.utcoffset())).strftime("%H:%M")
+    g0 = cfg.get("garmin") or {}
+    if g0.get("morning_check"):
+        out["wake"] = str(g0["morning_check"])
+    if g0.get("evening_plan"):
+        out["evening"] = str(g0["evening_plan"])
     for r in cfg.get("races") or []:
         race = {k: r[k] for k in ("name", "kind", "distance_km", "elevation_m", "priority") if r.get(k) is not None}
         race["date"] = str(r["date"])
@@ -514,7 +530,7 @@ def existing_setup(cfg: dict, workflow: str) -> dict:
     g = cfg.get("garmin") or {}
     out["extras"] = {"min_long_run_km": float(cfg.get("min_long_run_km") or 0),
                      "until": str(g.get("wait_for_sleep_until", "10:00")),
-                     "prefix": g.get("workout_prefix", "Coach"), "preview_days": g.get("preview_days", 6),
+                     "prefix": g.get("workout_prefix", "Coach"), "preview_days": g.get("preview_days", 7),
                      "pool": ath.get("pool_length_m"),
                      "ai_enabled": (cfg.get("ai") or {}).get("enabled", True),
                      "ai_provider": (cfg.get("ai") or {}).get("provider", "auto"),
@@ -537,7 +553,8 @@ def _settings_lines(st: dict) -> list[tuple[str, str]]:
         ("Rest day", DAY_NAMES[DAYS.index(st["rest_day"])]),
         ("Easy running pace", f"{st['pace']} /km"),
         ("Time zone", st["tz"]),
-        ("First check at", st["wake"]),
+        ("Morning check at", st["wake"]),
+        ("Evening plan at", st["evening"]),
     ]
 
 
@@ -562,8 +579,12 @@ def _edit_setting(i: int, st: dict, ask) -> None:
         st["tz"] = _ask("Time zone", st["tz"], lambda v: None if v in available_timezones() else
                         "Use an IANA name like Europe/Madrid or America/New_York", ask)
     elif i == 7:
-        st["wake"] = _ask("First check for your sleep data (HH:MM)", st["wake"],
+        st["wake"] = _ask("Morning check of today's plan with your sleep data (HH:MM)", st["wake"],
                           lambda v: None if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", v) else "Use HH:MM", ask)
+    elif i == 8:
+        st["evening"] = _ask("Evening plan for the next day (HH:MM)", st["evening"],
+                             lambda v: None if re.fullmatch(r"(1[2-9]|2[0-3]):[0-5]\d", v) else
+                             "Use HH:MM, in the afternoon or evening", ask)
 
 
 def _review_settings(st: dict, title: str, ask, hints: dict | None = None) -> None:
@@ -647,7 +668,8 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
         "rest_day": sug.get("rest_day", "mon"),
         "pace": sug.get("pace", "6:00"),
         "tz": sug.get("tz") or _guess_tz(),
-        "wake": "07:00",
+        "wake": "08:00",
+        "evening": "21:00",
     }
     cfg_path = root / "config.yaml"
     wf_path = root / ".github" / "workflows" / "coach.yml"
@@ -676,7 +698,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
                "pool": sug.get("pool") or extras.get("pool") or 25,
                "min_long_run_km": extras.get("min_long_run_km", 0),
                "until": extras.get("until", "10:00"), "prefix": extras.get("prefix", "Coach"),
-               "preview_days": extras.get("preview_days", 6),
+               "preview_days": extras.get("preview_days", 7),
                **{k: extras[k] for k in ("ai_enabled", "ai_provider", "openai_model", "anthropic_model",
                                          "todoist_enabled", "todoist_project",
                                          "todoist_lookback_hours", "todoist_diary_label") if k in extras},
@@ -687,9 +709,9 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
         backup = cfg_path.with_suffix(".yaml.bak")
         backup.write_text(cfg_path.read_text(encoding="utf-8"), encoding="utf-8")
         print(f"\nYour previous config was saved as {backup.name}.")
+    answers["morning"], answers["evening"] = st["wake"], st["evening"]
     cfg_path.write_text(render_config(answers), encoding="utf-8")
-
-    cron = cron_for(st["wake"], st["tz"], answers["until"])
+    cron = cron_for(st["wake"], st["tz"], answers["until"], st["evening"])
     wf = update_workflow(root / ".github" / "workflows" / "coach.yml", st["tz"], cron)
 
     def show(key, title):
@@ -708,8 +730,9 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
         show("cycling", "Before a cycling event")
     print("\nDistances and intensities are set each day from your data and the phase of the plan.")
     if wf:
-        print(f"GitHub workflow set to {st['tz']}: hourly from {st['wake']} until your sleep data arrives "
-              f"(at {answers['until']} at the latest; cron \"{cron}\" in UTC).")
+        print(f"GitHub workflow set to {st['tz']}: tomorrow's plan at {st['evening']}, and the morning check "
+              f"from {st['wake']} once your sleep data arrives (at {answers['until']} at the latest; "
+              f"cron \"{cron}\" in UTC).")
     print("\nNext: `python -m coach week` to preview it with your Garmin data.")
     print("Then commit and push config.yaml" + (" and .github/workflows/coach.yml" if wf else "")
           + " so the daily run on GitHub uses them.")

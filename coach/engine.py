@@ -12,7 +12,7 @@ from . import week as W
 from .planner import (Session, compute_week_target, history_start, week_parts, key_day, key_session, learn_long_day, monday_of,
                       phase_for, plan_day,
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
-from .readiness import compliance, compute, consecutive_days, own_acwr, recent_load
+from .readiness import compliance, compute, evening as evening_readiness, consecutive_days, own_acwr, recent_load
 from . import ai
 from .calendar import Calendar, fit, footer
 from .notify import message, send
@@ -24,7 +24,8 @@ log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent
 
 
-DRAFT_LINE = "Draft: the coach sets the final workout that morning from your sleep, recovery and notes."
+DRAFT_LINE = ("Draft: the coach plans this day the evening before and checks it that morning "
+              "with your sleep, recovery and notes.")
 COACH_ACTIVE_DAYS = 14  # if the coach put workouts in your calendar recently, an empty day was a rest day
 
 
@@ -33,10 +34,37 @@ def week_target(acts, d, cfg) -> dict:
     return compute_week_target(acts, d, cfg)
 
 
-def sleep_deadline(cfg: dict) -> dt.time:
-    raw = str((cfg.get("garmin") or {}).get("wait_for_sleep_until", "10:00"))
+def _time(cfg: dict, key: str, default: str) -> dt.time:
+    raw = str((cfg.get("garmin") or {}).get(key, default))
     h, m = (int(x) for x in raw.split(":"))
     return dt.time(h, m)
+
+
+def sleep_deadline(cfg: dict) -> dt.time:
+    return _time(cfg, "wait_for_sleep_until", "10:00")
+
+
+def morning_check(cfg: dict) -> dt.time:
+    return _time(cfg, "morning_check", "08:00")
+
+
+def evening_plan(cfg: dict) -> dt.time:
+    return _time(cfg, "evening_plan", "21:00")
+
+
+def scheduled(api, cfg: dict, now: dt.datetime, upload: bool = True, **kw) -> dict:
+    """What a scheduled run does, by local time: nothing before the morning check;
+    the morning check of today's plan until the evening; after the evening plan
+    time, tomorrow's plan (once)."""
+    if now.time() < morning_check(cfg):
+        return {"status": "early", "report": f"Too early: the morning check starts at {morning_check(cfg):%H:%M}.\n"}
+    if now.time() >= evening_plan(cfg):
+        tomorrow = now.date() + dt.timedelta(days=1)
+        done = Calendar(api, cfg).day(tomorrow)
+        if done:
+            return {"status": "done", "report": f"Tomorrow is already planned ({', '.join(e['name'] for e in done)}).\n"}
+        return run_day(api, cfg, tomorrow, upload=upload, now=now, evening=True, **kw)
+    return run_day(api, cfg, now.date(), upload=upload, now=now, wait_for_sleep=True, **kw)
 
 
 def planned_on(day: dt.date, calendar: Calendar, active: bool, acts: list[dict], cfg: dict) -> list[dict]:
@@ -52,32 +80,42 @@ def planned_on(day: dt.date, calendar: Calendar, active: bool, acts: list[dict],
 
 
 def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: bool = False,
-            now: dt.datetime | None = None, notes_api=None, ai_client=None, poster=None, **_ignored) -> dict:
-    """Plans day `d`. With `wait_for_sleep` (scheduled runs), it does nothing if
-    today is already planned, and waits (returns without planning) while last
-    night's sleep hasn't reached Garmin yet, until the configured deadline.
+            now: dt.datetime | None = None, notes_api=None, ai_client=None, poster=None,
+            evening: bool = False, **_ignored) -> dict:
+    """Plans day `d`.
+
+    `evening`: d is tomorrow, planned the evening before from your training
+    load and what you did today (no sleep data yet, no AI). It becomes the
+    real workout in your calendar, and the morning check revisits it.
+
+    Morning (`wait_for_sleep`, scheduled runs): checks today's plan with last
+    night's sleep, HRV and Body Battery and your notes. It does nothing if
+    today was already checked, and waits (returns without planning) while
+    last night's sleep hasn't reached Garmin yet, until the configured deadline.
+
     Everything it knows about earlier runs comes from your Garmin calendar."""
     now = now or dt.datetime.now()
     deadline = sleep_deadline(cfg)
     calendar = Calendar(api, cfg)
     today_cal = calendar.day(d)
+    checked = bool(today_cal) and all(e["meta"].get("at") and not e["meta"].get("eve") for e in today_cal)
     planned_sleep = all(e["meta"].get("sr", 1) for e in today_cal)
     # your own notes for today (Todoist); a new one after planning means re-plan
-    notes_today = recent_notes(cfg, now, api=notes_api)          # last 12 h, open and done
+    notes_today = recent_notes(cfg, now, api=notes_api)          # last 14 h, open and done
     open_notes = [n for n in notes_today if not n["done"]]
     new_notes = [n for n in open_notes if _added_after(n, today_cal, d)]
-    if wait_for_sleep and today_cal and planned_sleep and not new_notes:
-        msg = f"Today's workout is already in your Garmin calendar ({', '.join(e['name'] for e in today_cal)})."
+    if wait_for_sleep and checked and planned_sleep and not new_notes:
+        msg = f"Today's workout was already checked this morning ({', '.join(e['name'] for e in today_cal)})."
         return {"status": "done", "report": msg + "\n"}
 
-    wellness = G.fetch_wellness(api, d)
-    sleep_ready = wellness.get("sleep_hours") is not None or wellness.get("sleep_score") is not None
-    if wait_for_sleep and today_cal and not sleep_ready and not new_notes:
+    wellness = G.fetch_wellness(api, d - dt.timedelta(days=1) if evening else d)
+    sleep_ready = evening or wellness.get("sleep_hours") is not None or wellness.get("sleep_score") is not None
+    if wait_for_sleep and checked and not sleep_ready and not new_notes:
         # planned at the deadline without sleep data, and it still hasn't arrived
         return {"status": "done", "report": "Today's workout is already in your Garmin calendar.\n"}
     # Steps today mean you're up and wearing the watch: if it still has no sleep
     # for last night, it didn't record one (not worn, or another watch) — don't wait.
-    awake = (wellness.get("steps_today") or 0) >= 500
+    awake = evening or (wellness.get("steps_today") or 0) >= 500
     if wait_for_sleep and not sleep_ready and not awake and now.time() < deadline:
         msg = (f"Last night's sleep isn't in Garmin yet (watch not synced, or still asleep). "
                f"Trying again next hour; planning anyway at {deadline:%H:%M} at the latest.")
@@ -175,7 +213,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         current["tr_is_now"] = wellness.get("training_readiness") is not None and tr_now != wellness["training_readiness"]
         current["training_readiness"] = tr_now
     wellness = current
-    r = compute(wellness, ctx)
+    r = evening_readiness(ctx) if evening else compute(wellness, ctx)
     final, notes = adjust(for_today, r, ctx, phase, tomorrow)
     notes = week_notes + notes
     kind, sport = key_session(phase)
@@ -191,9 +229,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         why = week_why       # the only change today comes from what you've already done this week
 
     # ── AI coach: final call within the rule-based limits ──
-    coach = {"used": False, "configured": ai_client is not None or ai.enabled(cfg)}
+    coach = {"used": False, "configured": ai_client is not None or ai.enabled(cfg), "evening": evening}
     history: list[dict] = []
-    if coach["configured"] and final:
+    if coach["configured"] and final and not evening:     # the AI decides in the morning, with your sleep
         # notes already marked done (by the coach earlier, or by you) are context, not new input
         earlier = [{"time": n["time"], "text": n["text"]} for n in notes_today if n["done"]]
         history = notes_history(diary(cfg, since, d, now, api=notes_api), calendar, acts, d)
@@ -217,7 +255,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
             if not s.steps:
                 continue
             body = _workout_description(s, r, [] if coach.get("used") else notes, why, coach.get("coach_note", ""))
-            desc = fit(body, footer(phase.describe(), now, sleep_ready))
+            desc = fit(body, footer(phase.describe(), now, sleep_ready, evening))
             try:
                 uploads.append(G.upload_and_schedule(api, to_garmin(s, cfg, desc), d.isoformat()))
             except Exception as e:  # noqa: BLE001
@@ -226,12 +264,14 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         uploads = today_cal
 
     # ── the days ahead, as drafts in your Garmin calendar (replaced each morning) ──
-    preview = int((cfg.get("garmin") or {}).get("preview_days", 6))
-    ahead = W.drafts(d, cfg, acts, final, preview, quality_days) if preview > 0 else []
+    # always a week ahead from today: in the evening, tomorrow is real and the rest are drafts
+    preview = int((cfg.get("garmin") or {}).get("preview_days", 7))
+    n_ahead = preview - (1 if evening else 0)
+    ahead = W.drafts(d, cfg, acts, final, n_ahead, quality_days) if n_ahead > 0 else []
     if upload:
         draft_cfg = dict(cfg, garmin=dict(cfg.get("garmin") or {},
                                           workout_prefix=(cfg.get("garmin") or {}).get("workout_prefix", "Coach") + " draft"))
-        for i in range(0, max(preview, 7) + 1):
+        for i in range(0, max(preview, 7) + 2):
             G.remove_uploaded(api, calendar.plan(d + dt.timedelta(days=i), draft=True))
         for day, ph, sess, wnotes in ahead:
             for s in sess:
@@ -251,11 +291,23 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                                             label=diary_label(cfg))
 
     # a push to your phone (and so your watch) with the plan, if NTFY_TOPIC is set
-    coach["notified"] = upload and send(*message(final, why, coach.get("coach_note", ""), r, bool(today_cal),
-                                                 ahead[:2]), poster=poster)
+    before = sorted(e["session"]["title"] for e in today_cal)
+    after = sorted(s.title for s in final if s.steps)
+    coach["unchanged"] = bool(today_cal) and before == after
+    if evening:
+        label = "Tomorrow"
+    elif not today_cal:
+        label = "Today"
+    elif not coach["unchanged"]:
+        label = "Changed" if any(e["meta"].get("eve") for e in today_cal) else "Updated"
+    else:   # the morning check keeps last night's plan: no need to buzz your wrist (manual runs still do)
+        label = None if wait_for_sleep else "Today"
+    coach["notified"] = bool(upload and label and send(*message(final, why, coach.get("coach_note", ""), r, label,
+                                                               ahead[:2]), poster=poster))
+    coach["was_evening_plan"] = any(e["meta"].get("eve") for e in today_cal)
 
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why,
-                          coach, cfg, ahead)
+                          coach, cfg, ahead, evening)
     report += sync_note(wellness.get("last_sync"), now)
     if not sleep_ready:
         no_sleep = ("your watch shows you're up but recorded no sleep last night (not worn, or another watch)"
@@ -306,6 +358,10 @@ def notes_history(entries: list[dict], calendar: Calendar, acts: list[dict], d: 
 
 def coach_section(coach: dict, cfg: dict) -> list[str]:
     L = ["", "## Coach"]
+    if coach.get("evening"):
+        L.append("- Rules only tonight: " + ("the AI coach makes its call in the morning, with your sleep data."
+                                             if coach.get("configured") else "the morning check adds your sleep data."))
+        return L
     if coach.get("used"):
         L.append(f"- Decided by the AI coach ({coach.get('model')}), within the plan's safety limits.")
         if coach.get("coach_note"):
@@ -319,7 +375,8 @@ def coach_section(coach: dict, cfg: dict) -> list[str]:
     notes = coach.get("notes_today") or []
     if notes:
         used_ids = set(coach.get("notes_used") or [])
-        L.append("- Your notes (last 12 h): " + "; ".join(
+        hours = (cfg.get("todoist") or {}).get("lookback_hours", 14)
+        L.append(f"- Your notes (last {hours:g} h): " + "; ".join(
             f"“{n['text']}” ({n['time']}{', already done' if n.get('done') else ''})" for n in notes))
         if coach.get("used"):
             used = [n for n in notes if n["id"] in used_ids]
@@ -377,7 +434,9 @@ def _workout_description(s: Session, r: dict, notes: list[str], why: str = "", c
     changes (only when no AI coach made the final call)."""
     blocks = [why, coach_note, s.detail]
     level = r["label"][2:].split(":")[0].strip()
-    lines = [f"Readiness {r['score']}/100 · {level}"] + [f"• {x}" for x in r["reasons"][:3]]
+    head = (f"Readiness {r['score']}/100 · {level}" if r["score"] is not None
+            else "Readiness: checked in the morning with your sleep and recovery.")
+    lines = [head] + [f"• {x}" for x in r["reasons"][:3]]
     blocks.append("\n".join(lines))
     if notes:
         blocks.append("\n".join(["Changes:"] + [f"• {n}" for n in notes[:3]]))
@@ -385,8 +444,12 @@ def _workout_description(s: Session, r: dict, notes: list[str], why: str = "", c
 
 
 def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, upload, why="",
-                 coach: dict | None = None, cfg: dict | None = None, ahead: list | None = None) -> str:
+                 coach: dict | None = None, cfg: dict | None = None, ahead: list | None = None,
+                 evening: bool = False) -> str:
     L = [f"# Training for {d.strftime('%A %d %b %Y')}", ""]
+    if evening:
+        L += ["_Planned the evening before, from your training load and what you did today. "
+              "The morning check adjusts it to your sleep, HRV and Body Battery, and tells you if it changes._", ""]
     if why:
         L += [f"**{why}**", ""]
     L += [
@@ -402,8 +465,10 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
     if wt.get("return_mode"):
         L.insert(-1, "**Return-to-running mode:** volume grows ~20 %/week from 10 km and there are "
                      "no hard sessions until you average 10+ km/week.  ")
-    L += [
-         f"## Readiness: {r['score']}/100 — {r['label']}", ""]
+    if r["score"] is None:
+        L += ["## Readiness: checked in the morning", ""]
+    else:
+        L += [f"## Readiness: {r['score']}/100 — {r['label']}", ""]
     for k, v in r["components"].items():
         L.append(f"- {k}: {v['value']} (scores {v['score']}/100)")
     if ctx.get("acwr_own"):
@@ -413,12 +478,12 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
     if r["reasons"]:
         L += ["", "**Details:**"] + [f"- {x}" for x in r["reasons"]]
 
-    L += ["", "## Yesterday", f"- Planned: {comp['run_planned']} km running",
+    L += ["", "## Today so far" if evening else "## Yesterday", f"- Planned: {comp['run_planned']} km running",
           f"- Done: {', '.join(comp['done_titles']) or 'nothing recorded'}"]
     if comp["missed"]:
         L.append(f"- Skipped: {', '.join(comp['missed'])}")
 
-    L += ["", "## Today"]
+    L += ["", "## Tomorrow" if evening else "## Today"]
     if ctx.get("today_acts"):
         L.append("- Done today so far: " + ", ".join(
             f"{a['name']} ({round(a['distance_km']) if a['distance_km'] >= 10 else a['distance_km']:g} km, "
@@ -435,15 +500,18 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
                  else "**Coach adjustments:**")
         L += ["", title] + [f"- {n}" for n in notes]
     if ctx.get("this_week"):
-        L += ["", "**This week before today:** " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in ctx["this_week"].items())]
+        L += ["", "**This week so far:** " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in ctx["this_week"].items())]
     if ahead:
-        L += ["", "## Coming up (drafts, set each morning)"]
+        L += ["", "## Coming up (drafts, redrawn every evening)"]
         for day, _, sess, wnotes in ahead:
             L.append(f"- {day:%a %d/%m}: " + " + ".join(s.title for s in sess) + (f" — {wnotes[0]}" if wnotes else ""))
     L += coach_section(coach or {}, cfg or {})
     L += ["", "## Garmin"]
     if upload:
         L.append(f"- Added to calendar: {', '.join(u['name'] for u in uploads) or 'nothing'}")
+        if (coach or {}).get("was_evening_plan"):
+            L.append("- Last night's plan still stands: no change after this morning's check."
+                     if coach.get("unchanged") else "- Changed from last night's plan after this morning's check.")
         if ahead:
             L.append(f"- Drafts for the next {len(ahead)} days are in your calendar too.")
         if (coach or {}).get("notified"):

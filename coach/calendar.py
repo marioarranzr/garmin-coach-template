@@ -5,8 +5,8 @@ you can read anyway:
 - the workout name ("Coach · Long run 12 km") gives the kind of session, its
   sport and distance (also stored as the workout's estimated distance);
 - "Readiness 63/100" gives that day's readiness;
-- the footer "Planned 07:42" says when it was planned, so a note you add
-  later is spotted as new;
+- the footer says whether it was "Planned the evening before" (not checked
+  yet) or "Checked 08:03" that morning, so a note added later is spotted as new;
 - "Planned without last night's sleep data" says the sleep hadn't arrived.
 
 That covers yesterday's plan (compliance), this week's plan so far, what to
@@ -35,9 +35,16 @@ def fit(body: str, footer: str) -> str:
     return f"{body}\n\n{footer}" if footer else body
 
 
-def footer(phase_text: str, planned_at: dt.datetime, sleep_ready: bool) -> str:
+EVENING = "Planned the evening before"
+
+
+def footer(phase_text: str, planned_at: dt.datetime, sleep_ready: bool, evening: bool = False) -> str:
+    """The last lines of a workout's description, which the coach reads back:
+    the evening plan says so; the morning check says when it checked."""
+    if evening:
+        return f"{phase_text}\n{EVENING} ({planned_at:%a %H:%M}); checked again in the morning."
     lines = [] if sleep_ready else [NO_SLEEP]
-    return "\n".join(lines + [f"{phase_text}", f"Planned {planned_at:%H:%M}."])
+    return "\n".join(lines + [f"{phase_text}", f"Checked {planned_at:%H:%M}."])
 
 
 def read_description(description: str | None) -> dict:
@@ -57,9 +64,11 @@ def read_description(description: str | None) -> dict:
         meta["r"] = int(r.group(1))
     if NO_SLEEP in text:
         meta["sr"] = 0
-    at = re.findall(r"^Planned (\d\d:\d\d)\.$", text, flags=re.M)
+    at = re.findall(r"^(?:Planned|Checked) (\d\d:\d\d)\.$", text, flags=re.M)
     if at:
-        meta["at"] = at[-1]
+        meta["at"] = at[-1]              # checked that morning (or later that day)
+    if EVENING in text:
+        meta["eve"] = 1                  # planned the evening before, not checked yet
     return meta
 
 

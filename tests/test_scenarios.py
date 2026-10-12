@@ -284,7 +284,8 @@ def test_setup_wizard_writes_a_working_config():
     runs = [k for day in cfg["weekly_templates"]["run_focus"].values() for k in day if k.startswith("run_")]
     assert len(runs) == 4
     assert "cycling" in cfg["weekly_templates"]
-    assert "TZ: America/New_York" in flow and '"30 11-15 * * *"' in flow
+    assert "TZ: America/New_York" in flow and '"30 1-3,10-15 * * *"' in flow     # 06:30 morning, 21:00 evening
+    assert cfg["garmin"]["morning_check"] == "06:30" and cfg["garmin"]["evening_plan"] == "21:00"
     for i in range(0, 260, 3):   # the planner accepts it for the whole season
         plan_day(dt.date.today() + dt.timedelta(days=i), cfg, 30)
 
@@ -792,12 +793,12 @@ def test_ai_provider_selection():
     assert ai.provider(cfg) is None
 
 
-def test_notes_from_the_last_12_hours_open_and_done():
-    """At 08:00: last night's 22:00 note counts, 18:00 doesn't; done notes are context, not re-completed."""
+def test_notes_from_the_last_14_hours_open_and_done():
+    """At 08:00: last night's 22:00 note counts, 17:00 doesn't; done notes are context, not re-completed."""
     from coach.notes import recent_notes
     day = dt.date(2026, 10, 18)
     yesterday = day - dt.timedelta(days=1)
-    todo = FakeTodoist([(dt.datetime.combine(yesterday, dt.time(18)), "old note"),
+    todo = FakeTodoist([(dt.datetime.combine(yesterday, dt.time(17)), "old note"),
                         (dt.datetime.combine(yesterday, dt.time(22)), "very tired after the ride"),
                         ("06:50", "slept badly", True),          # you ticked it off yourself
                         ("07:30", "left calf tight")])
@@ -862,7 +863,8 @@ def test_update_command_keeps_your_settings():
         assert "min_long_run_km: 9" in (mine / "config.yaml").read_text()
         assert (mine / "data" / "garmin_tokens.enc").read_text() == "secret"
         flow = wf.read_text()
-        assert "TZ: Asia/Tokyo" in flow and '"0 22-23,0-1 * * *"' in flow and "NEW_SECRET" in flow
+        # the schedule follows config.yaml's times in your time zone (08:00 check, 21:00 plan in Tokyo)
+        assert "TZ: Asia/Tokyo" in flow and '"0 0-1,12-13,23 * * *"' in flow and "NEW_SECRET" in flow
         assert (mine / "coach" / "why.py").read_text().endswith("# improved\n")
         assert update(mine, url=str(tpl)) == 0                    # already up to date
 
@@ -954,7 +956,7 @@ def test_plan_is_pushed_to_your_phone_when_a_topic_is_set():
     assert len(sent) == 1                                   # dry runs don't notify
     url, p = sent[0]
     assert url == "https://ntfy.sh" and p["topic"] == "coach-test-topic"
-    assert p["title"].startswith("Updated: Long run") and "Readiness" in p["message"]   # re-plan of the day
+    assert p["title"].startswith("Today: Long run") and "Readiness" in p["message"]   # manual re-run, same plan
     assert "Sent to your phone and watch" in res["report"]
 
 
@@ -971,7 +973,7 @@ def test_long_run_done_early_in_the_week_is_not_repeated():
         res = engine.run_day(api, CFG, sunday)
     assert not any(s.kind == "run_long" for s in res["final"])
     assert any(s.kind == "run_easy" for s in res["final"])
-    assert "already did your long run this week (Saturday, 13 km), so today is an easy run of 8 km instead" in res["report"] and "more than planned" not in res["report"]
+    assert "already did your long run this week (Saturday, 13 km), so this is an easy run of 8 km instead" in res["report"] and "more than planned" not in res["report"]
     assert "long run done Saturday, 13 km" in res["report"]
 
 
@@ -982,8 +984,8 @@ def test_swim_done_earlier_in_the_week_is_dropped():
     with fresh():
         res = engine.run_day(api, CFG, friday)
     assert not any(s.sport == "swim" for s in res["final"])
-    assert "already swum 1× this week (1 planned): no swim today" in res["report"]
-    assert "No swim today: you've already swum as often as planned this week." in res["report"]
+    assert "already swum 1× this week (1 planned), so this swim is dropped" in res["report"]
+    assert "No swim: you've already swum as often as planned this week." in res["report"]
 
 
 def test_quality_skipped_on_tuesday_moves_to_a_later_green_day():
@@ -1030,6 +1032,90 @@ def test_drafts_follow_the_week_when_you_train_early():
         res = engine.run_day(api, _with_preview(2), saturday, now=dt.datetime(2026, 10, 17, 18))
         sunday = [i["title"] for i in api.cal["items"] if i["date"] == "2026-10-18"]
     assert sunday and not any("Long run" in t for t in sunday), sunday
+
+
+def test_evening_plans_tomorrow_and_the_morning_checks_it():
+    """21:00: tomorrow's real workout from today's training. 08:00: checked with the sleep data;
+    unchanged → no notification, changed → 'Changed:'. Scheduled runs act by local time."""
+    sat, sun = dt.date(2026, 10, 17), dt.date(2026, 10, 18)
+    sent = []
+    poster = lambda url, p: sent.append(p["title"])
+    os.environ["NTFY_TOPIC"] = "t"
+    try:
+        with fresh():
+            # Saturday evening, after a 13 km long run today: Sunday's long run isn't repeated
+            api = FakeGarmin(sat, today_acts=[act(sat.isoformat(), "running", 13, 78)])
+            res = engine.scheduled(api, CFG, dt.datetime(2026, 10, 17, 21, 4), poster=poster)
+            assert res["status"] == "planned" and "## Tomorrow" in res["report"]
+            sun_items = [i for i in api.cal["items"] if i["date"] == "2026-10-18"]
+            assert sun_items and all(i["title"].startswith("Coach ·") for i in sun_items)
+            assert not any("Long run" in i["title"] for i in sun_items)
+            desc = api.cal["workouts"][sun_items[0]["workoutId"]]["description"]
+            assert "Planned the evening before (Sat 21:04)" in desc and "checked in the morning" in desc
+            assert sent and sent[-1].startswith("Tomorrow: ")
+            # a second evening trigger an hour later does nothing
+            assert engine.scheduled(FakeGarmin(sat), CFG, dt.datetime(2026, 10, 17, 22, 2))["status"] == "done"
+            # Sunday 07:05 (winter: the UTC cron hits 7:00 local): too early
+            assert engine.scheduled(FakeGarmin(sun), CFG, dt.datetime(2026, 10, 18, 7, 5))["status"] == "early"
+            # 08:03, good night: last night's plan stands, quietly
+            n = len(sent)
+            api = FakeGarmin(sun)
+            api.acts = [a for a in api.acts if not a["startTimeLocal"].startswith("2026-10-17")] + \
+                [act("2026-10-17", "running", 13, 78)]
+            res = engine.scheduled(api, CFG, dt.datetime(2026, 10, 18, 8, 3), poster=poster)
+            assert res["status"] == "planned" and "Last night's plan still stands" in res["report"]
+            assert len(sent) == n
+            # 09:00: already checked
+            assert engine.scheduled(FakeGarmin(sun), CFG, dt.datetime(2026, 10, 18, 9))["status"] == "done"
+        with fresh():
+            engine.scheduled(FakeGarmin(sat), CFG, dt.datetime(2026, 10, 17, 21, 4), poster=poster)
+            bad = FakeGarmin(sun, good=False)                    # a bad night: the plan changes, and says so
+            res = engine.scheduled(bad, CFG, dt.datetime(2026, 10, 18, 8, 3), poster=poster)
+            assert "Changed from last night's plan" in res["report"] and sent[-1].startswith("Changed: ")
+    finally:
+        os.environ.pop("NTFY_TOPIC")
+
+
+def test_evening_plan_uses_no_ai_and_no_sleep():
+    sat = dt.date(2026, 10, 17)
+    claude = FakeClaude({"decision": "rest", "sessions": [{"kind": "rest"}], "why": "x", "coach_note": "",
+                         "notes_used": []})
+    with fresh():
+        res = engine.run_day(FakeGarmin(sat, synced=False), CFG, sat + dt.timedelta(days=1), evening=True,
+                             ai_client=claude, now=dt.datetime(2026, 10, 17, 21))
+    assert res["status"] == "planned" and not claude.requests
+    assert "the AI coach makes its call in the morning" in res["report"]
+    assert "Planned without sleep data" not in res["report"]
+
+
+def test_manual_run_after_the_evening_time_plans_tomorrow():
+    from coach import __main__ as M, garmin_api as G
+    real = (G.connect, G.save_cloud_tokens, M.dt)
+    calls = []
+
+    class Clock(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 17, 21, 30)
+
+    class DT:
+        datetime, date, timedelta, time = Clock, dt.date, dt.timedelta, dt.time
+    try:
+        G.connect, G.save_cloud_tokens, M.dt = (lambda *a, **k: "api"), (lambda a: None), DT
+        M.run_day = lambda api, cfg, d, **kw: calls.append((d, kw.get("evening"))) or {"report": ""}
+        M.main(["run", "--auto", "--dry-run", "--config", "tests/test_config.yaml"])
+    finally:
+        G.connect, G.save_cloud_tokens, M.dt = real
+        from coach.engine import run_day
+        M.run_day = run_day
+    assert calls == [(dt.date(2026, 10, 18), True)]
+
+
+def test_schedule_is_local_time_all_year():
+    from coach.setup_wizard import cron_for
+    assert cron_for("08:00", "Europe/Zurich", "10:00", "21:00") == "0 6-9,19-21 * * *"
+    assert cron_for("08:00", "UTC", "10:00", "21:00") == "0 8-10,21-22 * * *"
+    assert cron_for("08:00", "Australia/Sydney", "10:00", "21:00") == "0 0,10-12,21-23 * * *"
 
 
 if __name__ == "__main__":

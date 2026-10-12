@@ -76,14 +76,20 @@ garmin:
   tokenstore: ~/.garminconnect
   upload: true
   workout_prefix: "Coach"
-  # Morning runs wait for last night's sleep to reach Garmin (until you wake up
-  # and your watch syncs). If the watch shows you're up but recorded no sleep,
-  # or at this time at the latest, it plans without it.
+  # Every evening the coach plans tomorrow (the real workout in your calendar),
+  # and every morning it checks it with last night's sleep, HRV and Body
+  # Battery, changing it (and telling you) only if needed. Times are local;
+  # `python -m coach setup` sets the GitHub schedule to match.
+  evening_plan: "21:00"
+  morning_check: "08:00"
+  # The morning check waits for last night's sleep to reach Garmin (until your
+  # watch syncs). If the watch shows you're up but recorded no sleep, or at
+  # this time at the latest, it checks without it.
   wait_for_sleep_until: "10:00"
-  # Drafts of the next days in your Garmin calendar ("Coach draft · …"), so you
-  # can see the week ahead. Each morning today's draft becomes the real plan
-  # and the drafts are redrawn. 0 turns them off.
-  preview_days: 6
+  # How far ahead your Garmin calendar shows the plan: tomorrow is the real
+  # workout, the days after are drafts ("Coach draft · …") redrawn every
+  # evening from what you did. 0 turns the drafts off.
+  preview_days: 7
 
 # AI coach: each day an AI makes the final call (keep, shorten, make easier
 # or rest) within the plan's safety limits, using all your data and notes.
@@ -102,7 +108,7 @@ ai:
 todoist:
   enabled: true
   project: Inbox
-  lookback_hours: 12
+  lookback_hours: 14
   # Notes the coach used get this label and are completed; the last 6 weeks
   # of them are your training diary, which the AI reads to learn how you respond.
   diary_label: coach

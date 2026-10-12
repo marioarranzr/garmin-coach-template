@@ -28,11 +28,16 @@ RACE_KINDS = {
     "3": ("half", "Half marathon"),
     "4": ("marathon", "Marathon"),
     "5": ("road", "Other running distance"),
-    "6": ("tri_sprint", "Sprint triathlon"),
-    "7": ("tri_olympic", "Olympic triathlon"),
+    "6": ("tri_sprint", "Sprint triathlon (0.75 / 20 / 5 km)"),
+    "7": ("tri_olympic", "Olympic triathlon (1.5 / 40 / 10 km)"),
+    "9": ("tri_half", "Half Ironman / 70.3 (1.9 / 90 / 21.1 km)"),
+    "10": ("tri_full", "Ironman (3.8 / 180 / 42.2 km)"),
+    "11": ("tri", "Other triathlon distance (you type swim-bike-run)"),
     "8": ("bike", "Cycling event (distance + elevation)"),
 }
-KINDS_FOR_SPORT = {"run": "12345", "run_bike": "123458", "tri": "12345678", "bike": "812345"}
+KINDS_FOR_SPORT = {"run": ["1", "2", "3", "4", "5"], "run_bike": ["1", "2", "3", "4", "5", "8"],
+                   "tri": ["1", "2", "3", "4", "5", "6", "7", "9", "10", "11", "8"],
+                   "bike": ["8", "1", "2", "3", "4", "5"]}
 
 
 # ── schedule building (pure functions, tested) ──────────────────────────────
@@ -184,6 +189,8 @@ def render_config(answers: dict) -> str:
             lines.append(f"    distance_km: {r['distance_km']:g}")
         if r.get("elevation_m"):
             lines.append(f"    elevation_m: {r['elevation_m']:g}")
+        if r.get("distances"):
+            lines.append(f"    distances: {r['distances']}       # swim-bike-run km")
         lines.append(f"    priority: {r['priority']}")
         races.append("\n".join(lines))
     tpl = answers["templates"]
@@ -220,7 +227,9 @@ plan_start: {monday.isoformat()}
 
 # Target races.
 #   kind: 5k | 10k | half | marathon | road (with distance_km)
-#         tri_sprint | tri_olympic | bike (with distance_km and elevation_m)
+#         tri_sprint | tri_olympic | tri_half | tri_full
+#         tri (any other distance: distances: 1.5-40-10, swim-bike-run km)
+#         bike (with distance_km and elevation_m)
 #   priority: A = main goal (full taper) | B = tune-up race (3 easy days, quick recovery)
 races:
 {chr(10).join(races) if races else "  []"}
@@ -447,6 +456,17 @@ def _valid_date(v: str):
     return None if d >= dt.date.today() else "That date is in the past"
 
 
+def _valid_legs(v: str):
+    from .planner import parse_legs
+    legs = parse_legs(v)
+    if not legs:
+        return "Three distances in km, swim-bike-run, e.g. 1.5-40-10"
+    sw, bk, rn = legs
+    if sw > 10 or bk > 400 or rn > 50:
+        return "Those look too long: swim, bike and run in km (e.g. 1.9-90-21.1)"
+    return None
+
+
 def _valid_float(lo, hi):
     def f(v):
         try:
@@ -524,7 +544,8 @@ def existing_setup(cfg: dict, workflow: str) -> dict:
     if g0.get("evening_plan"):
         out["evening"] = str(g0["evening_plan"])
     for r in cfg.get("races") or []:
-        race = {k: r[k] for k in ("name", "kind", "distance_km", "elevation_m", "priority") if r.get(k) is not None}
+        race = {k: r[k] for k in ("name", "kind", "distance_km", "elevation_m", "distances", "priority")
+                if r.get(k) is not None}
         race["date"] = str(r["date"])
         out["races"].append(race)
     g = cfg.get("garmin") or {}
@@ -616,7 +637,9 @@ def _review_settings(st: dict, title: str, ask, hints: dict | None = None) -> No
 def _race_line(r: dict) -> str:
     label = next((v[1] for v in RACE_KINDS.values() if v[0] == r["kind"]), r["kind"])
     extra = ""
-    if r["kind"] in ("road", "bike") and r.get("distance_km"):
+    if r.get("distances"):
+        extra = f", {r['distances']} km"
+    elif r["kind"] in ("road", "bike") and r.get("distance_km"):
         extra = f", {r['distance_km']:g} km" + (f", {r['elevation_m']:g} m up" if r.get("elevation_m") else "")
     return f"{r['date']}  {r['name']} ({label}{extra}), priority {r.get('priority', 'A')}"
 
@@ -647,6 +670,8 @@ def _ask_races(sport: str, ask, existing: list[dict] | None = None) -> list[dict
         race = {"name": name, "kind": kind}
         if kind == "road":
             race["distance_km"] = float(_ask("  Distance (km)", None, _valid_float(1, 100), ask).replace(",", "."))
+        if kind == "tri":
+            race["distances"] = _ask("  Distances, swim-bike-run in km (e.g. 1.5-40-10)", None, _valid_legs, ask)
         if kind == "bike":
             race["distance_km"] = float(_ask("  Distance (km)", None, _valid_float(10, 400), ask).replace(",", "."))
             race["elevation_m"] = float(_ask("  Elevation gain (m)", "0", _valid_float(0, 10000), ask).replace(",", "."))
@@ -724,7 +749,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
     kinds = {r["kind"] for r in races}
     if kinds & {"5k", "10k", "half", "marathon", "road"}:
         show("run_focus", "Your typical week before a running race")
-    if kinds & {"tri_sprint", "tri_olympic"}:
+    if kinds & {"tri_sprint", "tri_olympic", "tri_half", "tri_full", "tri"}:
         show("triathlon", "Before a triathlon")
     if "bike" in kinds:
         show("cycling", "Before a cycling event")

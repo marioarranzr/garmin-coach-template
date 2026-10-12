@@ -93,7 +93,9 @@ _KINDS = [
 def session_from(title: str, meta: dict | None = None, km: float | None = None) -> dict:
     """A planned session (as a dict) from the workout's name and details."""
     meta = meta or {}
-    kind, sport, intensity = next((v for pat, v in _KINDS if re.search(pat, title)), ("other", "other", "easy"))
+    optional = title.startswith("Optional · ")
+    bare = title[len("Optional · "):] if optional else title
+    kind, sport, intensity = next((v for pat, v in _KINDS if re.search(pat, bare)), ("other", "other", "easy"))
     if meta.get("k"):            # older workouts with the coach:{…} line
         kind, sport, intensity = meta["k"], meta.get("s", sport), meta.get("i", intensity)
     if km is None:
@@ -102,7 +104,8 @@ def session_from(title: str, meta: dict | None = None, km: float | None = None) 
         found = re.findall(r"(\d+(?:\.\d+)?)\s*km", title)   # the last one: "Quality · 5×1 km, 8 km"
         km = float(found[-1]) if found else None
     mins = re.search(r"(\d+)'", title)
-    return {"kind": kind, "sport": sport, "title": title, "intensity": intensity,
+    return {"kind": kind, "sport": sport, "title": title, "intensity": "easy" if optional else intensity,
+            "optional": optional,
             "distance_km": km if sport in ("run", "swim") else None,
             "duration_min": meta.get("min") or (int(mins.group(1)) if mins else None)}
 

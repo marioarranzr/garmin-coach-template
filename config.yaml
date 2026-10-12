@@ -5,8 +5,9 @@
 # ─────────────────────────────────────────────────────────────
 
 athlete:
-  # Approximate easy pace (min/km). Only used to estimate workout duration
-  # in Garmin; intensity targets are heart-rate zones.
+  # Approximate easy pace (min/km): estimates workout durations, and your
+  # training paces when Garmin has no race prediction for you. Quality reps
+  # target paces from Garmin's race predictor; easy runs use heart-rate zones.
   easy_pace_min_per_km: 6.0
   pool_length_m: 25
 
@@ -16,7 +17,9 @@ plan_start: 2026-10-12
 
 # Your target races, in any order. Examples below: replace them with yours.
 #   kind: 5k | 10k | half | marathon | road (with distance_km)
-#         tri_sprint | tri_olympic | bike (with distance_km and elevation_m)
+#         tri_sprint | tri_olympic | tri_half | tri_full
+#         tri (any other distance: distances: 1.5-40-10, swim-bike-run km)
+#         bike (with distance_km and elevation_m)
 #   priority: A = main goal (full taper) | B = tune-up race (3 easy days, quick recovery)
 # The plan always prepares for the next race on the calendar.
 # Tip: `python -m coach setup` writes this file for you.

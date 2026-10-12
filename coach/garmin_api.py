@@ -217,6 +217,19 @@ def _body_battery_wake(bb_raw) -> float | None:
     return best
 
 
+def fetch_race_predictions(api) -> dict | None:
+    """Garmin's predicted race times (seconds), which follow your VO2 max."""
+    raw = _safe(getattr(api, "get_race_predictions", lambda: None))
+    if not raw:
+        return None
+    if isinstance(raw, list):
+        raw = raw[-1] if raw else {}
+    out = {k: find_key(raw, key) for k, key in (("5k", "time5K"), ("10k", "time10K"),
+                                                 ("hm", "timeHalfMarathon"), ("marathon", "timeMarathon"))}
+    out = {k: float(v) for k, v in out.items() if isinstance(v, (int, float)) and v > 0}
+    return out or None
+
+
 def fetch_wellness(api, d: dt.date) -> dict:
     ds = d.isoformat()
     yday = (d - dt.timedelta(days=1)).isoformat()

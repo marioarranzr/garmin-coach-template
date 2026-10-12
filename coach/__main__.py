@@ -106,9 +106,12 @@ def main(argv=None):
         learned = {s: day for s in ("run", "bike") if (day := learn_long_day(acts, d, s))}
         cfg = dict(cfg, _learned_days=learned)
         wt = week_target(acts, d, cfg)
+        from . import paces as P
+        P.set_current(P.estimate(cfg, G.fetch_race_predictions(api), wt.get("chronic_km")))
         print(f"Phase: {phase_for(d, cfg).describe()}")
         print(f"Running target this week: {wt['target_km']} km "
-              f"(4-week average: {wt['chronic_km']} km)\n")
+              f"(4-week average: {wt['chronic_km']} km)")
+        print(f"Paces: {P.summary()}\n")
         if wt.get("return_mode"):
             print("Return-to-running mode: easy runs only, volume grows ~20 %/week.\n")
         from . import week as W

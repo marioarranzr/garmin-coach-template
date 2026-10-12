@@ -8,6 +8,7 @@ from pathlib import Path
 
 from . import garmin_api as G
 from .adjust import adjust
+from . import paces as P
 from . import week as W
 from .planner import (Session, compute_week_target, history_start, week_parts, key_day, key_session, learn_long_day, monday_of,
                       phase_for, plan_day,
@@ -135,6 +136,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     cfg = dict(cfg, _learned_days=learned)
 
     wt = week_target(past, d, cfg)
+    # today's training paces, from Garmin's race predictor (your current fitness)
+    pace_set = P.estimate(cfg, G.fetch_race_predictions(api), wt.get("chronic_km"))
+    P.set_current(pace_set)
     week_km = wt["target_km"]
     ret = wt.get("return_mode", False)
     phase, planned = plan_day(d, cfg, wt)
@@ -201,6 +205,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         "week_idx": week_index(d, cfg),
         "quality_owed": led["quality_owed"], "hard_yesterday": led["hard_yesterday"],
         "this_week": W.summary(led),
+        "paces": {k: P.fmt(pace_set[k]) for k in ("5k", "10k", "thr", "hm", "mp")} | {"source": pace_set["source"]},
     }
     # Always judge readiness on the latest values Garmin has (first thing in the
     # morning they're the waking values; later in the day, how you are now).
@@ -499,6 +504,8 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
         title = ("**What the rules proposed** (the AI coach made the final call):" if (coach or {}).get("used")
                  else "**Coach adjustments:**")
         L += ["", title] + [f"- {n}" for n in notes]
+    if ctx.get("paces"):
+        L += ["", f"**Your paces:** {P.summary()}"]
     if ctx.get("this_week"):
         L += ["", "**This week so far:** " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in ctx["this_week"].items())]
     if ahead:

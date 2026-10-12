@@ -31,6 +31,11 @@ races:
     date: 2027-04-11
     kind: half
     priority: A
+  - name: "Zurich City Triathlon"
+    date: 2027-06-27
+    kind: tri_sprint
+    priority: A
+
 
 # Maximum weekly running km per goal type. The plan ramps volume up gradually
 # (≈ +8 %/week) from what you actually ran over the last 4 weeks.

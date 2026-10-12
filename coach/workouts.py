@@ -9,6 +9,16 @@ STEP = {"warmup": (1, "warmup"), "cooldown": (2, "cooldown"), "interval": (3, "i
 COND = {"lap": (1, "lap.button"), "time": (2, "time"), "distance": (3, "distance"), "iterations": (7, "iterations")}
 
 
+def _pace_target(label):
+    """Garmin pace target: a speed range (m/s) of ±5 s/km around the pace."""
+    from .paces import TOLERANCE_S, pace
+    sec = pace(label)
+    if not sec:
+        return None
+    return ({"workoutTargetTypeId": 6, "workoutTargetTypeKey": "pace.zone", "displayOrder": 6},
+            1000 / (sec + TOLERANCE_S), 1000 / (sec - TOLERANCE_S))
+
+
 def _target(zone):
     if zone:
         return {"workoutTargetTypeId": 4, "workoutTargetTypeKey": "heart.rate.zone", "displayOrder": 4}, zone
@@ -36,6 +46,9 @@ def _steps(steps: list[dict], counter: list[int], swim: bool) -> list[dict]:
         cid, ckey = COND[st["end"]]
         zone = None if swim else st.get("zone")
         tgt, zn = _target(zone)
+        pt = None if swim or not st.get("pace") else _pace_target(st["pace"])
+        if pt:
+            tgt, zn = pt[0], None
         step = {
             "type": "ExecutableStepDTO", "stepOrder": order,
             "stepType": {"stepTypeId": sid, "stepTypeKey": skey, "displayOrder": sid},
@@ -45,6 +58,8 @@ def _steps(steps: list[dict], counter: list[int], swim: bool) -> list[dict]:
         }
         if zn:
             step["zoneNumber"] = zn
+        if pt:
+            step["targetValueOne"], step["targetValueTwo"] = round(pt[1], 4), round(pt[2], 4)
         if st.get("note"):
             step["description"] = st["note"][:100]
         if swim:
@@ -62,7 +77,11 @@ def _estimate_secs(steps, pace_s_per_km: float, swim: bool) -> float:
         elif st["end"] == "time":
             tot += st["value"]
         elif st["end"] == "distance":
-            tot += st["value"] / 100 * 120 if swim else st["value"] / 1000 * pace_s_per_km
+            if swim:
+                tot += st["value"] / 100 * 120
+            else:
+                from .paces import pace
+                tot += st["value"] / 1000 * ((pace(st["pace"]) if st.get("pace") else None) or pace_s_per_km)
     return tot
 
 

@@ -120,7 +120,11 @@ The only file the daily job commits is your encrypted Garmin session
 
 **Phases.** The plan always prepares for the next race on your calendar:
 base → build/specific → taper → race week → recovery, in blocks of 3 load
-weeks + 1 deload week, with about 80 % easy and 20 % quality training.
+weeks + 1 deload week, with about 80 % easy and 20 % quality training. Later
+goals aren't forgotten: before a short race the long run still builds up to
+14 km, so the block for a later half marathon starts from a solid base, and
+the template switches (e.g. to triathlon training) only once that race is the
+next one.
 
 **Race priorities.** A races (main goals) get a full taper. B races (tune-ups)
 get 3 easy days before and 2 days of recovery after, so they don't interrupt
@@ -131,9 +135,39 @@ which days you run, ride, swim and rest:
 
 | Next race | Template | Typical week |
 |---|---|---|
-| Running race | `run_focus` | quality run, easy run with strides, long run; easy and long rides; a swim |
+| Running race | `run_focus` | quality run, easy run with strides, long run; easy and long rides as cross-training; an optional swim |
 | Triathlon | `triathlon` | two or three swims, bike intervals, a bike→run brick, long run |
 | Cycling event | `cycling` | two interval rides, a long ride, two short maintenance runs |
+
+**Quality runs** are structured like a running app's sessions, with **pace
+targets from your current fitness** rather than only heart-rate zones. The
+paces come from Garmin's race predictor (your predicted 5K, 10K and half
+marathon, which follow your VO2 max), so they move as you get fitter. Without
+a prediction they're estimated from your easy pace, and while you've run
+little lately they're 3 % easier. Examples, rotated week by week:
+
+| Block | Sessions |
+|---|---|
+| Base, short race | Rolling 400s (400 m at 5K pace, 400 m at marathon pace, no rest), over-unders 1K (1 km at threshold, 1 km at 5K pace, 90" jog), hill reps, 1'/1' fartlek |
+| Specific, short race | 1 km reps at 10K pace, pyramid 400-800-1200-800-400, 2 km at 10K pace, 800s |
+| Half marathon | tempo, cruise intervals, threshold 10', over-unders 2K, progression, 3-5 km at HM pace, long tempo |
+| Taper / race week | a few short reps at race pace to stay sharp |
+
+The number of reps fits the week's quality distance, and the watch gets a
+pace range (±5 s/km) for each rep. The report and the workout description list
+your paces, e.g. "5K 4:25 · 10K 4:36 · threshold 4:43 · HM 4:50 /km".
+
+**Swims while running is the focus.** If your next goals are running races,
+swims are **optional** ("Optional · Technique swim 1500 m"): easy aerobic work
+that keeps your feel for the water. Skipping one isn't counted as missed and
+never makes a later swim a priority. Once a triathlon is your next race, swims
+are part of the plan again.
+
+**Triathlons** can be sprint, Olympic, half Ironman (70.3), Ironman, or any
+distance you type as swim-bike-run km (`kind: tri`, `distances: 1.5-40-10`).
+For long-course races the long run builds towards ~85 % of the run leg (up to
+30 km), the long ride towards the bike leg (up to 5 h), swims get longer, and
+the taper and recovery are longer (3 weeks before an Ironman).
 
 **Running volume** starts from what you **actually** ran in the last 4 weeks
 and grows by about 8-10 % per week at most, up to a ceiling per goal type.
@@ -437,8 +471,8 @@ notification, which your watch mirrors and keeps in its notification list:
 4. Make sure your watch shows ntfy notifications (Garmin Connect app →
    your watch → Notifications).
 
-You get "Today: Long run 12 km" with the why and the coach's note as soon as
-the day is planned, and "Updated: …" if it re-plans.
+You get "Tomorrow: Long run 12 km" with the why when the evening plan is made,
+and "Changed: …" only if the morning check changes it.
 
 ### 6. Test it
 
@@ -472,10 +506,10 @@ workflow file, and keys in GitHub secrets.
 | Setting | Default | What it does |
 |---|---|---|
 | `athlete.sports` | from setup | `run`, `run_bike`, `tri` or `bike` (used by the setup) |
-| `athlete.easy_pace_min_per_km` | from setup | Only used to estimate workout duration |
+| `athlete.easy_pace_min_per_km` | from setup | Estimates workout durations, and your training paces when Garmin has no race prediction |
 | `athlete.pool_length_m` | 25 | Pool length for swim workouts on the watch |
 | `plan_start` | next Monday | Monday from which the 4-week load/deload cycles count |
-| `races` | — | `name`, `date`, `kind` (`5k`, `10k`, `half`, `marathon`, `road`, `tri_sprint`, `tri_olympic`, `bike`), `distance_km` (road and bike), `elevation_m` (bike), `priority` (`A` or `B`) |
+| `races` | — | `name`, `date`, `kind` (`5k`, `10k`, `half`, `marathon`, `road`, `tri_sprint`, `tri_olympic`, `tri_half`, `tri_full`, `tri`, `bike`), `distance_km` (road and bike), `elevation_m` (bike), `distances` (`tri`: swim-bike-run km, e.g. `1.5-40-10`), `priority` (`A` or `B`) |
 | `peak_weekly_run_km` | 32-62 | Maximum weekly running km per goal type (`short`, `half`, `tri`, `bike`) |
 | `min_weekly_run_km` | 15 | Minimum weekly running km outside return-to-running mode |
 | `return_to_run_below_km` | 10 | Below this 4-week average, return-to-running mode applies |

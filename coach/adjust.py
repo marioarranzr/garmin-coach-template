@@ -130,7 +130,7 @@ def adjust(planned: list[Session], r: dict, ctx: dict, phase: Phase, tomorrow: l
                      "today's run is cut by 15 % to stay within the weekly volume.")
 
     # ── 5. Swimming gets priority if you've been skipping it ────────────────
-    target = ctx.get("swim_target_week", 1)
+    target = ctx.get("swim_target_week", 1) if phase.focus == "tri" else 0   # optional swims never nag
     done = ctx.get("swims_14d", 0)
     if target and done < 2 * target - 1:
         for s in out:

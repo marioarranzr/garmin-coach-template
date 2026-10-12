@@ -6,8 +6,9 @@
 
 athlete:
   sports: tri          # run | run_bike | tri
-  # Approximate easy pace (min/km). Only used to estimate workout duration
-  # in Garmin; intensity targets are heart-rate zones.
+  # Approximate easy pace (min/km): estimates workout durations, and your
+  # training paces when Garmin has no race prediction for you. Quality reps
+  # target paces from Garmin's race predictor; easy runs use heart-rate zones.
   easy_pace_min_per_km: 5.3
   pool_length_m: 25
 
@@ -15,7 +16,10 @@ athlete:
 plan_start: 2026-10-12
 
 # Target races.
-#   kind: road (with distance_km) | 5k | 10k | half | marathon | tri_sprint | tri_olympic
+#   kind: 5k | 10k | half | marathon | road (with distance_km)
+#         tri_sprint | tri_olympic | tri_half | tri_full
+#         tri (any other distance: distances: 1.5-40-10, swim-bike-run km)
+#         bike (with distance_km and elevation_m)
 #   priority: A (main goal) | B (secondary)
 races:
   - name: Zürcher Silvesterlauf

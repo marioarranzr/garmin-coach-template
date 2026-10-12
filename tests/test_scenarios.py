@@ -171,10 +171,22 @@ def test_overdid_yesterday_cuts_today():
     assert "more than planned" in titles or "intens" in titles.lower() or res["readiness"]["score"] < 80
 
 
-def test_no_swims_marks_priority():
-    day = dt.date(2026, 10, 16)  # Friday → swim
+def test_swims_are_optional_until_the_triathlon_block():
+    day = dt.date(2026, 10, 16)  # Friday → swim, but the next goals are running races
     api, res = _run(day, swims=False)
-    assert any(s.priority for s in res["final"] if s.sport == "swim")
+    swims = [s for s in res["final"] if s.sport == "swim"]
+    assert swims and all(s.optional and not s.priority for s in swims)
+    assert swims[0].title.startswith("Optional · ") and "running is the focus" in swims[0].detail
+    assert "priority" not in res["report"].lower()
+    # skipping an optional swim isn't "missed"
+    from coach.readiness import compliance
+    assert compliance([s.to_dict() for s in swims], [])["missed"] == []
+
+
+def test_no_swims_marks_priority_in_the_triathlon_block():
+    day = dt.date(2027, 5, 13)   # Thursday, 6 weeks before the sprint triathlon → endurance swim
+    api, res = _run(day, swims=False)
+    assert any(s.priority and not s.optional for s in res["final"] if s.sport == "swim")
 
 
 def test_phases():
@@ -1116,6 +1128,49 @@ def test_schedule_is_local_time_all_year():
     assert cron_for("08:00", "Europe/Zurich", "10:00", "21:00") == "0 6-9,19-21 * * *"
     assert cron_for("08:00", "UTC", "10:00", "21:00") == "0 8-10,21-22 * * *"
     assert cron_for("08:00", "Australia/Sydney", "10:00", "21:00") == "0 0,10-12,21-23 * * *"
+
+
+def test_long_and_custom_triathlons():
+    from coach import setup_wizard
+    from coach.planner import load_races, parse_legs
+    assert parse_legs("1.5-40-10") == (1.5, 40.0, 10.0) and parse_legs("1,9/90/21,1") == (1.9, 90.0, 21.1)
+    assert parse_legs("1.5-40") is None
+    d1 = (dt.date.today() + dt.timedelta(days=150)).isoformat()
+    d2 = (dt.date.today() + dt.timedelta(days=300)).isoformat()
+    answers = iter(["1", "3", "", "Lake 70.3", "9", d1, "A", "Club tri", "11", "1.5-40", "1-30-7.5", d2, "B", ""])
+    with fresh() as tmp:
+        setup_wizard.run(Path(tmp), ask=lambda p: next(answers), suggestions={})
+        cfg = yaml.safe_load((Path(tmp) / "config.yaml").read_text())
+    assert [r["kind"] for r in cfg["races"]] == ["tri_half", "tri"]
+    assert cfg["races"][1]["distances"] == "1-30-7.5"
+    races = load_races(cfg)
+    assert races[0].legs == (1.9, 90, 21.1) and races[1].legs == (1.0, 30.0, 7.5)
+    # a 70.3 builds the long run towards ~18 km and the long ride beyond 2 h
+    phase = phase_for(dt.date.fromisoformat(d1) - dt.timedelta(days=40), cfg)
+    assert phase.focus == "tri" and phase.long_cap_km == 18
+    from coach.planner import make_bike
+    assert make_bike("bike_long", phase).duration_min > 120
+
+
+def test_quality_runs_target_paces_from_your_fitness():
+    from coach import paces as P
+    from coach.planner import Phase, make_run
+    from coach.workouts import to_garmin
+    p = P.estimate(CFG, {"5k": 1325, "10k": 2760, "hm": 6120}, chronic_km=25)
+    assert P.fmt(p["5k"]) == "4:25" and P.fmt(p["10k"]) == "4:36" and "race predictor" in p["source"]
+    P.set_current(p)
+    s = make_run("run_quality", 8, Phase("short", "base", "x", None, None, 1, False, 14), 0)
+    assert s.title.startswith("Quality · Rolling 400s") and "400 m at 4:25/km, 400 m at 5:01/km" in s.detail
+    rep = to_garmin(s, CFG, "x")["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
+    assert rep["targetType"]["workoutTargetTypeKey"] == "pace.zone"
+    assert 1000 / rep["targetValueTwo"] < p["5k"] < 1000 / rep["targetValueOne"]
+    over = make_run("run_quality", 9, Phase("short", "base", "x", None, None, 1, False, 14), 1)
+    assert "1 km at 4:43/km, 1 km at 4:25/km" in over.detail          # over-unders
+    # no prediction: estimated from the easy pace; little running lately: 3 % easier
+    q = P.estimate(CFG, None, chronic_km=5)
+    assert "easy pace" in q["source"] and "3 % easier" in q["source"]
+    # a stale prediction far from the easy pace is ignored
+    assert "easy pace" in P.estimate(CFG, {"5k": 900}, 25)["source"]
 
 
 if __name__ == "__main__":

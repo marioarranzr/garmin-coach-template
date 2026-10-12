@@ -119,7 +119,7 @@ def recent_notes(cfg: dict, now: dt.datetime, api=None) -> list[dict]:
             return n and since <= dt.datetime.fromisoformat(n["created"]) <= until
 
         notes = [n for page in api.get_tasks(project_id=project_id) for t in page
-                 if recent(n := _note(t, now, done=False))]
+                 if PLAN_LABEL not in (getattr(t, "labels", None) or []) and recent(n := _note(t, now, done=False))]
         aware = lambda x: x.astimezone().astimezone(dt.timezone.utc)   # local → UTC for the API
         try:
             for page in api.get_completed_tasks_by_completion_date(since=aware(since), until=aware(until)):
@@ -180,3 +180,39 @@ def complete_notes(ids: list[str], api=None, recurring: set[str] | frozenset = f
     except Exception as e:  # noqa: BLE001
         log.warning("Couldn't complete Todoist notes: %s", e)
     return done
+
+
+PLAN_LABEL = "coach-plan"
+
+
+def sync_plan(cfg: dict, days: list[tuple], api=None) -> int:
+    """Your coming days as Todoist tasks, so the week is easy to see: one task per
+    day ("Quality · Rolling 400s, 8 km"), due that day, in the `plan_project`
+    project (created if needed). Each run replaces the coach's tasks there (those
+    with the coach-plan label); anything else you put in that project is left alone.
+    `days`: [(date, sessions, why)]. Returns the number of tasks written."""
+    settings = cfg.get("todoist") or {}
+    name = settings.get("plan_project", "Training plan")
+    if not settings.get("enabled", True) or not name:
+        return 0
+    try:
+        api = _client(api)
+        if api is None:
+            return 0
+        pid = _find_project(api, str(name))
+        if not pid:
+            pid = api.add_project(name=str(name)).id
+        for page in api.get_tasks(project_id=pid, label=PLAN_LABEL):
+            for t in page:
+                api.delete_task(t.id)
+        n = 0
+        for day, sessions, why in days:
+            titles = " + ".join(x.title for x in sessions) or "Rest"
+            details = "\n\n".join(x for x in [why] + [f"{x.title}: {x.detail}" for x in sessions] if x)
+            api.add_task(content=titles[:480], project_id=pid, due_date=day, labels=[PLAN_LABEL],
+                         description=details[:4000])
+            n += 1
+        return n
+    except Exception as e:  # noqa: BLE001 — the calendar has the plan anyway
+        log.warning("Couldn't update your training plan in Todoist: %s", e)
+        return 0

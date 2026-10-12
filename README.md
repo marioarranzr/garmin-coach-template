@@ -286,6 +286,31 @@ alone. Notes already marked done in that window, by the coach or by you, are
 still passed as context, so a re-plan later in the day remembers them. Notes
 are only marked done on real runs, never on "Analyze only" test runs.
 
+**Your week at a glance.** The coming days also go to a Todoist project,
+"Training plan" (`plan_project`, created if needed): one task per day, due
+that day, e.g. "Quality · Rolling 400s, 8 km", with the details in the task.
+Todoist's *Upcoming* view or a widget shows the week, next to where you write
+your notes. Each run replaces the coach's tasks there (they carry the
+`coach-plan` label); anything else you put in that project is left alone.
+
+**Notes about your week.** Notes like "I can't train on Sunday", "long run
+on Saturday this week", "intervals on Thursday" or "no swimming this week"
+rearrange the coming days:
+- A day you can't train becomes rest. Its long run or quality session moves to
+  the nearest free day (earlier first, not next to another hard session of
+  the same sport, not on top of another sport). A session it displaces moves
+  on the same way.
+- "Long run on Saturday" swaps that day with the long-run day.
+- "No swimming" drops swims until the day you say.
+
+The AI reads these notes (it needs an AI key) and works out the dates from
+when each note was written. Like your other notes, they're labelled and
+completed in Todoist, and every run reads the last week of them again. So a
+note keeps applying until its date has passed, without the coach storing
+anything. The report shows what changed under "Your notes about the week".
+For a permanent change (a different long-run day every week), change your
+week in `config.yaml` or re-run `python -m coach setup`.
+
 **Training diary.** The notes labelled `coach` in your completed Todoist tasks
 are your training diary. Each day the AI sees the ones from the last 6 weeks,
 each next to what you trained that day and the day before (from Garmin), and
@@ -471,7 +496,7 @@ notification, which your watch mirrors and keeps in its notification list:
 4. Make sure your watch shows ntfy notifications (Garmin Connect app →
    your watch → Notifications).
 
-You get "Tomorrow: Long run 12 km" with the why when the evening plan is made,
+You get "Tomorrow: Long run 12 km" with the why and the rest of the week when the evening plan is made,
 and "Changed: …" only if the morning check changes it.
 
 ### 6. Test it
@@ -528,6 +553,7 @@ workflow file, and keys in GitHub secrets.
 | `ai.openai_model` / `ai.anthropic_model` | `gpt-5.4-mini` / `claude-sonnet-5-5` | Model per provider |
 | `todoist.enabled` | `true` | Read your notes if a token is set |
 | `todoist.project` | `Inbox` | Todoist project the notes are read from |
+| `todoist.plan_project` | `"Training plan"` | Todoist project with your coming days, one task per day; `""` turns it off |
 | `todoist.lookback_hours` | 14 | How far back notes count as today's state (14 h at 08:00 = since 18:00 the evening before) |
 | `todoist.diary_label` | coach | Label given to the notes the coach used; completed notes with it are your training diary |
 

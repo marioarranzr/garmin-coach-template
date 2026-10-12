@@ -311,6 +311,9 @@ todoist:
   project: {_yaml_str(answers.get('todoist_project', 'Inbox'))}
   lookback_hours: {answers.get('todoist_lookback_hours', 14)}
   diary_label: {_yaml_str(answers.get('todoist_diary_label', 'coach'))}
+  # Your coming days as tasks in this Todoist project (one per day, due that
+  # day), so the week is easy to see. Created if needed; "" turns it off.
+  plan_project: {_yaml_str(answers.get('todoist_plan_project', 'Training plan'))}
 """
 
 
@@ -561,7 +564,8 @@ def existing_setup(cfg: dict, workflow: str) -> dict:
                      "todoist_enabled": (cfg.get("todoist") or {}).get("enabled", True),
                      "todoist_project": (cfg.get("todoist") or {}).get("project", "Inbox"),
                      "todoist_lookback_hours": (cfg.get("todoist") or {}).get("lookback_hours", 12),
-                     "todoist_diary_label": (cfg.get("todoist") or {}).get("diary_label", "coach")}
+                     "todoist_diary_label": (cfg.get("todoist") or {}).get("diary_label", "coach"),
+                     "todoist_plan_project": (cfg.get("todoist") or {}).get("plan_project", "Training plan")}
     return out
 
 
@@ -726,7 +730,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
                "preview_days": extras.get("preview_days", 7),
                **{k: extras[k] for k in ("ai_enabled", "ai_provider", "openai_model", "anthropic_model",
                                          "todoist_enabled", "todoist_project",
-                                         "todoist_lookback_hours", "todoist_diary_label") if k in extras},
+                                         "todoist_lookback_hours", "todoist_diary_label", "todoist_plan_project") if k in extras},
                "templates": build_templates(st["sport"], st["run_days"], long_idx, rest_idx),
                "peaks": peaks_for(st["sport"], st["run_days"])}
 

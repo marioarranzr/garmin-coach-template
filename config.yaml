@@ -146,3 +146,6 @@ todoist:
   # Notes the coach used get this label and are completed; the last 6 weeks
   # of them are your training diary, which the AI reads to learn how you respond.
   diary_label: coach
+  # Your coming days as tasks in this Todoist project (one per day, due that
+  # day), so the week is easy to see. Created if needed; "" turns it off.
+  plan_project: "Training plan"

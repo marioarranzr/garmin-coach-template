@@ -524,9 +524,17 @@ def make_run(kind: str, km: float, phase: Phase, wk: int = 0) -> Session:
                        "much harder than it should, run it by feel, and drop the last rep if your heart "
                        "rate doesn't come down in the recoveries.", steps)
     if kind == "run_long":
-        if phase.name == "peak" and km >= 14:
-            steps = [run_d((km - 3) * 1000, 2), run_d(3000, 3)]
-            detail = f"Long run {km:g} km: Z2, last 3 km a bit livelier (Z3)."
+        from . import paces
+        finish = 0.0
+        if phase.name in ("build", "specific", "peak") and km >= 10 and not phase.deload:
+            # race-specific long run: the last part at goal pace, on tired legs
+            share = {"build": 0.15, "specific": 0.2, "peak": 0.3}[phase.name]
+            finish = min(_round_half(km * share), 6 if phase.focus == "half" else 3)
+        if finish >= 1:
+            label = "hm" if phase.focus in ("half", "tri") else "10k" if phase.focus == "short" else "mp"
+            steps = [run_d((km - finish) * 1000, 2), at(finish * 1000, label)]
+            detail = (f"Long run {km:g} km: {km - finish:g} km easy in Z2, then the last {finish:g} km at "
+                      f"{paces.LABELS[label]} ({paces.fmt(paces.pace(label))}/km). Drink if it goes over 75'.")
         else:
             steps = [run_d(km * 1000, 2)]
             detail = f"Long run {km:g} km in Z2, conversational pace. Drink if it goes over 75'."
@@ -610,6 +618,11 @@ def make_bike(kind: str, phase: Phase, minutes: float | None = None, wk: int = 0
             steps = [run_t(m * 60, 2)]
             detail = f"{m:g}' steady in Z2. Practise eating/drinking every 30'."
         return Session(kind, "bike", f"Long ride {m:g}'", "moderate", None, m, detail, steps)
+    if kind == "bike_spin":
+        m = minutes or 35
+        return Session("bike_spin", "bike", f"Recovery spin {m:g}'", "easy", None, m,
+                       f"{m:g}' very easy (Z1), light gear, 90+ rpm, a few hours after your run: it flushes "
+                       "the legs and adds aerobic time without any impact.", [run_t(m * 60, 1)])
     m = minutes or 60
     return Session("bike_easy", "bike", f"Easy ride {m:g}'", "easy", None, m,
                    f"{m:g}' in Z1-Z2, high cadence (85-95 rpm).", [run_t(m * 60, 2)])

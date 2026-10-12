@@ -135,9 +135,20 @@ which days you run, ride, swim and rest:
 
 | Next race | Template | Typical week |
 |---|---|---|
-| Running race | `run_focus` | quality run, easy run with strides, long run; easy and long rides as cross-training; an optional swim |
-| Triathlon | `triathlon` | two or three swims, bike intervals, a bike→run brick, long run |
+| Running race | `run_focus` | quality run + recovery spin, bike intervals, easy run with strides, long ride, long run; an optional swim |
+| Triathlon | `triathlon` | quality run + swim set, bike intervals, easy run + endurance swim, long ride + brick run, long run, technique swim |
 | Cycling event | `cycling` | two interval rides, a long ride, two short maintenance runs |
+
+**Built for performance, not maintenance.** Hard days are hard and easy days
+are easy, so multi-sport weeks use **doubles**: after the run intervals, a
+35' recovery spin (Z1, no impact, it flushes the legs and adds aerobic time);
+in a triathlon block a swim set the same day; a long ride followed by a brick
+run. The midweek ride has intervals, which build aerobic power without running
+impact, so you can improve with just 3 run days. In build and specific phases
+the long run finishes at goal pace (the last 15-30 %, up to 6 km at half
+marathon pace), which is the most race-specific session there is. Every day
+is still checked against your recovery: on a tired day the hard parts go
+first, and a recovery spin stays as it is.
 
 **Quality runs** are structured like a running app's sessions, with **pace
 targets from your current fitness** rather than only heart-rate zones. The

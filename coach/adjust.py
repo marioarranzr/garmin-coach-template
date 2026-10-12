@@ -68,6 +68,8 @@ def adjust(planned: list[Session], r: dict, ctx: dict, phase: Phase, tomorrow: l
                 km = min(_round_half((s.distance_km or 6) * 0.6), 6)
                 out.append(make_run("run_easy", max(km, 4), phase))
                 notes.append(f"{s.title} → very easy {max(km, 4):g} km run (Z1-Z2).")
+            elif s.kind == "bike_spin":
+                out.append(s)                      # already a recovery session
             elif s.sport == "bike":
                 out.append(make_bike("bike_easy", phase, 45))
                 notes.append(f"{s.title} → 45' very easy ride.")

@@ -80,6 +80,7 @@ _KINDS = [
     (r"^Brick run", ("run_brick", "run", "moderate")),
     (r"^Easy run", ("run_easy", "run", "easy")),
     (r"^Long ride", ("bike_long", "bike", "moderate")),
+    (r"^Recovery spin", ("bike_spin", "bike", "easy")),
     (r"^(Easy|Openers) ride", ("bike_easy", "bike", "easy")),
     (r"^Bike .*tempo", ("bike_quality", "bike", "moderate")),
     (r"^Bike", ("bike_quality", "bike", "hard")),

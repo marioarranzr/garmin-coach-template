@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 TEMPLATE_URL = "https://github.com/marioarranzr/garmin-coach-template"
@@ -123,7 +124,12 @@ def _run(root: Path, url: str, branch: str) -> int:
         if (root / "data").exists() or _git("ls-tree", before, "data", root=root).stdout.strip():
             _git("checkout", before, "--", "data", root=root, check=False)
 
-    new_cron = schedule_from_config(root, tz, cron)
+    # worked out by the code just merged (this process still runs the old one)
+    probe = subprocess.run([sys.executable, "-c",
+                            "import sys; from pathlib import Path; from coach.update import schedule_from_config as f; "
+                            "print(f(Path(sys.argv[1]), sys.argv[2] or None, sys.argv[3] or None) or '')",
+                            str(root), tz or "", cron or ""], cwd=root, capture_output=True, text=True)
+    new_cron = probe.stdout.strip() or schedule_from_config(root, tz, cron)
     if new_cron and new_cron != cron:
         print(f"Schedule updated for the evening plan and the morning check: cron \"{new_cron}\" (UTC).")
     _apply_schedule(wf, tz, new_cron or cron)

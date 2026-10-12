@@ -24,8 +24,8 @@ DEFAULT_MODELS = {"openai": "gpt-5.4-mini", "anthropic": "claude-sonnet-5-5"}
 DEFAULT_MODEL = DEFAULT_MODELS["anthropic"]
 
 KINDS = ["rest", "run_easy", "run_strides", "run_quality", "run_long", "run_brick",
-         "bike_easy", "bike_long", "bike_quality", "swim_technique", "swim_endurance", "swim_css"]
-ALWAYS_ALLOWED = {"rest", "run_easy", "bike_easy", "swim_technique"}   # the easy options
+         "bike_easy", "bike_spin", "bike_long", "bike_quality", "swim_technique", "swim_endurance", "swim_css"]
+ALWAYS_ALLOWED = {"rest", "run_easy", "bike_easy", "bike_spin", "swim_technique"}   # the easy options
 
 _num_or_null = {"anyOf": [{"type": "number"}, {"type": "null"}]}
 SCHEMA = {
@@ -200,7 +200,7 @@ def apply_limits(raw: list[dict], proposal: list[Session], phase: Phase, wk: int
             out.append(make_run(kind, km, phase, wk))
         elif kind.startswith("bike_"):
             minutes = float(item.get("minutes") or 45)
-            swap_for_run = kind == "bike_easy" and not bikes_added and any(s.sport == "run" for s in proposal)
+            swap_for_run = kind in ("bike_easy", "bike_spin") and not bikes_added and any(s.sport == "run" for s in proposal)
             cap = bike_budget if bike_budget else (45 if swap_for_run else 0)
             if minutes > cap:
                 limited.append(f"ride limited to {cap:g}'")

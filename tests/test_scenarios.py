@@ -1259,6 +1259,37 @@ def test_evening_notification_lists_the_week():
     assert nxt.count(";") == 5                                     # the 6 days after tomorrow
 
 
+def test_doubles_and_race_specific_long_runs():
+    """Performance weeks: run intervals + a recovery spin on the same day, both uploaded;
+    long runs in build/specific phases finish at goal pace."""
+    from coach import paces as P
+    from coach.planner import Phase, make_run
+    tue = dt.date(2026, 10, 13)
+    cfg = dict(CFG, weekly_templates=dict(CFG["weekly_templates"],
+                                          run_focus=dict(CFG["weekly_templates"]["run_focus"],
+                                                         tue=["run_quality", "bike_spin"],
+                                                         wed=["bike_quality"])))
+    with fresh():
+        api = FakeGarmin(tue)
+        res = engine.run_day(api, cfg, tue)
+    kinds = [s.kind for s in res["final"]]
+    assert kinds == ["run_quality", "bike_spin"]
+    assert [w["workoutName"] for w in api.uploaded] == [f"Coach · {s.title}" for s in res["final"]]
+    assert res["final"][1].title == "Recovery spin 35'"
+    P.set_current(P.estimate(CFG, {"5k": 1325, "10k": 2760, "hm": 6120}, 25))
+    lr = make_run("run_long", 16, Phase("half", "build", "x", None, None, 1, False, 18))
+    assert lr.steps[-1]["pace"] == "hm" and "last 2.5 km at half-marathon pace (4:50/km)" in lr.detail
+    base = make_run("run_long", 16, Phase("half", "base", "x", None, None, 1, False, 18))
+    assert all(st.get("pace") is None for st in base.steps)
+    # a tired (orange) day keeps the recovery spin as it is
+    from coach.adjust import adjust
+    from coach.planner import make_bike
+    out, _ = adjust([make_bike("bike_spin", Phase("short", "base", "x", None, None, 1, False, 14))],
+                    {"level": "orange", "score": 40, "reasons": [], "flags": {}}, {}, 
+                    Phase("short", "base", "x", None, None, 1, False, 14), [])
+    assert out[0].kind == "bike_spin"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

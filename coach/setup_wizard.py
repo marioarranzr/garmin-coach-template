@@ -56,6 +56,11 @@ def build_templates(sport: str, run_days: int, long_day: int, rest_day: int) -> 
     quality 2 days after the long run, strides 4 days after, extra easy runs
     in between. Bike and swim sessions fill the remaining days. For cyclists,
     `long_day` is the long-ride day.
+
+    Built for performance, not maintenance: hard days hard, easy days easy.
+    Multi-sport athletes get doubles: a recovery spin after the run intervals
+    (and in triathlon blocks a swim set the same day), plus a midweek ride with
+    intervals, so aerobic volume grows without extra running impact.
     """
     def runs(n: int, used: set[int], anchor: int) -> dict[int, list[str]]:
         plan: dict[int, list[str]] = {anchor: ["run_long"]}
@@ -114,15 +119,24 @@ def build_templates(sport: str, run_days: int, long_day: int, rest_day: int) -> 
     run_focus = week(
         run_days if sport != "bike" else 3,
         run_anchor,
-        [("bike_long", -1), ("bike_easy", 3)] if has_bike else [],
+        [("bike_long", -1), ("bike_quality" if sport in ("tri", "run_bike") else "bike_easy", 3)] if has_bike else [],
         ["swim_technique"] if sport == "tri" else [],
     )
+
+    def double_on_quality(tpl: dict, kind: str) -> None:
+        for day, items in tpl.items():
+            if "run_quality" in items and kind not in items:
+                items.append(kind)
+
+    if has_bike and sport != "bike":
+        double_on_quality(run_focus, "bike_spin")      # run intervals, then a recovery spin
     templates = {"run_focus": run_focus}
     if sport == "tri":
         tri = week(min(run_days, 3), run_anchor, [("bike_quality", 3), ("bike_long", -1)],
                    ["swim_technique", "swim_endurance"])
         bl = next(day for day, s in tri.items() if "bike_long" in s)
         tri[bl].append("run_brick")
+        double_on_quality(tri, "swim_css")             # run intervals + a swim set: 3 swims a week
         templates["triathlon"] = tri
     else:
         templates["triathlon"] = dict(run_focus)

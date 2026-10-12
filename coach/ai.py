@@ -218,14 +218,15 @@ def apply_limits(raw: list[dict], proposal: list[Session], phase: Phase, wk: int
     return out or [make_rest("Your coach chose rest today.")], limited
 
 
-def _ask_openai(client, model: str, context: dict) -> str:
+def _ask_openai(client, model: str, context: dict, system: str = SYSTEM, schema: dict = SCHEMA,
+                name: str = "coach_decision") -> str:
     resp = client.chat.completions.create(
         model=model,
         max_completion_tokens=4000,
-        messages=[{"role": "system", "content": SYSTEM},
+        messages=[{"role": "system", "content": system},
                   {"role": "user", "content": "Today's data (JSON):\n" + json.dumps(context, default=str)}],
         response_format={"type": "json_schema",
-                         "json_schema": {"name": "coach_decision", "schema": SCHEMA, "strict": True}},
+                         "json_schema": {"name": name, "schema": schema, "strict": True}},
     )
     msg = resp.choices[0].message
     if getattr(msg, "refusal", None):
@@ -233,15 +234,87 @@ def _ask_openai(client, model: str, context: dict) -> str:
     return msg.content or ""
 
 
-def _ask_anthropic(client, model: str, context: dict) -> str:
+def _ask_anthropic(client, model: str, context: dict, system: str = SYSTEM, schema: dict = SCHEMA,
+                   name: str = "coach_decision") -> str:
     resp = client.messages.create(
         model=model,
         max_tokens=1500,
-        system=SYSTEM,
+        system=system,
         messages=[{"role": "user", "content": "Today's data (JSON):\n" + json.dumps(context, default=str)}],
-        output_config={"format": {"type": "json_schema", "schema": SCHEMA}},
+        output_config={"format": {"type": "json_schema", "schema": schema}},
     )
     return "".join(getattr(b, "text", "") for b in resp.content)
+
+
+def _client(prov: str, client=None):
+    if client is not None:
+        return client
+    if prov == "openai":
+        import openai
+        return openai.OpenAI()
+    import anthropic
+    return anthropic.Anthropic()
+
+
+# ── notes about the coming days ("can't train on Sunday", "long run Saturday") ──
+SCHEDULE_KINDS = ["run_long", "run_quality", "bike_long", "bike_quality", "swim"]
+SCHEDULE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "unavailable": {"type": "array", "items": {"type": "string"}},          # YYYY-MM-DD
+        "moves": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"kind": {"type": "string", "enum": SCHEDULE_KINDS}, "date": {"type": "string"}},
+            "required": ["kind", "date"], "additionalProperties": False}},
+        "no_swim_until": {"type": "string"},                                      # YYYY-MM-DD or ""
+        "summary": {"type": "string"},
+        "notes_used": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["unavailable", "moves", "no_swim_until", "summary", "notes_used"],
+    "additionalProperties": False,
+}
+SCHEDULE_SYSTEM = """You read an athlete's short notes and pick out what they say about their training SCHEDULE for the coming days, so a coach can rearrange the plan. Only the schedule: how they feel is handled elsewhere.
+
+Return:
+- "unavailable": dates (YYYY-MM-DD) they can't train at all ("I can't train on Sunday", "travelling Friday and Saturday").
+- "moves": where they want a key session: {"kind": "run_long" | "run_quality" | "bike_long" | "bike_quality" | "swim", "date"} ("long run on Saturday this week", "intervals on Thursday").
+- "no_swim_until": the last date with no swims if they don't want to swim ("no swimming this week" → that week's Sunday), else "".
+- "summary": one short sentence of what changes, for the athlete, or "" if nothing.
+- "notes_used": the ids of the notes in "open_notes" that are about the schedule (never ids of other notes; "earlier_notes" have no ids and are context only).
+
+Resolve weekdays and "tomorrow"/"this week"/"next week" against the date each note was written ("created"), weeks run Monday to Sunday. Only dates from "today" up to "until" count; ignore anything older or later. If a later note contradicts an earlier one, the later one wins. If nothing is about the schedule, return empty lists, "" and []."""
+
+
+def schedule_changes(cfg: dict, context: dict, client=None, prov: str | None = None) -> dict:
+    """{"unavailable": {dates}, "moves": [(kind, date)], "no_swim_until": date|None,
+    "summary", "notes_used"} from the notes in context, or {} if there's nothing / no AI."""
+    prov = prov or getattr(client, "provider", None) or provider(cfg)
+    if prov is None:
+        return {}
+    try:
+        cl = _client(prov, client)
+        ask = _ask_openai if prov == "openai" else _ask_anthropic
+        data = json.loads(ask(cl, model_for(cfg, prov), context, SCHEDULE_SYSTEM, SCHEDULE_SCHEMA,
+                              "schedule_changes"))
+        lo, hi = dt.date.fromisoformat(context["today"]), dt.date.fromisoformat(context["until"])
+
+        def day(v):
+            try:
+                x = dt.date.fromisoformat(str(v)[:10])
+            except ValueError:
+                return None
+            return x if lo <= x <= hi else None
+        known = {str(n["id"]) for n in context.get("open_notes") or []}
+        out = {"unavailable": {x for x in map(day, data.get("unavailable") or []) if x},
+               "moves": [(m["kind"], day(m.get("date"))) for m in data.get("moves") or []
+                         if m.get("kind") in SCHEDULE_KINDS and day(m.get("date"))],
+               "no_swim_until": day(data.get("no_swim_until")) if data.get("no_swim_until") else None,
+               "summary": (data.get("summary") or "").strip()[:300],
+               "notes_used": [str(n) for n in data.get("notes_used") or [] if str(n) in known][:10]}
+        return out if (out["unavailable"] or out["moves"] or out["no_swim_until"] or out["notes_used"]) else {}
+    except Exception as e:  # noqa: BLE001 — the plan works without it
+        log.warning("Couldn't read your schedule notes: %s", e)
+        return {"error": str(e)[:200]}
 
 
 def decide(cfg: dict, context: dict, proposal: list[Session], phase: Phase, wk: int, client=None,
@@ -252,13 +325,7 @@ def decide(cfg: dict, context: dict, proposal: list[Session], phase: Phase, wk: 
         return {"used": False}
     model = model_for(cfg, prov)
     try:
-        if client is None:
-            if prov == "openai":
-                import openai
-                client = openai.OpenAI()
-            else:
-                import anthropic
-                client = anthropic.Anthropic()
+        client = _client(prov, client)
         text = _ask_openai(client, model, context) if prov == "openai" else _ask_anthropic(client, model, context)
         data = json.loads(text)
         sessions, limited = apply_limits(data.get("sessions") or [], proposal, phase, wk)

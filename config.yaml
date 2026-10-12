@@ -134,3 +134,6 @@ todoist:
   project: "Inbox"
   lookback_hours: 14
   diary_label: "coach"
+  # Your coming days as tasks in this Todoist project (one per day, due that
+  # day), so the week is easy to see. Created if needed; "" turns it off.
+  plan_project: "Training plan"

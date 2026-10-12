@@ -17,7 +17,7 @@ from .readiness import compliance, compute, evening as evening_readiness, consec
 from . import ai
 from .calendar import Calendar, fit, footer
 from .notify import message, send
-from .notes import complete_notes, diary, diary_label, recent_notes
+from .notes import complete_notes, diary, diary_label, recent_notes, sync_plan
 from .why import substantial, why_line
 from .workouts import to_garmin
 
@@ -135,6 +135,22 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     configured = cfg
     cfg = dict(cfg, _learned_days=learned)
 
+    # your notes about the coming days ("can't train Sunday", "long run Saturday", "no swims this week")
+    sched: dict = {}
+    if ai_client is not None or ai.enabled(cfg):
+        earlier = [{"created": e["date"], "text": e["text"]}
+                   for e in diary(cfg, d - dt.timedelta(days=7), d, now, api=notes_api)]
+        earlier += [{"created": n["created"][:10], "text": n["text"]} for n in notes_today if n["done"]]
+        if open_notes or earlier:
+            sched = ai.schedule_changes(cfg, {
+                "today": d.isoformat(), "weekday": d.strftime("%A"),
+                "until": (d + dt.timedelta(days=13)).isoformat(),
+                "open_notes": [{"id": n["id"], "created": n["created"], "text": n["text"]} for n in open_notes],
+                "earlier_notes": earlier,
+            }, client=ai_client, prov=getattr(ai_client, "provider", None))
+            if sched.get("unavailable") or sched.get("moves") or sched.get("no_swim_until"):
+                cfg = dict(cfg, _constraints=sched, _today=d)
+
     wt = week_target(past, d, cfg)
     # today's training paces, from Garmin's race predictor (your current fitness)
     pace_set = P.estimate(cfg, G.fetch_race_predictions(api), wt.get("chronic_km"))
@@ -250,7 +266,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
             notes += [f"Safety limit: {x}." for x in coach.get("limited", [])]
     coach["notes_today"] = notes_today
     coach["history_count"] = len(history) if coach.get("used") else 0
-    used = [n for n in open_notes if n["id"] in set(coach.get("notes_used") or [])]
+    used_ids = set(coach.get("notes_used") or []) | set(sched.get("notes_used") or [])
+    used = [n for n in open_notes if n["id"] in used_ids]
+    coach["schedule"] = sched
 
     # ── Garmin ──
     uploads = []
@@ -288,6 +306,11 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                 except Exception as e:  # noqa: BLE001
                     log.error("Could not upload the draft for %s to Garmin: %s", day, e)
 
+    # the coming days as tasks in Todoist, to see the week at a glance
+    if upload:
+        coach["plan_tasks"] = sync_plan(cfg, [(d, final, why)] + [(day, sess, (wn or [""])[0])
+                                                                 for day, _, sess, wn in ahead], api=notes_api)
+
     # notes the coach used: label them for your diary and complete them in Todoist (real runs only)
     if upload and used:
         coach["completed"] = complete_notes([n["id"] for n in used], api=notes_api,
@@ -308,7 +331,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     else:   # the morning check keeps last night's plan: no need to buzz your wrist (manual runs still do)
         label = None if wait_for_sleep else "Today"
     coach["notified"] = bool(upload and label and send(*message(final, why, coach.get("coach_note", ""), r, label,
-                                                               ahead[:2]), poster=poster))
+                                                               ahead if evening else ahead[:2]), poster=poster))
     coach["was_evening_plan"] = any(e["meta"].get("eve") for e in today_cal)
 
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why,
@@ -512,6 +535,17 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
         L += ["", "## Coming up (drafts, redrawn every evening)"]
         for day, _, sess, wnotes in ahead:
             L.append(f"- {day:%a %d/%m}: " + " + ".join(s.title for s in sess) + (f" — {wnotes[0]}" if wnotes else ""))
+    sc = (coach or {}).get("schedule") or {}
+    if sc.get("unavailable") or sc.get("moves") or sc.get("no_swim_until"):
+        L += ["", "## Your notes about the week"]
+        if sc.get("summary"):
+            L.append(f"- {sc['summary']}")
+        if sc.get("unavailable"):
+            L.append("- No training: " + ", ".join(f"{x:%a %d/%m}" for x in sorted(sc["unavailable"])))
+        for kind, day in sc.get("moves") or []:
+            L.append(f"- {kind.replace('run_', '').replace('bike_', 'bike ').replace('_', ' ')} on {day:%a %d/%m}")
+        if sc.get("no_swim_until"):
+            L.append(f"- No swims until {sc['no_swim_until']:%a %d/%m}")
     L += coach_section(coach or {}, cfg or {})
     L += ["", "## Garmin"]
     if upload:
@@ -521,6 +555,8 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
                      if coach.get("unchanged") else "- Changed from last night's plan after this morning's check.")
         if ahead:
             L.append(f"- Drafts for the next {len(ahead)} days are in your calendar too.")
+        if (coach or {}).get("plan_tasks"):
+            L.append(f"- The next {coach['plan_tasks']} days are in your Todoist “Training plan” project.")
         if (coach or {}).get("notified"):
             L.append("- Sent to your phone and watch as a notification.")
     else:

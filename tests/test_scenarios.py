@@ -622,6 +622,7 @@ class FakeTodoist:
         self.completed = []
         self.updated = []
         self.labels = {}
+        self.projects, self.plan = [], []
 
     def update_task(self, task_id, **kw):
         self.updated.append((task_id, kw))
@@ -642,11 +643,24 @@ class FakeTodoist:
 
     def get_projects(self):
         yield [self.NS(id="p1", name="Work", is_inbox_project=False),
-               self.NS(id="inbox", name="Inbox", is_inbox_project=True)]
+               self.NS(id="inbox", name="Inbox", is_inbox_project=True)] + self.projects
 
-    def get_tasks(self, project_id=None):
-        assert project_id == "inbox"
+    def get_tasks(self, project_id=None, label=None):
+        if project_id != "inbox":
+            yield [t for t in self.plan if t.project_id == project_id and (not label or label in t.labels)]
+            return
         yield [t for t, done in self._items() if not done]
+
+    def add_project(self, name):
+        self.projects.append(self.NS(id=f"p{len(self.projects) + 2}", name=name, is_inbox_project=False))
+        return self.projects[-1]
+
+    def add_task(self, content, project_id=None, due_date=None, labels=None, description=None):
+        self.plan.append(self.NS(id=f"plan{len(self.plan)}", content=content, project_id=project_id,
+                                 due_date=due_date, labels=labels or [], description=description))
+
+    def delete_task(self, task_id):
+        self.plan = [t for t in self.plan if t.id != task_id]
 
     def get_completed_tasks_by_completion_date(self, since, until):
         assert since.tzinfo is not None and until.tzinfo is not None
@@ -659,16 +673,25 @@ class FakeTodoist:
         return True
 
 
+NO_SCHEDULE = {"unavailable": [], "moves": [], "no_swim_until": "", "summary": "", "notes_used": []}
+
+
 class FakeClaude:
+    """The day's decision answers `answer`; the schedule question answers `schedule`."""
     provider = "anthropic"
 
-    def __init__(self, answer=None, fail=False):
+    def __init__(self, answer=None, fail=False, schedule=None):
         from types import SimpleNamespace as NS
         self.answer, self.fail, self.requests = answer, fail, []
+        self.schedule, self.schedule_requests = schedule or NO_SCHEDULE, []
         self.messages = NS(create=self._create)
 
     def _create(self, **kw):
         from types import SimpleNamespace as NS
+        from coach.ai import SCHEDULE_SYSTEM
+        if kw.get("system") == SCHEDULE_SYSTEM:
+            self.schedule_requests.append(kw)
+            return NS(content=[NS(type="text", text=json.dumps(self.schedule))])
         self.requests.append(kw)
         if self.fail:
             raise RuntimeError("overloaded")
@@ -678,13 +701,17 @@ class FakeClaude:
 class FakeOpenAI:
     provider = "openai"
 
-    def __init__(self, answer=None, fail=False):
+    def __init__(self, answer=None, fail=False, schedule=None):
         from types import SimpleNamespace as NS
         self.answer, self.fail, self.requests = answer, fail, []
+        self.schedule, self.schedule_requests = schedule or NO_SCHEDULE, []
         self.chat = NS(completions=NS(create=self._create))
 
     def _create(self, **kw):
         from types import SimpleNamespace as NS
+        if kw["response_format"]["json_schema"]["name"] == "schedule_changes":
+            self.schedule_requests.append(kw)
+            return NS(choices=[NS(message=NS(content=json.dumps(self.schedule), refusal=None))])
         self.requests.append(kw)
         if self.fail:
             raise RuntimeError("rate limited")
@@ -1171,6 +1198,65 @@ def test_quality_runs_target_paces_from_your_fitness():
     assert "easy pace" in q["source"] and "3 % easier" in q["source"]
     # a stale prediction far from the easy pace is ignored
     assert "easy pace" in P.estimate(CFG, {"5k": 900}, 25)["source"]
+
+
+def test_notes_about_the_week_rearrange_it():
+    """'Can't train on Sunday' (Tuesday): Sunday becomes rest and the long run moves, today and on
+    later days too (the note is re-read from the Todoist diary). The week shows in Todoist."""
+    tue, wed = dt.date(2026, 10, 13), dt.date(2026, 10, 14)
+    sched = dict(NO_SCHEDULE, unavailable=["2026-10-18"], summary="No training on Sunday: long run moved.",
+                 notes_used=["t0"])
+    keep = {"decision": "keep", "sessions": [{"kind": "run_quality", "distance_km": 9, "minutes": None}],
+            "why": "As planned.", "coach_note": "", "notes_used": []}
+    cfg = _with_preview(7)
+    with fresh():
+        todo = FakeTodoist([(dt.datetime(2026, 10, 13, 7, 30), "I can't train on Sunday, family lunch"),
+                            (dt.datetime(2026, 10, 13, 7, 40), "buy milk")])
+        todo.day = tue
+        todo.add_task("my own reminder", project_id=None)          # not in the plan project: untouched
+        claude = FakeClaude(keep, schedule=sched)
+        api = FakeGarmin(tue)
+        res = engine.run_day(api, cfg, tue, notes_api=todo, ai_client=claude, now=dt.datetime(2026, 10, 13, 8))
+        sent = json.loads(claude.schedule_requests[0]["messages"][0]["content"].split("\n", 1)[1])
+        assert [n["text"] for n in sent["open_notes"]][0].startswith("I can't train on Sunday")
+        sunday = [i["title"] for i in api.cal["items"] if i["date"] == "2026-10-18"]
+        assert sunday == ["Coach draft · Rest / mobility 20'"]
+        long_day = [i["date"] for i in api.cal["items"] if "Long run" in i["title"]]
+        assert long_day and long_day[0] < "2026-10-18"
+        assert "## Your notes about the week" in res["report"] and "No training: Sun 18/10" in res["report"]
+        assert todo.completed == ["t0"] and todo.labels["t0"] == ["coach"]        # not "buy milk"
+        plan = [t for t in todo.plan if "coach-plan" in t.labels]
+        assert len(plan) == 8 and plan[0].due_date == tue and plan[-1].due_date == dt.date(2026, 10, 20)
+        assert "The next 8 days are in your Todoist" in res["report"]
+        # Wednesday: the note is now in the diary (done, labelled) and still applies
+        todo.day = wed
+        claude2 = FakeClaude(keep, schedule=dict(sched, notes_used=[]))
+        engine.run_day(FakeGarmin(wed), cfg, wed, notes_api=todo, ai_client=claude2,
+                       now=dt.datetime(2026, 10, 14, 8))
+        sent = json.loads(claude2.schedule_requests[0]["messages"][0]["content"].split("\n", 1)[1])
+        assert any("can't train on Sunday" in e["text"] for e in sent["earlier_notes"])
+        assert len([t for t in todo.plan if "coach-plan" in t.labels]) == 8      # replaced, not added
+    # unknown or out-of-range dates and note ids from the AI are ignored
+    from coach import ai
+    bad = FakeClaude(schedule=dict(NO_SCHEDULE, unavailable=["2025-01-01", "soon"], notes_used=["zzz"],
+                                   moves=[{"kind": "run_long", "date": "2026-10-17"}]))
+    out = ai.schedule_changes(CFG, {"today": "2026-10-13", "until": "2026-10-26", "open_notes": []}, client=bad)
+    assert out["unavailable"] == set() and out["notes_used"] == [] and out["moves"] == [("run_long", dt.date(2026, 10, 17))]
+
+
+def test_evening_notification_lists_the_week():
+    sat = dt.date(2026, 10, 17)
+    sent = []
+    os.environ["NTFY_TOPIC"] = "t"
+    try:
+        with fresh():
+            engine.scheduled(FakeGarmin(sat), _with_preview(7), dt.datetime(2026, 10, 17, 21, 2),
+                             poster=lambda url, p: sent.append(p))
+    finally:
+        os.environ.pop("NTFY_TOPIC")
+    assert sent[0]["title"].startswith("Tomorrow: ")
+    nxt = sent[0]["message"].split("Next: ")[1]
+    assert nxt.count(";") == 5                                     # the 6 days after tomorrow
 
 
 if __name__ == "__main__":

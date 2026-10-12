@@ -663,12 +663,82 @@ def make_rest(reason: str = "") -> Session:
                    [run_t(20 * 60, None)])
 
 
+KEY_KINDS = ("run_long", "run_quality", "bike_long", "bike_quality")
+
+
+def apply_constraints(tpl: dict, mon: dt.date, c: dict, today: dt.date | None = None) -> dict:
+    """Your notes about the week, applied to its template (only from `today` on):
+    - moves: [(kind, date)]: that session goes to that day, swapping days;
+    - unavailable: {dates}: no training; its long run/quality session moves to
+      the nearest free day (preferably earlier, not next to another hard day);
+    - no_swim_until: date: swims are dropped until then."""
+    days = {wd: list(tpl.get(wd) or []) for wd in WEEKDAYS}
+    first = max(0, ((today or mon) - mon).days)
+    if first > 6:
+        return days
+
+    def idx(date):
+        i = (date - mon).days
+        return i if first <= i <= 6 else None
+
+    def has(wd, kind):
+        return any(k == kind or (kind == "swim" and k.startswith("swim_")) for k in days[wd])
+
+    for kind, date in c.get("moves") or []:
+        t = idx(date)
+        if t is None or has(WEEKDAYS[t], kind):
+            continue
+        src = next((WEEKDAYS[i] for i in range(first, 7) if i != t and has(WEEKDAYS[i], kind)), None)
+        if src:
+            days[src], days[WEEKDAYS[t]] = days[WEEKDAYS[t]], days[src]
+    off = sorted(i for i in (idx(x) for x in c.get("unavailable") or []) if i is not None)
+
+    def place(k: str, t: int, depth: int = 0) -> None:
+        """Puts key session k on the best day near day t: not next to another hard session
+        of the same sport, not on top of another sport's session, then the nearest one
+        (a rest day only if it's as near, earlier first).
+        A key session of another sport already there moves on the same way."""
+        sport = k.split("_")[0]
+
+        def same_hard(i):
+            return 0 <= i <= 6 and any(x in KEY_KINDS and x.startswith(sport + "_") for x in days[WEEKDAYS[i]])
+        cands = [i for i in range(first, 7) if i not in off and i != t and not same_hard(i)]
+        if not cands:
+            return
+        def doubles(i):   # would leave two sports on that day
+            return any(x not in ("rest", "off") and not x.startswith(sport + "_") for x in days[WEEKDAYS[i]])
+        best = min(cands, key=lambda i: (same_hard(i - 1) or same_hard(i + 1), doubles(i), abs(i - t),
+                                         days[WEEKDAYS[i]] == ["rest"], i > t))
+        wd = WEEKDAYS[best]
+        displaced = [x for x in days[wd] if x in KEY_KINDS]
+        days[wd] = [x for x in days[wd] if not x.startswith(sport + "_") and x != "rest" and x not in KEY_KINDS] + [k]
+        for x in displaced:
+            if depth < 2:
+                place(x, best, depth + 1)
+
+    for t in off:
+        wd = WEEKDAYS[t]
+        moved = [k for k in days[wd] if k in KEY_KINDS]
+        days[wd] = ["off"]
+        for k in moved:
+            place(k, t)
+    until = c.get("no_swim_until")
+    if until:
+        for i in range(first, 7):
+            if mon + dt.timedelta(days=i) <= until:
+                wd = WEEKDAYS[i]
+                days[wd] = [k for k in days[wd] if not k.startswith("swim_")] or ["rest"]
+    return days
+
+
 def week_parts(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = False):
     """(phase, template, run distances, ride minutes or None) for the week of day d."""
     wt = week if isinstance(week, dict) else {"target_km": week}
     return_mode = return_mode or wt.get("return_mode", False)
     phase = phase_for(d, cfg)
     tpl = template_for(phase, cfg)
+    if cfg.get("_constraints"):
+        tpl = apply_constraints(tpl, monday_of(d), cfg["_constraints"], cfg.get("_today"))
     long_floor = max(float(cfg.get("min_long_run_km") or 0), _round_half(wt.get("longest_run_km", 0) * 1.1))
     dist = run_distribution(tpl, wt["target_km"], phase, return_mode, long_floor)
     bdist = bike_distribution(tpl, wt, phase) if phase.focus == "bike" else None
@@ -697,7 +767,9 @@ def plan_day(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = Fals
         return phase, [make_run("run_strides", 4, phase)] if phase.days_out == 1 else [make_rest()]
 
     for kind in tpl.get(WEEKDAYS[d.weekday()], []):
-        if kind == "rest":
+        if kind == "off":
+            sessions.append(make_rest("You told the coach you can't train today."))
+        elif kind == "rest":
             sessions.append(make_rest())
         elif kind.startswith("run_"):
             if phase.name == "transition" and kind in ("run_quality", "run_long"):

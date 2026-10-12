@@ -7,6 +7,7 @@ that it's a normal merge. It never pushes: review, then `git push`.
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -128,7 +129,8 @@ def _run(root: Path, url: str, branch: str) -> int:
     probe = subprocess.run([sys.executable, "-c",
                             "import sys; from pathlib import Path; from coach.update import schedule_from_config as f; "
                             "print(f(Path(sys.argv[1]), sys.argv[2] or None, sys.argv[3] or None) or '')",
-                            str(root), tz or "", cron or ""], cwd=root, capture_output=True, text=True)
+                            str(root), tz or "", cron or ""], cwd=root, capture_output=True, text=True,
+                           env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
     new_cron = probe.stdout.strip() or schedule_from_config(root, tz, cron)
     if new_cron and new_cron != cron:
         print(f"Schedule updated for the evening plan and the morning check: cron \"{new_cron}\" (UTC).")

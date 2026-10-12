@@ -75,26 +75,26 @@ def apply(sessions: list[Session], led: dict, phase, dist: dict) -> tuple[list[S
             km = max(min(easy_km, round(a["distance_km"] * 0.6 * 2) / 2), 4)   # an easy, shorter day after it
             s = make_run("run_easy", km, phase)
             notes.append(f"You already did your long run this week ({_day(a)}, {a['distance_km']:g} km), "
-                         f"so today is an easy run of {km:g} km instead.")
-            why = why or f"Easy run today: you already did this week's long run on {_day(a)}."
+                         f"so this is an easy run of {km:g} km instead.")
+            why = why or f"Easy run: you already did this week's long run on {_day(a)}."
         elif s.kind == "run_quality" and p["run_quality"] and led["hard_runs"] >= p["run_quality"]:
             s = make_run("run_strides" if easy_km >= 5 else "run_easy", easy_km, phase)
-            notes.append("You've already done this week's hard run, so today's quality session becomes an easy run.")
-            why = why or "Easy run today: you've already done this week's hard run."
+            notes.append("You've already done this week's hard run, so this quality session becomes an easy run.")
+            why = why or "Easy run: you've already done this week's hard run."
         elif s.sport == "swim" and p["swims"] and led["swims"] >= p["swims"]:
-            notes.append(f"You've already swum {led['swims']}× this week ({p['swims']} planned): no swim today.")
-            why = why or "No swim today: you've already swum as often as planned this week."
+            notes.append(f"You've already swum {led['swims']}× this week ({p['swims']} planned), so this swim is dropped.")
+            why = why or "No swim: you've already swum as often as planned this week."
             continue
         elif s.kind == "bike_long" and led["long_ride"]:
             a = led["long_ride"]
             s = make_bike("bike_easy", phase, 60)
             notes.append(f"You already did your long ride this week ({_day(a)}, {a['duration_min']:.0f}'), "
-                         "so today's ride is an easy hour.")
-            why = why or f"Easy ride today: you already did this week's long ride on {_day(a)}."
+                         "so this ride is an easy hour.")
+            why = why or f"Easy ride: you already did this week's long ride on {_day(a)}."
         elif s.kind == "bike_quality" and p["bike_quality"] and led["hard_rides"] >= p["bike_quality"]:
             s = make_bike("bike_easy", phase, 60)
-            notes.append("You've already done this week's hard rides, so today's ride is easy.")
-            why = why or "Easy ride today: you've already done this week's hard rides."
+            notes.append("You've already done this week's hard rides, so this ride is easy.")
+            why = why or "Easy ride: you've already done this week's hard rides."
         out.append(s)
     if sessions and not out:
         out = [make_rest()]

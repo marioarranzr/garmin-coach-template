@@ -98,7 +98,8 @@ def why_line(final: list, planned: list, r: dict, w: dict, ctx: dict, wt: dict, 
         return f"Keep it easy: you already did a {_act_phrase(today)} today."
     comp = ctx.get("compliance") or {}
     if comp.get("excess_km", 0) >= 2:
-        return f"Shorter run: you ran {comp['excess_km']:g} km more than planned yesterday."
+        when = "today" if score is None else "yesterday"
+        return f"Shorter run: you ran {comp['excess_km']:g} km more than planned {when}."
     if ctx.get("week_over"):
         return "Shorter run: you're already ahead of this week's running volume."
     if phase.name == "race_week":
@@ -122,4 +123,7 @@ def why_line(final: list, planned: list, r: dict, w: dict, ctx: dict, wt: dict, 
     else:
         reason = "as planned"
     extra = f"; yesterday's {_act_phrase(yday)} is absorbed" if yday else ""
+    if score is None:   # planned the evening before
+        extra = f"; today's {_act_phrase(yday)} is absorbed" if yday else ""
+        return f"{reason[0].upper()}{reason[1:]}{extra}. Checked again in the morning."
     return f"{reason[0].upper()}{reason[1:]}: you're well recovered (readiness {score}){extra}."

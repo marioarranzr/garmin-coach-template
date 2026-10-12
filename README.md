@@ -37,21 +37,34 @@ structured steps, heart-rate zones and one sentence explaining why.
 
 ## How a day works
 
-1. **Every hour in the morning** (from the time you choose, e.g. 7:00), GitHub
-   runs the coach.
-2. It **waits until last night's sleep has reached Garmin**, i.e. you're up
-   and your watch has synced. Until then it does nothing and tries again the
-   next hour.
-3. As soon as the data is there, it **plans the day once** and puts the
-   workout in your Garmin calendar. Later checks that morning stop straight
-   away, unless you've written a new note in Todoist, in which case it
-   re-plans with it.
-4. If your watch shows you're up (steps today) but recorded **no sleep**
-   (you didn't wear it, or slept with another watch), it plans right away
-   without sleep data. If **nothing reaches Garmin at all**, it plans at
-   10:00 (`wait_for_sleep_until`). The report says which case applied.
-5. You can **re-run it any time** from GitHub, including from the mobile app:
-   a manual run plans straight away and replaces the day's earlier workout.
+You always have **a week of training in your Garmin calendar**, and
+**tomorrow's workout is already set the night before**, so you can look it
+up in the evening. Each morning the coach checks it against how you slept.
+
+1. **Every evening at 21:00** (`evening_plan`), it plans **tomorrow** from
+   your training load and what you did today. That becomes the real workout
+   in your Garmin calendar. The days after it, up to a week ahead, are drafts
+   ("Coach draft · …"), redrawn every evening from what you've done. Your
+   phone gets "Tomorrow: Easy run 8 km" if notifications are on.
+2. **Every morning from 08:00** (`morning_check`), it checks today's workout
+   with last night's sleep, HRV, Body Battery and Training Readiness, and
+   your Todoist notes. That's also when the AI coach makes its call.
+   - If the plan still makes sense, **it stays as it is**, quietly.
+   - If you slept badly, trained too much yesterday, or wrote that your legs
+     are heavy, **it changes the workout** and you get "Changed: …".
+3. The morning check **waits for last night's sleep to reach Garmin**: until
+   your watch syncs, it tries again every hour. If your watch shows you're up
+   but recorded no sleep (not worn, another watch), it checks right away
+   without it. If nothing reaches Garmin, it checks at 10:00
+   (`wait_for_sleep_until`) at the latest. Later runs that morning stop
+   straight away, unless you write a new note in Todoist.
+4. You can **re-run it any time** from GitHub, including from the mobile app.
+   Before 21:00 a manual run re-plans today; after 21:00, tomorrow.
+
+The times are your local time all year: GitHub's schedule has no time zones,
+so it runs at the UTC hours for both your winter and summer time, and the
+coach only acts from 08:00 and from 21:00 on your clock (the run summary
+says "Too early" otherwise).
 
 Every run reads fresh data: the latest values Garmin has (first thing in the
 morning those are your waking values; later in the day, how you are now), and
@@ -90,10 +103,11 @@ read back each run:
 - **What it planned:** your Garmin calendar. It reads its own workouts back
   from the readable parts: the name ("Coach · Long run 12 km") gives the
   session and distance, "Readiness 63/100" that day's readiness, and the
-  footer "Planned 07:42" when it was planned (a Todoist note added after that
-  is new and triggers a re-plan). That's how it knows yesterday's plan, this
-  week's plan so far, which workout to replace on a re-run, and whether today
-  is already planned. Drafts ("Coach draft · …") are only the days ahead;
+  footer whether it was "Planned the evening before" or "Checked 08:03" that
+  morning (a Todoist note added after the check is new and triggers a
+  re-plan). That's how it knows yesterday's plan, this week's plan so far,
+  which workout to replace on a re-run, and whether today was already
+  checked. Drafts ("Coach draft · …") are only the days ahead;
   if the coach never ran on a day, that day's draft stands in for the plan. A day the coach left empty while it was running counts as a rest
   day.
 - **Your training diary:** Todoist. Notes the coach used are labelled
@@ -201,13 +215,12 @@ repeated:
 - A run on a day the coach planned intervals counts as this week's quality
   session, even if Garmin's Training Effect stayed moderate.
 
-**The days ahead.** Every run also drafts the next 6 days in your Garmin
-calendar as "Coach draft · …" workouts (`preview_days`), using the same rules
-as if you follow the plan. So the week shows what's coming, and it already
-reflects what you've done (after an early long run, Sunday's draft is an easy
-run). Each morning today's draft is replaced by the real workout and the
-drafts are redrawn. The run report and the notification list the next days
-too.
+**The days ahead.** Your Garmin calendar always shows a week: tomorrow's
+real workout and drafts ("Coach draft · …", `preview_days`) for the days
+after, built with the same rules as if you follow the plan. So the drafts
+already reflect what you've done: after an early long run, Sunday's draft is
+an easy run. Every evening tomorrow's draft becomes the real workout and the
+drafts are redrawn. The run report and the notification list the next days.
 
 ## AI coach and your notes
 
@@ -230,7 +243,7 @@ With one, every day:
 
 **Your notes (Todoist, optional).** Anything you add to your Todoist Inbox
 (typed, dictated, or from a gadget) is passed to the AI if it was created in
-the last 12 hours, so a note from last night counts in the morning. The AI
+the last 14 hours, so a note from last night counts in the morning. The AI
 uses only notes about how you feel or your training. Those are then
 **labelled `coach` and marked done** in Todoist (never deleted). If Todoist made a note recurring (e.g. it
 read part of the text as a date), its date is removed first, because
@@ -264,7 +277,7 @@ Readiness 63/100 · Some fatigue
 • You've trained 10.4 h in the last 4 days, about 1.6× your usual.
 
 Aerobic base + speed — Zürcher Silvesterlauf in 63 days
-Planned 18:31.
+Checked 08:03.
 ```
 
 When the AI coach made the call, the rules' own changes are left out of the
@@ -302,7 +315,7 @@ Run so far this week: 14.0 km
 ## Coach
 - Decided by the AI coach (gpt-5.4-mini), within the plan's safety limits.
 - Keep it truly conversational and stop if your legs feel flat or niggly. No strides today.
-- Your notes (last 12 h): “legs heavy” (07:45)
+- Your notes (last 14 h): “legs heavy” (07:45)
 - Taken into account: “legs heavy”
 - Completed in Todoist: 1 note(s) (they're in your completed tasks).
 
@@ -439,9 +452,12 @@ added an AI key. From then on it runs on its own every morning.
 |---|---|
 | `python -m coach login` | Logs in to Garmin and saves the session on your computer |
 | `python -m coach setup` | Guided setup: writes `config.yaml` and your schedule |
-| `python -m coach week` | Base plan for the next 7 days, with your data |
+| `python -m coach week` | The next 7 days with your data, following what you've done this week |
 | `python -m coach run --dry-run` | Today's full analysis; uploads nothing, changes nothing |
-| `python -m coach run` | Plans today and uploads it to your Garmin calendar |
+| `python -m coach run` | Plans (or re-plans) today and uploads it to your Garmin calendar |
+| `python -m coach run --tomorrow` | Plans tomorrow, as the evening run does |
+| `python -m coach run --auto` | Today, or tomorrow after the evening plan time (what the *Run workflow* button does) |
+| `python -m coach run --scheduled` | What GitHub's schedule runs: nothing before the morning check, the morning check, or the evening plan |
 | `python -m coach run --date 2026-10-14` | Plans a specific day |
 | `python -m coach export-tokens` | Encrypts your session for GitHub and prints the key |
 | `python -m coach update` | Brings in the latest template code, keeping your settings |
@@ -466,9 +482,11 @@ workflow file, and keys in GitHub secrets.
 | `min_long_run_km` | 0 | Your own minimum long run (0 = automatic) |
 | `min_weekly_bike_hours` / `peak_weekly_bike_hours` | 3 / 9-12 | Riding hours range in cycling blocks |
 | `weekly_templates` | from setup | Sessions per weekday for `run_focus`, `triathlon` and `cycling` blocks |
-| `garmin.wait_for_sleep_until` | `"10:00"` | Plans without sleep data at this time at the latest |
+| `garmin.evening_plan` | `"21:00"` | When tomorrow is planned (local time) |
+| `garmin.morning_check` | `"08:00"` | When the morning check starts (local time) |
+| `garmin.wait_for_sleep_until` | `"10:00"` | The morning check goes ahead without sleep data at this time at the latest |
 | `garmin.workout_prefix` | `"Coach"` | Name prefix of the workouts in Garmin (drafts get `<prefix> draft`) |
-| `garmin.preview_days` | 6 | Days ahead drafted in your Garmin calendar; 0 turns drafts off |
+| `garmin.preview_days` | 7 | How many days ahead your calendar shows (tomorrow real, the rest drafts); 0 turns drafts off |
 | `garmin.upload` | `true` | `false` = analysis only, never upload |
 | `garmin.tokenstore` | `~/.garminconnect` | Where `login` saves your session on your computer |
 | `ai.enabled` | `true` | Use the AI coach if a key is set |
@@ -476,7 +494,7 @@ workflow file, and keys in GitHub secrets.
 | `ai.openai_model` / `ai.anthropic_model` | `gpt-5.4-mini` / `claude-sonnet-5-5` | Model per provider |
 | `todoist.enabled` | `true` | Read your notes if a token is set |
 | `todoist.project` | `Inbox` | Todoist project the notes are read from |
-| `todoist.lookback_hours` | 12 | How far back notes count as today's state |
+| `todoist.lookback_hours` | 14 | How far back notes count as today's state (14 h at 08:00 = since 18:00 the evening before) |
 | `todoist.diary_label` | coach | Label given to the notes the coach used; completed notes with it are your training diary |
 
 **Session types** for the weekly templates: `rest`, `run_easy`,
@@ -484,7 +502,10 @@ workflow file, and keys in GitHub secrets.
 `bike_long`, `bike_quality`, `swim_technique`, `swim_endurance`, `swim_css`.
 
 **Workflow** (`.github/workflows/coach.yml`): `TZ` is your time zone, and
-`cron` sets the hourly morning checks (in UTC). `setup` writes both. GitHub
+`cron` lists the UTC hours of the evening plan and the morning checks for
+both your winter and summer time. `setup` writes both from your
+`evening_plan`, `morning_check` and `wait_for_sleep_until`, and
+`python -m coach update` keeps them in sync. GitHub
 runs whatever is in your repository, so commit and push the file after
 changing them.
 
@@ -519,7 +540,7 @@ your file use their defaults.
 | "Last night's sleep isn't in Garmin yet" | Sync your watch (open Garmin Connect on your phone); the next hourly check picks it up |
 | "Your watch last synced X h ago" | Sync your watch and press *Run workflow* to re-plan |
 | "AI coach unavailable today (…)" | The text in brackets is the error: check the key and your provider's billing. The rule-based plan was used |
-| Notes don't appear | Check the `TODOIST_API_TOKEN` secret, `todoist.project`, and that the note was created in the last 12 hours |
+| Notes don't appear | Check the `TODOIST_API_TOKEN` secret, `todoist.project`, and that the note was created in the last 14 hours |
 | Schedule or time zone didn't change | Commit and push `.github/workflows/coach.yml` |
 | `git pull` asks how to reconcile divergent branches | The daily job also pushes: run `git config pull.rebase false`, then `git pull` |
 

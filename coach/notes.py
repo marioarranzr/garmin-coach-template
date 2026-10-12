@@ -1,6 +1,6 @@
 """Your own notes on how you feel, read from your Todoist Inbox.
 
-Notes added to your Inbox in the last 12 hours (by voice, from a gadget, or by
+Notes added to your Inbox in the last 14 hours (since the evening before) (by voice, from a gadget, or by
 hand) are passed to the AI coach, including ones already marked done. The
 notes the coach uses are then labelled `coach` and marked done (completed, never
 deleted). Those labelled, completed notes are your training diary: the coach
@@ -112,7 +112,7 @@ def recent_notes(cfg: dict, now: dt.datetime, api=None) -> list[dict]:
         if not project_id:
             log.warning("Todoist project %r not found", settings.get("project", "Inbox"))
             return []
-        since = now - dt.timedelta(hours=float(settings.get("lookback_hours", 12)))
+        since = now - dt.timedelta(hours=float(settings.get("lookback_hours", 14)))
         until = now + dt.timedelta(minutes=5)
 
         def recent(n):

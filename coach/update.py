@@ -1,7 +1,7 @@
 """`python -m coach update`: brings the latest template code into your copy.
 
-Keeps your config.yaml and data/, and re-applies your time zone and schedule to
-the template's workflow file. The first time (a copy made with "Use this
+Keeps your config.yaml and data/, and re-applies your time zone and schedule
+(worked out from the times in your config.yaml) to the template's workflow file. The first time (a copy made with "Use this
 template" starts with its own history) it joins the template's history; after
 that it's a normal merge. It never pushes: review, then `git push`.
 """
@@ -34,6 +34,34 @@ def _apply_schedule(path: Path, tz: str | None, cron: str | None) -> None:
     if cron:
         s = re.sub(r'(- cron:\s*)"[^"]*"', rf'\g<1>"{cron}"', s, count=1)
     path.write_text(s, encoding="utf-8")
+
+
+def schedule_from_config(root: Path, tz: str | None, old_cron: str | None) -> str | None:
+    """The GitHub cron for your config.yaml times (evening plan, morning check,
+    sleep deadline) in your time zone. Older configs without those times keep
+    their morning time (read from the old cron) and get the 21:00 evening plan."""
+    if not tz:
+        return None
+    try:
+        import datetime as dt
+        from zoneinfo import ZoneInfo
+
+        import yaml
+
+        from .setup_wizard import cron_for
+        cfg = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8")) or {}
+        g = cfg.get("garmin") or {}
+        morning = g.get("morning_check")
+        if not morning and old_cron:
+            minute, hour = (int(x) for x in re.split(r"[ ,-]", old_cron)[:2])
+            zone = ZoneInfo(tz)
+            std = min((dt.datetime(2026, 1, 15, 12, tzinfo=zone), dt.datetime(2026, 7, 15, 12, tzinfo=zone)),
+                      key=lambda x: x.utcoffset())
+            morning = (dt.datetime(2026, 1, 1, hour, minute) + std.utcoffset()).strftime("%H:%M")
+        return cron_for(str(morning or "08:00"), tz, str(g.get("wait_for_sleep_until", "10:00")),
+                        str(g.get("evening_plan", "21:00")))
+    except Exception:  # noqa: BLE001 — keep the old schedule rather than break the update
+        return None
 
 
 def run(root: Path, url: str = TEMPLATE_URL, branch: str = "main") -> int:
@@ -95,7 +123,10 @@ def _run(root: Path, url: str, branch: str) -> int:
         if (root / "data").exists() or _git("ls-tree", before, "data", root=root).stdout.strip():
             _git("checkout", before, "--", "data", root=root, check=False)
 
-    _apply_schedule(wf, tz, cron)
+    new_cron = schedule_from_config(root, tz, cron)
+    if new_cron and new_cron != cron:
+        print(f"Schedule updated for the evening plan and the morning check: cron \"{new_cron}\" (UTC).")
+    _apply_schedule(wf, tz, new_cron or cron)
     if _git("status", "--porcelain", root=root).stdout.strip():
         _git("commit", "-am", "Keep my settings after the template update", root=root)
 

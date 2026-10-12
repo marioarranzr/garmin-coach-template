@@ -2,11 +2,12 @@ name: Daily workout
 
 on:
   schedule:
-    # Every hour in the morning (GitHub cron is UTC: 06:00-09:00 UTC = 7-10 CET / 8-11 CEST).
-    # Each run waits until last night's sleep has reached Garmin, plans the day
-    # once, and later runs that morning stop straight away.
-    # `python -m coach setup` sets this for your time zone.
-    - cron: "0 6-9 * * *"
+    # Evening: plans tomorrow. Morning: checks today's plan with your sleep data.
+    # GitHub cron is UTC and has no time zones, so this lists the UTC hours for
+    # both winter and summer time (here 21:00 and 08:00-10:00 in Europe/Madrid);
+    # the coach checks your local time (TZ below) and acts only from 21:00 and
+    # from 08:00. `python -m coach setup` sets this for your time zone.
+    - cron: "0 6-9,19-21 * * *"
   workflow_dispatch:        # "Run workflow" button (also from the GitHub mobile app)
     inputs:
       dry_run:
@@ -69,11 +70,11 @@ jobs:
         if: steps.guard.outputs.run == 'true'
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
-            python -m coach run --dry-run
+            python -m coach run --auto --dry-run       # analyze only
           elif [ "${{ github.event_name }}" = "schedule" ]; then
-            python -m coach run --wait-for-sleep     # waits for your sleep data
+            python -m coach run --scheduled            # morning check or evening plan, by your local time
           else
-            python -m coach run                      # manual run: plan now
+            python -m coach run --auto                 # manual run: today, or tomorrow after the evening plan time
           fi
 
       # The only file the coach commits: your Garmin session, re-encrypted when

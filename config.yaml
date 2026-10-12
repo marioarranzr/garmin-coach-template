@@ -67,8 +67,8 @@ weekly_templates:
   # Used while the next race is a running race
   run_focus:
     mon: [swim_technique]
-    tue: [run_quality]
-    wed: [bike_easy]
+    tue: [run_quality, bike_spin]
+    wed: [bike_quality]
     thu: [rest]
     fri: [run_strides]
     sat: [bike_long]
@@ -76,7 +76,7 @@ weekly_templates:
   # Used while the next race is a triathlon
   triathlon:
     mon: [swim_technique]
-    tue: [run_quality]
+    tue: [run_quality, swim_css]
     wed: [bike_quality]
     thu: [rest]
     fri: [run_strides, swim_endurance]

@@ -185,15 +185,36 @@ def complete_notes(ids: list[str], api=None, recurring: set[str] | frozenset = f
 PLAN_LABEL = "coach-plan"
 
 
+PLAN_MARK = "(Garmin Coach plan)"
+
+
+def _due(t) -> dt.date | None:
+    due = getattr(t, "due", None)
+    v = getattr(due, "date", None) if due is not None else getattr(t, "due_date", None)
+    if isinstance(v, dt.datetime):
+        return v.date()
+    if isinstance(v, dt.date):
+        return v
+    try:
+        return dt.date.fromisoformat(str(v)[:10]) if v else None
+    except ValueError:
+        return None
+
+
 def sync_plan(cfg: dict, days: list[tuple], api=None) -> int:
     """Your coming days as Todoist tasks, so the week is easy to see: one task per
     day ("Quality · Rolling 400s, 8 km"), due that day, in the `plan_project`
-    project (created if needed). Each run replaces the coach's tasks there (those
-    with the coach-plan label); anything else you put in that project is left alone.
-    `days`: [(date, sessions, why)]. Returns the number of tasks written."""
+    project (created if needed). `days`: [(date, sessions, why)], from the first
+    day being planned.
+
+    Days before that are over: their tasks are completed (so the evening plan
+    ticks off today, and in the morning today's task is on top, not yesterday's).
+    The coach's tasks from that day on are replaced. Only the coach's own tasks
+    are touched (coach-plan label, and a note at the end of the description).
+    Returns the number of tasks written."""
     settings = cfg.get("todoist") or {}
     name = settings.get("plan_project", "Training plan")
-    if not settings.get("enabled", True) or not name:
+    if not settings.get("enabled", True) or not name or not days:
         return 0
     try:
         api = _client(api)
@@ -202,15 +223,24 @@ def sync_plan(cfg: dict, days: list[tuple], api=None) -> int:
         pid = _find_project(api, str(name))
         if not pid:
             pid = api.add_project(name=str(name)).id
-        for page in api.get_tasks(project_id=pid, label=PLAN_LABEL):
+        first = min(day for day, _, _ in days)
+        for page in api.get_tasks(project_id=pid):
             for t in page:
-                api.delete_task(t.id)
+                ours = PLAN_LABEL in (getattr(t, "labels", None) or []) or \
+                    (getattr(t, "description", "") or "").rstrip().endswith(PLAN_MARK)
+                if not ours:
+                    continue
+                due = _due(t)
+                if due is not None and due < first:
+                    api.complete_task(t.id)          # that day is over
+                else:
+                    api.delete_task(t.id)            # replaced below
         n = 0
-        for day, sessions, why in days:
+        for day, sessions, why in sorted(days, key=lambda x: x[0]):
             titles = " + ".join(x.title for x in sessions) or "Rest"
             details = "\n\n".join(x for x in [why] + [f"{x.title}: {x.detail}" for x in sessions] if x)
             api.add_task(content=titles[:480], project_id=pid, due_date=day, labels=[PLAN_LABEL],
-                         description=details[:4000])
+                         description=(details[:3900] + "\n\n" + PLAN_MARK).strip())
             n += 1
         return n
     except Exception as e:  # noqa: BLE001 — the calendar has the plan anyway

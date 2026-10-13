@@ -1116,16 +1116,28 @@ def test_evening_plans_tomorrow_and_the_morning_checks_it():
         os.environ.pop("NTFY_TOPIC")
 
 
-def test_evening_plan_uses_no_ai_and_no_sleep():
+def test_ai_gets_the_season_and_the_coming_days_evening_and_morning():
+    """The AI sees every upcoming race, the phases until the next one, how the weeks are built and
+    the next days of the plan; in the evening it plans tomorrow without sleep data."""
     sat = dt.date(2026, 10, 17)
-    claude = FakeClaude({"decision": "rest", "sessions": [{"kind": "rest"}], "why": "x", "coach_note": "",
-                         "notes_used": []})
+    keep = {"decision": "keep", "sessions": [{"kind": "run_long", "distance_km": 12, "minutes": None}],
+            "why": "Long run as planned.", "coach_note": "", "notes_used": []}
+    claude = FakeClaude(keep)
     with fresh():
         res = engine.run_day(FakeGarmin(sat, synced=False), CFG, sat + dt.timedelta(days=1), evening=True,
                              ai_client=claude, now=dt.datetime(2026, 10, 17, 21))
-    assert res["status"] == "planned" and not claude.requests
-    assert "the AI coach makes its call in the morning" in res["report"]
-    assert "Planned without sleep data" not in res["report"]
+    assert res["status"] == "planned" and "Planned without sleep data" not in res["report"]
+    sent = json.loads(claude.requests[0]["messages"][0]["content"].split("\n", 1)[1])
+    assert sent["planning"] == "tomorrow" and sent["today"] == "2026-10-18"
+    season = sent["season"]
+    assert [r["name"] for r in season["races"]] == ["Autumn 8.5 km race", "Spring half marathon",
+                                                    "Summer sprint triathlon"]
+    assert season["races"][2]["swim_bike_run_km"] == [0.75, 20, 5] and "not maintenance" in season["goal"]
+    assert season["phases_by_week"][0]["week_of"] == "2026-10-12" and season["athlete"]["run_days_per_week"] == 3
+    assert len(sent["coming_days"]) >= 6 and sent["coming_days"][0]["date"] == "2026-10-19"
+    assert "Decided by the AI coach" in res["report"]
+    from coach.ai import SYSTEM
+    assert "coming_days" in SYSTEM and "season" in SYSTEM
 
 
 def test_manual_run_after_the_evening_time_plans_tomorrow():

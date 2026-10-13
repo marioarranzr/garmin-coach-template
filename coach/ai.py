@@ -1,10 +1,12 @@
 """AI coach: an LLM (OpenAI or Claude) reviews the day and makes the final call,
 within safety limits.
 
-The rule-based plan is the proposal and the ceiling. The AI sees everything
-(Garmin data, the last two weeks of all sports, the plan, your own notes) and
-may keep the proposal, shorten it, make it easier, swap it for an easy
-session, or choose rest. It can't add volume or intensity: those limits are
+The rule-based plan is the proposal and the ceiling. The AI sees everything:
+your whole season (every upcoming race and the phases until the next one),
+how your weeks are built, the next days of the plan, Garmin data, the last 6
+weeks of all sports, your notes and your diary. It may keep the proposal,
+shorten it, make it easier, swap it for an easy session, or choose rest.
+It plans tomorrow in the evening and checks today in the morning. It can't add volume or intensity: those limits are
 enforced here in code, and if the AI fails or breaks them, the rule-based plan
 is used and the report says so.
 """
@@ -50,8 +52,20 @@ SCHEMA = {
     "additionalProperties": False,
 }
 
-SYSTEM = """You are an experienced running, cycling and triathlon coach. Each morning you get one \
-athlete's data and the plan a rule-based system proposes for today, and you make the final call.
+SYSTEM = """You are an experienced running, cycling and triathlon coach. You get one athlete's data \
+and the plan a rule-based system proposes for a day, and you make the final call for that day.
+
+The big picture:
+- "season" lists every upcoming race (A = main goal, B = tune-up), the phase of each week until the \
+next race, and how this athlete's weeks are built. The goal is the best possible result at the A \
+races, not maintenance: keep the quality and long sessions that build towards them whenever recovery \
+allows, and ease off only when there's a real reason.
+- "coming_days" is the plan for the next days. Keep the day coherent with it (e.g. don't turn a day \
+before the long run or a quality session into a hard one, and don't cut a key session when the next \
+days are easy anyway unless recovery says so).
+- "planning" is "today" (the morning check, with last night's sleep) or "tomorrow" (planned the evening \
+before: there's no sleep data yet, so judge by training load, today's sessions and the notes; the \
+morning check will revisit it with the sleep data).
 
 How to decide:
 - Protect long-term consistency over any single session. Injuries and illness cost far more than \
@@ -68,9 +82,9 @@ intensity beyond the proposal.
 - If a session has already been done today, don't repeat it.
 
 Write for the athlete, in English, plainly:
-- "why": ONE short sentence (max ~150 characters) giving the main reason for today's call. It is \
+- "why": ONE short sentence (max ~150 characters) giving the main reason for the day's call. It is \
 shown first on their watch.
-- "coach_note": 1-3 short sentences of practical advice for today (how it should feel, what to \
+- "coach_note": 1-3 short sentences of practical advice for the day (how it should feel, what to \
 watch for). No generic motivation.
 - "notes_used": the ids of the athlete notes that are about how they feel or their training \
 and that you took into account, or []. Never include unrelated notes (they stay in the athlete's \
@@ -128,10 +142,41 @@ def weekly_summary(acts: list[dict], d) -> list[dict]:
     return out
 
 
+def season_context(d, cfg: dict) -> dict:
+    """The big picture: every upcoming race, the phases until the next one week by
+    week, and how this athlete's weeks are built."""
+    from .planner import WEEKDAYS, load_races, monday_of, phase_for, template_for
+    races = [{"name": r.name, "date": r.date.isoformat(), "kind": r.kind, "priority": r.priority,
+              "days_out": (r.date - d).days,
+              **({"swim_bike_run_km": list(r.legs)} if r.legs else
+                 {"distance_km": r.distance_km} if r.distance_km else {})}
+             for r in load_races(cfg) if r.date >= d]
+    weeks, mon = [], monday_of(d)
+    for k in range(16):
+        m = mon + dt.timedelta(weeks=k)
+        ph = phase_for(m, cfg)
+        weeks.append({"week_of": m.isoformat(), "phase": ph.describe()})
+        if races and m.isoformat() > races[0]["date"]:
+            break
+    ph = phase_for(d, cfg)
+    tpl = template_for(ph, cfg)
+    ath = cfg.get("athlete") or {}
+    return {
+        "goal": "the best possible result at the A races (not maintenance), staying healthy",
+        "races": races,
+        "phases_by_week": weeks,
+        "athlete": {"sports": ath.get("sports"), "easy_pace_min_per_km": ath.get("easy_pace_min_per_km"),
+                    "run_days_per_week": sum(any(k.startswith("run_") for k in tpl.get(w, [])) for w in WEEKDAYS),
+                    "min_long_run_km": cfg.get("min_long_run_km"),
+                    "this_block_week": {w: tpl.get(w, []) for w in WEEKDAYS}},
+    }
+
+
 def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict, proposal: list[Session],
                   planned: list[Session], notes: list[dict], acts: list[dict], rule_notes: list[str],
                   rule_why: str, earlier_notes: list[dict] | None = None,
-                  notes_history: list[dict] | None = None) -> dict:
+                  notes_history: list[dict] | None = None, season: dict | None = None,
+                  coming_days: list | None = None, planning: str = "today") -> dict:
     keep_w = ("sleep_hours", "sleep_score", "hrv_last_night", "hrv_weekly_avg", "hrv_status", "hrv_baseline_low",
               "hrv_baseline_high", "body_battery_wake", "rhr", "rhr_7d", "stress_yesterday", "training_readiness",
               "training_status", "acwr", "steps_today", "after_training", "last_sync")
@@ -139,8 +184,12 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
                                      "aerobic_te", "anaerobic_te")}
               for a in acts if a["date"] < d.isoformat()]
     return {
+        "planning": planning,
         "today": d.isoformat(), "weekday": d.strftime("%A"),
         "phase": phase.describe(),
+        "season": season or {},
+        "coming_days": [{"date": day.isoformat(), "weekday": day.strftime("%A"),
+                         "sessions": [_session_json(s) for s in sess]} for day, _, sess, _ in coming_days or []],
         "next_race": ({"name": phase.race.name, "date": phase.race.date.isoformat(), "kind": phase.race.kind,
                        "priority": phase.race.priority, "days_out": phase.days_out} if phase.race else None),
         "week": {k: wt.get(k) for k in ("target_km", "chronic_km", "last_week_km", "return_mode", "longest_run_km",

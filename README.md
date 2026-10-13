@@ -301,8 +301,11 @@ are only marked done on real runs, never on "Analyze only" test runs.
 "Training plan" (`plan_project`, created if needed): one task per day, due
 that day, e.g. "Quality · Rolling 400s, 8 km", with the details in the task.
 Todoist's *Upcoming* view or a widget shows the week, next to where you write
-your notes. Each run replaces the coach's tasks there (they carry the
-`coach-plan` label); anything else you put in that project is left alone.
+your notes. Days that are over are ticked off: the evening plan completes
+today's task, so in the morning today's workout is on top, never yesterday's.
+Each run replaces the coach's tasks from the first day it plans (they carry
+the `coach-plan` label and end with "(Garmin Coach plan)"); anything else you
+put in that project is left alone.
 
 **Notes about your week.** Notes like "I can't train on Sunday", "long run
 on Saturday this week", "intervals on Thursday" or "no swimming this week"

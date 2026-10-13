@@ -647,7 +647,8 @@ class FakeTodoist:
 
     def get_tasks(self, project_id=None, label=None):
         if project_id != "inbox":
-            yield [t for t in self.plan if t.project_id == project_id and (not label or label in t.labels)]
+            yield [t for t in self.plan if t.project_id == project_id and (not label or label in t.labels)
+                   and t.id not in self.completed]
             return
         yield [t for t, done in self._items() if not done]
 
@@ -1235,7 +1236,10 @@ def test_notes_about_the_week_rearrange_it():
                        now=dt.datetime(2026, 10, 14, 8))
         sent = json.loads(claude2.schedule_requests[0]["messages"][0]["content"].split("\n", 1)[1])
         assert any("can't train on Sunday" in e["text"] for e in sent["earlier_notes"])
-        assert len([t for t in todo.plan if "coach-plan" in t.labels]) == 8      # replaced, not added
+        open_plan = [t for t in todo.plan if "coach-plan" in t.labels and t.id not in todo.completed]
+        assert len(open_plan) == 8 and open_plan[0].due_date == wed          # replaced, not added
+        done = [t for t in todo.plan if t.id in todo.completed]
+        assert [t.due_date for t in done] == [tue]                           # yesterday: completed, not overdue
     # unknown or out-of-range dates and note ids from the AI are ignored
     from coach import ai
     bad = FakeClaude(schedule=dict(NO_SCHEDULE, unavailable=["2025-01-01", "soon"], notes_used=["zzz"],
@@ -1288,6 +1292,21 @@ def test_doubles_and_race_specific_long_runs():
                     {"level": "orange", "score": 40, "reasons": [], "flags": {}}, {}, 
                     Phase("short", "base", "x", None, None, 1, False, 14), [])
     assert out[0].kind == "bike_spin"
+
+
+def test_evening_ticks_off_today_so_tomorrow_is_on_top():
+    from coach.notes import PLAN_MARK
+    mon = dt.date(2026, 10, 12)
+    with fresh():
+        todo = FakeTodoist([])
+        todo.day = mon
+        engine.run_day(FakeGarmin(mon), _with_preview(7), mon, notes_api=todo, now=dt.datetime(2026, 10, 12, 8))
+        assert min(t.due_date for t in todo.plan) == mon
+        engine.scheduled(FakeGarmin(mon), _with_preview(7), dt.datetime(2026, 10, 12, 21, 3), notes_api=todo)
+    open_plan = [t for t in todo.plan if t.id not in todo.completed]
+    assert min(t.due_date for t in open_plan) == mon + dt.timedelta(days=1)
+    assert [t.due_date for t in todo.plan if t.id in todo.completed] == [mon]
+    assert all(t.description.endswith(PLAN_MARK) for t in open_plan)
 
 
 if __name__ == "__main__":

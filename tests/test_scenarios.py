@@ -628,6 +628,9 @@ class FakeTodoist:
         self.updated.append((task_id, kw))
         if "labels" in kw:
             self.labels[task_id] = kw["labels"]
+        for t in getattr(self, "plan", []):
+            if t.id == task_id and "description" in kw:
+                t.description = kw["description"]
         return True
 
     def _items(self):
@@ -659,6 +662,7 @@ class FakeTodoist:
     def add_task(self, content, project_id=None, due_date=None, labels=None, description=None):
         self.plan.append(self.NS(id=f"plan{len(self.plan)}", content=content, project_id=project_id,
                                  due_date=due_date, labels=labels or [], description=description))
+        return self.plan[-1]
 
     def delete_task(self, task_id):
         self.plan = [t for t in self.plan if t.id != task_id]
@@ -674,7 +678,8 @@ class FakeTodoist:
         return True
 
 
-NO_SCHEDULE = {"unavailable": [], "moves": [], "no_swim_until": "", "summary": "", "notes_used": []}
+NO_SCHEDULE = {"unavailable": [], "moves": [], "no_swim_until": "", "summary": "", "preferences": [],
+               "notes_used": []}
 
 
 class FakeClaude:
@@ -1340,6 +1345,35 @@ def test_easy_runs_not_shorter_than_your_usual_run():
     wt = compute_week_target([a | {} for a in [
         {"date": "2026-10-04", "sport": "run", "distance_km": 6, "duration_min": 36}]], tue, cfg)
     assert wt["return_mode"] and wt["typical_run_km"] == 6
+
+
+def test_lasting_preferences_are_kept_in_todoist_and_reach_the_ai():
+    tue, wed = dt.date(2026, 10, 13), dt.date(2026, 10, 14)
+    keep = {"decision": "keep", "sessions": [{"kind": "run_easy", "distance_km": 6, "minutes": None}],
+            "why": "As planned.", "coach_note": "", "notes_used": []}
+    with fresh():
+        todo = FakeTodoist([(dt.datetime(2026, 10, 13, 12, 30), "next time give me 1 minute before the strides")])
+        todo.day = tue
+        pref = ["Walk or jog easy for 1' before the strides."]
+        claude = FakeClaude(keep, schedule=dict(NO_SCHEDULE, preferences=pref, notes_used=["t0"]))
+        res = engine.run_day(FakeGarmin(tue), CFG, tue, notes_api=todo, ai_client=claude,
+                             now=dt.datetime(2026, 10, 13, 13))
+        assert "## Saved to your coach preferences" in res["report"] and pref[0] in res["report"]
+        assert todo.completed == ["t0"]
+        task = next(t for t in todo.plan if t.content == "📌 Coach preferences")
+        assert task.description == "• " + pref[0] and task.due_date is None
+        # the next day: read back from Todoist, passed to both AI questions
+        todo.day = wed
+        claude2 = FakeClaude(keep, schedule=dict(NO_SCHEDULE, preferences=pref))
+        res = engine.run_day(FakeGarmin(wed), CFG, wed, notes_api=todo, ai_client=claude2,
+                             now=dt.datetime(2026, 10, 14, 8))
+        sent = json.loads(claude2.requests[0]["messages"][0]["content"].split("\n", 1)[1])
+        assert sent["athlete_preferences"] == pref
+        assert len([t for t in todo.plan if t.content == "📌 Coach preferences"]) == 1
+        assert "<summary>What the AI coach saw</summary>" in res["report"] and '"athlete_preferences"' in res["report"]
+    from coach.planner import Phase, make_run
+    strides = make_run("run_strides", 6, Phase("short", "base", "x", None, None, 1, False, 14))
+    assert strides.steps[1] == {"type": "recovery", "end": "time", "value": 60, "zone": 1}
 
 
 if __name__ == "__main__":

@@ -339,6 +339,19 @@ anything. The report shows what changed under "Your notes about the week".
 For a permanent change (a different long-run day every week), change your
 week in `config.yaml` or re-run `python -m coach setup`.
 
+**Lasting preferences.** Feedback about how you like to train ("give me 1'
+before the strides", "I prefer long runs on Saturday") is kept in one Todoist
+task, "📌 Coach preferences", in the "Training plan" project, one per line.
+The AI keeps that list up to date from your notes, and every run passes it to
+the AI coach, which respects it and reminds you in the workout notes when one
+applies. Edit or delete lines in that task yourself any time. The AI decides
+which session, how long, how hard and on which day; the exact structure of a
+workout (warm-up, reps, recoveries) is set in code, so for that kind of change,
+open an issue or change `coach/planner.py`.
+
+**See what the AI saw.** Every run summary ends with a folded "What the AI
+coach saw" section: the exact data it was sent that day.
+
 **Training diary.** The notes labelled `coach` in your completed Todoist tasks
 are your training diary. Each day the AI sees the ones from the last 6 weeks,
 each next to what you trained that day and the day before (from Garmin), and

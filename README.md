@@ -277,9 +277,19 @@ drafts are redrawn. The run report and the notification list the next days.
 With one, every day:
 
 1. The rules prepare the day's proposal and its **safety limits**.
-2. The AI (OpenAI or Claude) gets the whole picture: your Garmin data, every
-   activity of the last 6 weeks with a week-by-week summary per sport, your
-   last 4 days of load, the plan, the rules' proposal and your notes.
+2. The AI (OpenAI or Claude) gets the whole picture:
+   - **your season:** every upcoming race with its date, priority and
+     distances, the phase of each week until the next race, and how your
+     weeks are built (run days, long-run minimum, this block's week);
+   - **the plan:** the next days, the rules' proposal and its reasons;
+   - **your training:** every activity of the last 6 weeks with a
+     week-by-week summary per sport, your last 4 days of load, and this
+     week's key sessions done so far;
+   - **you:** your Garmin data, your paces, your notes and your diary.
+
+   It's told the goal is your best result at the A races, not maintenance.
+   It plans tomorrow in the evening (from training load and notes) and
+   checks it in the morning with your sleep.
 3. It makes the final call: keep the plan, shorten it, make it easier, swap it
    for an easy swim or spin, or rest.
 4. The code checks its answer. **It can never add volume or intensity beyond

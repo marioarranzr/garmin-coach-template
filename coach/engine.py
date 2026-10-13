@@ -252,13 +252,17 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     # ── AI coach: final call within the rule-based limits ──
     coach = {"used": False, "configured": ai_client is not None or ai.enabled(cfg), "evening": evening}
     history: list[dict] = []
-    if coach["configured"] and final and not evening:     # the AI decides in the morning, with your sleep
+    if coach["configured"] and final:     # evening: without sleep data; the morning check revisits it
         # notes already marked done (by the coach earlier, or by you) are context, not new input
         earlier = [{"time": n["time"], "text": n["text"]} for n in notes_today if n["done"]]
         history = notes_history(diary(cfg, since, d, now, api=notes_api), calendar, acts, d)
+        preview_n = max(int((cfg.get("garmin") or {}).get("preview_days", 7)), 6)
         context = ai.build_context(d, phase, wt, wellness, r, ctx, final, planned,
                                    [{k: n[k] for k in ("id", "time", "text")} for n in open_notes],
-                                   acts, notes, why, earlier, history)
+                                   acts, notes, why, earlier, history,
+                                   season=ai.season_context(d, cfg),
+                                   coming_days=W.drafts(d, cfg, acts, final, preview_n, quality_days),
+                                   planning="tomorrow" if evening else "today")
         coach.update(ai.decide(cfg, context, final, phase, week_index(d, cfg), client=ai_client,
                                prov=getattr(ai_client, "provider", None)))
         if coach.get("used"):
@@ -386,8 +390,8 @@ def notes_history(entries: list[dict], calendar: Calendar, acts: list[dict], d: 
 
 def coach_section(coach: dict, cfg: dict) -> list[str]:
     L = ["", "## Coach"]
-    if coach.get("evening"):
-        L.append("- Rules only tonight: " + ("the AI coach makes its call in the morning, with your sleep data."
+    if coach.get("evening") and not coach.get("used"):
+        L.append("- Rules only tonight: " + ("the AI coach didn't answer; the morning check tries again."
                                              if coach.get("configured") else "the morning check adds your sleep data."))
         return L
     if coach.get("used"):

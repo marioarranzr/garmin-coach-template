@@ -273,9 +273,13 @@ def compute_week_target(activities: list[dict], d: dt.date, cfg: dict) -> dict:
         target = max(target, chronic * 0.75, floor)     # after a light week, don't drop off a cliff
     target = min(target, peak)
     target *= phase.volume_factor
-    longest = max((a["distance_km"] for a in activities if a["sport"] == "run"
-                   and a["date"] >= (mon - dt.timedelta(weeks=LOOKBACK_WEEKS)).isoformat()), default=0)
+    recent_runs = sorted(a["distance_km"] for a in activities if a["sport"] == "run"
+                         and a["date"] >= (mon - dt.timedelta(weeks=LOOKBACK_WEEKS)).isoformat())
+    longest = recent_runs[-1] if recent_runs else 0
+    usual = [x for x in recent_runs if x >= 3]
+    typical = usual[len(usual) // 2] if usual else 0          # your usual run (median)
     out = {"target_km": round(target, 1), "chronic_km": round(chronic, 1), "longest_run_km": round(longest, 1),
+           "typical_run_km": round(typical, 1),
            "last_week_km": last, "phase": phase.name, "deload": phase.deload,
            "return_mode": return_mode}
     out.update(_bike_week(activities, mon, cfg, phase))
@@ -389,7 +393,7 @@ def bike_distribution(template: dict, wt: dict, phase: Phase) -> dict:
 
 
 def run_distribution(template: dict, week_km: float, phase: Phase, return_mode: bool = False,
-                     long_floor: float = 0) -> dict:
+                     long_floor: float = 0, easy_floor: float = 4) -> dict:
     kinds = [k for day in WEEKDAYS for k in template.get(day, [])]
     if return_mode:  # quality sessions become easy runs with strides
         kinds = ["run_strides" if k == "run_quality" else k for k in kinds]
@@ -407,10 +411,10 @@ def run_distribution(template: dict, week_km: float, phase: Phase, return_mode: 
     q_km = min(max(_round_half(week_km * 0.28 if n_runs <= 3 else week_km * 0.20), 6), 13) if n_q else 0
     brick_km = 3.0 if has_brick else 0
     rest_km = week_km - long_km - q_km * n_q - brick_km
-    easy_km = min(max(_round_half(rest_km / n_easy), 4), 12) if n_easy else 0
+    easy_km = min(max(_round_half(rest_km / n_easy), easy_floor), 12) if n_easy else 0
     if long_km and easy_km > long_km * 0.85:
         # the long run must be the longest run of the week
-        easy_km = max(_round_half(long_km * 0.85), 4)
+        easy_km = max(_round_half(long_km * 0.85), min(easy_floor, long_km), 4)
     return {"long": long_km, "quality": q_km, "easy": easy_km, "brick": brick_km}
 
 
@@ -753,7 +757,21 @@ def week_parts(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = Fa
     if cfg.get("_constraints"):
         tpl = apply_constraints(tpl, monday_of(d), cfg["_constraints"], cfg.get("_today"))
     long_floor = max(float(cfg.get("min_long_run_km") or 0), _round_half(wt.get("longest_run_km", 0) * 1.1))
-    dist = run_distribution(tpl, wt["target_km"], phase, return_mode, long_floor)
+    # no easy run shorter than the runs you've been doing lately (a 4 km run after
+    # regular 6 km ones is too short to be worth it), between 4 and 8 km
+    easy_floor = min(max(_round_half(wt.get("typical_run_km") or 0), 4), 8)
+    if phase.name in ("taper", "race_week", "transition"):
+        easy_floor = 4
+    dist = run_distribution(tpl, wt["target_km"], phase, return_mode, long_floor, easy_floor)
+    kinds = [k for day in WEEKDAYS for k in tpl.get(day, [])]
+    if return_mode:
+        kinds = ["run_strides" if k == "run_quality" else k for k in kinds]
+    planned = (dist["long"] * ("run_long" in kinds) + dist["quality"] * kinds.count("run_quality")
+               + dist["easy"] * sum(k in ("run_easy", "run_strides") for k in kinds) + dist["brick"])
+    if isinstance(week, dict) and planned > wt["target_km"] + 0.5:
+        # the floors make the week a bit bigger than the volume ramp alone: say so
+        week["ramp_km"] = week.get("ramp_km", wt["target_km"])
+        week["target_km"] = round(planned, 1)
     bdist = bike_distribution(tpl, wt, phase) if phase.focus == "bike" else None
     return phase, tpl, dist, bdist
 

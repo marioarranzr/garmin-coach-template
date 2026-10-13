@@ -493,6 +493,9 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
     if wt.get("return_mode"):
         L.insert(-1, "**Return-to-running mode:** volume grows ~20 %/week from 10 km and there are "
                      "no hard sessions until you average 10+ km/week.  ")
+    if wt.get("ramp_km") and wt["ramp_km"] < wt["target_km"]:
+        L.insert(-1, f"**Week raised from {wt['ramp_km']:g} to {wt['target_km']:g} km** so no run is shorter than "
+                     f"your usual run lately ({wt.get('typical_run_km', 0):g} km) or the long-run minimum.  ")
     if r["score"] is None:
         L += ["## Readiness: checked in the morning", ""]
     else:

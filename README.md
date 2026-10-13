@@ -186,6 +186,10 @@ and grows by about 8-10 % per week at most, up to a ceiling per goal type.
 - **Return-to-running mode:** if you've averaged under 10 km/week (e.g. after
   a cycling block), it starts at 10 km, grows about 20 % per week and has no
   hard sessions until your legs are used to running again.
+- **No run shorter than your usual run:** easy runs are at least as long as
+  your typical run of the last 6 weeks (between 4 and 8 km), so a week back
+  from a cycling block doesn't give you 4 km runs when you've been running
+  6 km. If that makes the week bigger than the volume ramp, the report says so.
 - **Long run floor:** the long run is never shorter than ~10 % above your
   longest run of the last 6 weeks, or a minimum you set (`min_long_run_km`),
   except in taper and race weeks.

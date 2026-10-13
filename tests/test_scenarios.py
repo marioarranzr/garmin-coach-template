@@ -1309,6 +1309,27 @@ def test_evening_ticks_off_today_so_tomorrow_is_on_top():
     assert all(t.description.endswith(PLAN_MARK) for t in open_plan)
 
 
+def test_easy_runs_not_shorter_than_your_usual_run():
+    """Back to running after a cycling block: one 6 km run last week (after a long ride), long-run
+    minimum 8 km. The old split gave 10 km = 8 km long run + 2 × 4 km; now no run is under 6 km."""
+    tue = dt.date(2026, 10, 13)
+    api = FakeGarmin(tue)
+    api.acts = [act("2026-10-04", "road_biking", 90, 210), act("2026-10-04", "running", 6, 36),
+                act("2026-10-08", "road_biking", 40, 90), act("2026-09-27", "road_biking", 70, 160),
+                act("2026-09-20", "running", 4.2, 26)]
+    cfg = dict(CFG, min_long_run_km=8, weekly_templates=dict(CFG["weekly_templates"],
+               run_focus=dict(CFG["weekly_templates"]["run_focus"], tue=["run_quality", "bike_spin"])))
+    with fresh():
+        res = engine.run_day(api, cfg, tue)
+    run = next(s for s in res["final"] if s.sport == "run")
+    assert run.distance_km >= 5, run.title          # your usual 6 km run, maybe trimmed by readiness
+    assert "Week raised from 10 to" in res["report"] and "usual run lately (" in res["report"]
+    from coach.planner import compute_week_target
+    wt = compute_week_target([a | {} for a in [
+        {"date": "2026-10-04", "sport": "run", "distance_km": 6, "duration_min": 36}]], tue, cfg)
+    assert wt["return_mode"] and wt["typical_run_km"] == 6
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

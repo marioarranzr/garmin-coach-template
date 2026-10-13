@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import os
 from pathlib import Path
@@ -17,7 +18,8 @@ from .readiness import compliance, compute, evening as evening_readiness, consec
 from . import ai
 from .calendar import Calendar, fit, footer
 from .notify import message, send
-from .notes import complete_notes, diary, diary_label, recent_notes, sync_plan
+from .notes import (complete_notes, diary, diary_label, read_preferences, recent_notes, save_preferences,
+                    sync_plan)
 from .why import substantial, why_line
 from .workouts import to_garmin
 
@@ -137,6 +139,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
 
     # your notes about the coming days ("can't train Sunday", "long run Saturday", "no swims this week")
     sched: dict = {}
+    prefs_id, prefs = read_preferences(cfg, api=notes_api)
     if ai_client is not None or ai.enabled(cfg):
         earlier = [{"created": e["date"], "text": e["text"]}
                    for e in diary(cfg, d - dt.timedelta(days=7), d, now, api=notes_api)]
@@ -147,7 +150,13 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                 "until": (d + dt.timedelta(days=13)).isoformat(),
                 "open_notes": [{"id": n["id"], "created": n["created"], "text": n["text"]} for n in open_notes],
                 "earlier_notes": earlier,
+                "current_preferences": prefs,
             }, client=ai_client, prov=getattr(ai_client, "provider", None))
+            new_prefs = sched.get("preferences")
+            if new_prefs is not None and "error" not in sched and new_prefs != prefs and upload:
+                if save_preferences(cfg, new_prefs, prefs_id, api=notes_api):
+                    sched["prefs_saved"] = [x for x in new_prefs if x not in prefs]
+                prefs = new_prefs
             if sched.get("unavailable") or sched.get("moves") or sched.get("no_swim_until"):
                 cfg = dict(cfg, _constraints=sched, _today=d)
 
@@ -262,7 +271,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                                    acts, notes, why, earlier, history,
                                    season=ai.season_context(d, cfg),
                                    coming_days=W.drafts(d, cfg, acts, final, preview_n, quality_days),
-                                   planning="tomorrow" if evening else "today")
+                                   planning="tomorrow" if evening else "today", preferences=prefs)
+        coach["context"] = context
         coach.update(ai.decide(cfg, context, final, phase, week_index(d, cfg), client=ai_client,
                                prov=getattr(ai_client, "provider", None)))
         if coach.get("used"):
@@ -341,6 +351,11 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why,
                           coach, cfg, ahead, evening)
     report += sync_note(wellness.get("last_sync"), now)
+    if coach.get("context"):
+        # exactly what the AI coach was sent, folded away at the end of the run summary
+        report += ("\n<details><summary>What the AI coach saw</summary>\n\n```json\n"
+                   + json.dumps(coach["context"], indent=1, ensure_ascii=False, default=str)[:60000]
+                   + "\n```\n</details>\n")
     if not sleep_ready:
         no_sleep = ("your watch shows you're up but recorded no sleep last night (not worn, or another watch)"
                     if awake else "no sleep data from last night reached Garmin")
@@ -543,6 +558,9 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
         for day, _, sess, wnotes in ahead:
             L.append(f"- {day:%a %d/%m}: " + " + ".join(s.title for s in sess) + (f" — {wnotes[0]}" if wnotes else ""))
     sc = (coach or {}).get("schedule") or {}
+    if sc.get("prefs_saved"):
+        L += ["", "## Saved to your coach preferences"] + [f"- {x}" for x in sc["prefs_saved"]] + [
+            "- (They're in the “📌 Coach preferences” task in your Todoist “Training plan” project: edit it there.)"]
     if sc.get("unavailable") or sc.get("moves") or sc.get("no_swim_until"):
         L += ["", "## Your notes about the week"]
         if sc.get("summary"):

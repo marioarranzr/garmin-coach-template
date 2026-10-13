@@ -246,3 +246,56 @@ def sync_plan(cfg: dict, days: list[tuple], api=None) -> int:
     except Exception as e:  # noqa: BLE001 — the calendar has the plan anyway
         log.warning("Couldn't update your training plan in Todoist: %s", e)
         return 0
+
+
+PREFS_TITLE = "📌 Coach preferences"
+PREFS_LABEL = "coach-prefs"
+
+
+def _plan_project(api, cfg: dict, create: bool = False):
+    name = (cfg.get("todoist") or {}).get("plan_project", "Training plan")
+    if not name:
+        return None
+    pid = _find_project(api, str(name))
+    if not pid and create:
+        pid = api.add_project(name=str(name)).id
+    return pid
+
+
+def read_preferences(cfg: dict, api=None) -> tuple[str | None, list[str]]:
+    """Your lasting preferences ("1' walk before strides", "long runs on Saturday"),
+    kept in one Todoist task in the plan project. You can edit it there: one per line."""
+    if not (cfg.get("todoist") or {}).get("enabled", True):
+        return None, []
+    try:
+        api = _client(api)
+        pid = _plan_project(api, cfg) if api is not None else None
+        if not pid:
+            return None, []
+        for page in api.get_tasks(project_id=pid):
+            for t in page:
+                if PREFS_LABEL in (getattr(t, "labels", None) or []) or t.content == PREFS_TITLE:
+                    lines = [x.strip().lstrip("•-* ").strip() for x in (t.description or "").splitlines()]
+                    return str(t.id), [x for x in lines if x]
+    except Exception as e:  # noqa: BLE001
+        log.warning("Couldn't read your coach preferences from Todoist: %s", e)
+    return None, []
+
+
+def save_preferences(cfg: dict, prefs: list[str], task_id: str | None, api=None) -> bool:
+    try:
+        api = _client(api)
+        if api is None:
+            return False
+        desc = "\n".join(f"• {x}" for x in prefs)[:4000]
+        if task_id:
+            api.update_task(task_id, description=desc)
+        else:
+            pid = _plan_project(api, cfg, create=True)
+            if not pid:
+                return False
+            api.add_task(content=PREFS_TITLE, project_id=pid, labels=[PREFS_LABEL], description=desc)
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.warning("Couldn't save your coach preferences in Todoist: %s", e)
+        return False

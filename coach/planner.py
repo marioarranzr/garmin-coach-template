@@ -544,9 +544,10 @@ def make_run(kind: str, km: float, phase: Phase, wk: int = 0) -> Session:
             detail = f"Long run {km:g} km in Z2, conversational pace. Drink if it goes over 75'."
         return Session(kind, "run", f"Long run {km:g} km", "moderate", km, None, detail, steps)
     if kind == "run_strides":
-        steps = [run_d(km * 1000, 2), repeat(6, [run_t(20, None), jog(70)])]
+        steps = [run_d(km * 1000, 2), jog(60), repeat(6, [run_t(20, None), jog(70)])]
         return Session(kind, "run", f"Easy run {km:g} km + 6 strides", "easy", km, None,
-                       f"{km:g} km in Z2, then 6 × 20\" strides (fast but relaxed).", steps)
+                       f"{km:g} km in Z2, 1' walk or easy jog, then 6 × 20\" strides (fast but relaxed) "
+                       "with 70\" easy jog between.", steps)
     if kind == "run_brick":
         return Session(kind, "run", f"Brick run {km:g} km", "moderate", km, None,
                        "Straight off the bike: 1 km easy, the rest in Z3 at triathlon pace.",

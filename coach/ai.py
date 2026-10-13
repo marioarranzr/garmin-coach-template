@@ -63,6 +63,9 @@ allows, and ease off only when there's a real reason.
 - "coming_days" is the plan for the next days. Keep the day coherent with it (e.g. don't turn a day \
 before the long run or a quality session into a hard one, and don't cut a key session when the next \
 days are easy anyway unless recovery says so).
+- "athlete_preferences" are the athlete's lasting preferences: respect them in your call and \
+mention any that apply to how to do the day's session in "coach_note" (e.g. "walk 1' before the \
+strides").
 - "planning" is "today" (the morning check, with last night's sleep) or "tomorrow" (planned the evening \
 before: there's no sleep data yet, so judge by training load, today's sessions and the notes; the \
 morning check will revisit it with the sleep data).
@@ -176,7 +179,8 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
                   planned: list[Session], notes: list[dict], acts: list[dict], rule_notes: list[str],
                   rule_why: str, earlier_notes: list[dict] | None = None,
                   notes_history: list[dict] | None = None, season: dict | None = None,
-                  coming_days: list | None = None, planning: str = "today") -> dict:
+                  coming_days: list | None = None, planning: str = "today",
+                  preferences: list[str] | None = None) -> dict:
     keep_w = ("sleep_hours", "sleep_score", "hrv_last_night", "hrv_weekly_avg", "hrv_status", "hrv_baseline_low",
               "hrv_baseline_high", "body_battery_wake", "rhr", "rhr_7d", "stress_yesterday", "training_readiness",
               "training_status", "acwr", "steps_today", "after_training", "last_sync")
@@ -188,6 +192,7 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
         "today": d.isoformat(), "weekday": d.strftime("%A"),
         "phase": phase.describe(),
         "season": season or {},
+        "athlete_preferences": preferences or [],
         "coming_days": [{"date": day.isoformat(), "weekday": day.strftime("%A"),
                          "sessions": [_session_json(s) for s in sess]} for day, _, sess, _ in coming_days or []],
         "next_race": ({"name": phase.race.name, "date": phase.race.date.isoformat(), "kind": phase.race.kind,
@@ -317,9 +322,10 @@ SCHEDULE_SCHEMA = {
             "required": ["kind", "date"], "additionalProperties": False}},
         "no_swim_until": {"type": "string"},                                      # YYYY-MM-DD or ""
         "summary": {"type": "string"},
+        "preferences": {"type": "array", "items": {"type": "string"}},
         "notes_used": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["unavailable", "moves", "no_swim_until", "summary", "notes_used"],
+    "required": ["unavailable", "moves", "no_swim_until", "summary", "preferences", "notes_used"],
     "additionalProperties": False,
 }
 SCHEDULE_SYSTEM = """You read an athlete's short notes and pick out what they say about their training SCHEDULE for the coming days, so a coach can rearrange the plan. Only the schedule: how they feel is handled elsewhere.
@@ -329,7 +335,8 @@ Return:
 - "moves": where they want a key session: {"kind": "run_long" | "run_quality" | "bike_long" | "bike_quality" | "swim", "date"} ("long run on Saturday this week", "intervals on Thursday").
 - "no_swim_until": the last date with no swims if they don't want to swim ("no swimming this week" → that week's Sunday), else "".
 - "summary": one short sentence of what changes, for the athlete, or "" if nothing.
-- "notes_used": the ids of the notes in "open_notes" that are about the schedule (never ids of other notes; "earlier_notes" have no ids and are context only).
+- "preferences": the athlete's LASTING preferences and feedback about how they like to train or how sessions should be built ("give me 1' of walking before the strides", "I prefer long runs on Saturday", "I don't like the treadmill"), as short imperative lines for a coach. Start from "current_preferences" and return the full updated list: keep them unless a note changes or cancels one, add new lasting ones from "open_notes", merge duplicates. One-off things (this week, how they feel today) are NOT preferences.
+- "notes_used": the ids of the notes in "open_notes" that are about the schedule or are lasting preferences (never ids of other notes; "earlier_notes" have no ids and are context only).
 
 Resolve weekdays and "tomorrow"/"this week"/"next week" against the date each note was written ("created"), weeks run Monday to Sunday. Only dates from "today" up to "until" count; ignore anything older or later. If a later note contradicts an earlier one, the later one wins. If nothing is about the schedule, return empty lists, "" and []."""
 
@@ -359,8 +366,10 @@ def schedule_changes(cfg: dict, context: dict, client=None, prov: str | None = N
                          if m.get("kind") in SCHEDULE_KINDS and day(m.get("date"))],
                "no_swim_until": day(data.get("no_swim_until")) if data.get("no_swim_until") else None,
                "summary": (data.get("summary") or "").strip()[:300],
+               "preferences": [str(x).strip()[:200] for x in data.get("preferences") or [] if str(x).strip()][:20],
                "notes_used": [str(n) for n in data.get("notes_used") or [] if str(n) in known][:10]}
-        return out if (out["unavailable"] or out["moves"] or out["no_swim_until"] or out["notes_used"]) else {}
+        return out if (out["unavailable"] or out["moves"] or out["no_swim_until"] or out["notes_used"]
+                       or out["preferences"]) else {}
     except Exception as e:  # noqa: BLE001 — the plan works without it
         log.warning("Couldn't read your schedule notes: %s", e)
         return {"error": str(e)[:200]}

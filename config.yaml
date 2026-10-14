@@ -79,7 +79,7 @@ weekly_templates:
   run_focus:
     mon: [rest]
     tue: [run_quality]
-    wed: [bike_easy]
+    wed: [bike_easy, strength]
     thu: [run_strides]
     fri: [swim_technique]
     sat: [bike_long]
@@ -126,6 +126,17 @@ garmin:
   # workout, the days after are drafts ("Coach draft · …") redrawn every
   # evening from what you did. 0 turns the drafts off.
   preview_days: 7
+
+# Strength sessions ("strength" and "strength_core" in your week) for a home gym:
+# your current loads (kg), grown 2 kg a week within each 4-week block, and the
+# most you can put on the bar.
+strength:
+  loads:
+    front_squat: 30
+    hip_thrust: 30
+    row: 20
+    dumbbell: 10
+  max_bar_kg: 48
 
 # AI coach: each day an AI makes the final call (keep, shorten, make easier
 # or rest) within the plan's safety limits, using all your data and notes.

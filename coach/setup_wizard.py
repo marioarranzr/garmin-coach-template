@@ -130,6 +130,24 @@ def build_templates(sport: str, run_days: int, long_day: int, rest_day: int) -> 
 
     if has_bike and sport != "bike":
         double_on_quality(run_focus, "bike_spin")      # run intervals, then a recovery spin
+
+    def add_strength(tpl: dict) -> None:
+        """Lower-body strength on the bike-intervals day (or 2 days before the long run),
+        far from the long run; strength & core the day after the long run."""
+        days = list(tpl)
+        long_i = next((i for i, d in enumerate(days) if "run_long" in tpl[d]), None)
+        target = next((d for d in days if "bike_quality" in tpl[d]), None)
+        if target is None and long_i is not None:
+            target = days[(long_i - 4) % 7]
+        if target and tpl[target] != ["rest"] and "run_long" not in tpl[target]:
+            tpl[target].append("strength")
+        if long_i is not None:
+            after = days[(long_i + 1) % 7]
+            if tpl[after] != ["rest"] and "strength" not in tpl[after] and "run_quality" not in tpl[after]:
+                tpl[after].append("strength_core")
+
+    if sport != "bike":
+        add_strength(run_focus)
     templates = {"run_focus": run_focus}
     if sport == "tri":
         tri = week(min(run_days, 3), run_anchor, [("bike_quality", 3), ("bike_long", -1)],
@@ -137,6 +155,7 @@ def build_templates(sport: str, run_days: int, long_day: int, rest_day: int) -> 
         bl = next(day for day, s in tri.items() if "bike_long" in s)
         tri[bl].append("run_brick")
         double_on_quality(tri, "swim_css")             # run intervals + a swim set: 3 swims a week
+        add_strength(tri)
         templates["triathlon"] = tri
     else:
         templates["triathlon"] = dict(run_focus)
@@ -306,6 +325,17 @@ garmin:
   # workout, the days after are drafts ("Coach draft · …") redrawn every
   # evening from what you did. 0 turns the drafts off.
   preview_days: {answers.get('preview_days', 7)}
+
+# Strength sessions ("strength" and "strength_core" in your week) for a home gym:
+# your current loads (kg), grown 2 kg a week within each 4-week block, and the
+# most you can put on the bar.
+strength:
+  loads:
+    front_squat: {answers.get('front_squat', 30)}
+    hip_thrust: {answers.get('hip_thrust', 30)}
+    row: {answers.get('row', 20)}
+    dumbbell: {answers.get('dumbbell', 10)}
+  max_bar_kg: {answers.get('max_bar', 48)}
 
 # AI coach: each day an AI makes the final call (keep, shorten, make easier
 # or rest) within the plan's safety limits, using all your data and notes.

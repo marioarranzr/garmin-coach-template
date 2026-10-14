@@ -174,6 +174,25 @@ that keeps your feel for the water. Skipping one isn't counted as missed and
 never makes a later swim a priority. Once a triathlon is your next race, swims
 are part of the plan again.
 
+**Strength sessions** for a small home gym (bar, plates, a dumbbell, a box),
+built like a running app's: a dynamic warm-up (walking lunges, bear crawl, heel
+walks, press-up walk-outs), then 3-4 blocks of 2-3 exercises done as a circuit
+for 2-3 rounds.
+- `strength` (~35-45'): lower-body strength (front squat, step-ups,
+  single-leg RDL, hip thrust, Bulgarian split squat, calf raises) and a core
+  finisher. In build phases it becomes **power**: heavier, fewer reps, box
+  jumps and hurdle hops.
+- `strength_core` (~30'): rows, press-ups, snatches, Y-T-W raises for the
+  swimming shoulders, dead bugs, calves, side planks.
+
+Lower-body strength goes on the bike-intervals day (hard days hard), far from
+the long run; strength & core the day after the long run. Fewer rounds near a
+race, only core in the taper, nothing in the last days before it. Tired days:
+strength becomes strength & core, or is dropped. Loads come from
+`strength.loads` and go up 2 kg a week within each 4-week block (whole kilos,
+since plates go on in pairs), never above `strength.max_bar_kg`. On the watch
+each exercise is a step with its reps and load: do them, press lap.
+
 **Swims build up from what you actually swam.** The coach reads each pool
 swim's intervals from Garmin (how far you swam, where you stopped and for how
 long, your longest stretch without stopping). The next swim is sized to it:
@@ -603,13 +622,16 @@ workflow file, and keys in GitHub secrets.
 | `ai.openai_model` / `ai.anthropic_model` | `gpt-5.4-mini` / `claude-sonnet-5-5` | Model per provider |
 | `todoist.enabled` | `true` | Read your notes if a token is set |
 | `todoist.project` | `Inbox` | Todoist project the notes are read from |
+| `strength.loads` | 30 / 30 / 20 / 10 | Your current loads in kg: `front_squat`, `hip_thrust`, `row`, `dumbbell` |
+| `strength.max_bar_kg` | 48 | The most you can put on the bar |
 | `todoist.plan_project` | `"Training plan"` | Todoist project with your coming days, one task per day; `""` turns it off |
 | `todoist.lookback_hours` | 14 | How far back notes count as today's state (14 h at 08:00 = since 18:00 the evening before) |
 | `todoist.diary_label` | coach | Label given to the notes the coach used; completed notes with it are your training diary |
 
 **Session types** for the weekly templates: `rest`, `run_easy`,
 `run_strides`, `run_quality`, `run_long`, `run_brick`, `bike_easy`,
-`bike_long`, `bike_quality`, `swim_technique`, `swim_endurance`, `swim_css`.
+`bike_spin`, `bike_long`, `bike_quality`, `swim_technique`, `swim_endurance`, `swim_css`,
+`strength`, `strength_core`.
 
 **Workflow** (`.github/workflows/coach.yml`): `TZ` is your time zone, and
 `cron` lists the UTC hours of the evening plan and the morning checks for

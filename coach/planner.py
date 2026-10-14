@@ -874,6 +874,11 @@ def plan_day(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = Fals
                 sessions.append(make_bike(kind, phase))
         elif kind.startswith("swim_"):
             sessions.append(make_swim(kind, phase, short=phase.name == "transition"))
+        elif kind in ("strength", "strength_core"):
+            if phase.name == "race_week" and phase.days_out is not None and phase.days_out <= 3:
+                continue                                  # nothing in the last days before a race
+            from .strength import make_strength
+            sessions.append(make_strength(kind, phase, wk))
     return phase, sessions or [make_rest()]
 
 

@@ -55,6 +55,10 @@ def adjust(planned: list[Session], r: dict, ctx: dict, phase: Phase, tomorrow: l
             elif s.kind == "swim_css":
                 out.append(make_swim("swim_technique", phase))
                 notes.append("Hard swim swapped for technique.")
+            elif s.kind == "strength":
+                from .strength import make_strength
+                out.append(make_strength("strength_core", phase))
+                notes.append("Lower-body strength swapped for the lighter strength & core session.")
             else:
                 out.append(s)
         elif level == "orange":
@@ -73,6 +77,8 @@ def adjust(planned: list[Session], r: dict, ctx: dict, phase: Phase, tomorrow: l
             elif s.sport == "bike":
                 out.append(make_bike("bike_easy", phase, 45))
                 notes.append(f"{s.title} → 45' very easy ride.")
+            elif s.sport == "strength":
+                notes.append(f"{s.title} dropped: not today, recovery comes first.")
         else:  # red
             pass
 
@@ -91,6 +97,10 @@ def adjust(planned: list[Session], r: dict, ctx: dict, phase: Phase, tomorrow: l
                              "in the last 4 days is a lot for your legs, whatever the morning numbers say.")
                 s = make_run("run_long", km, phase)
                 s.steps = [st for st in s.steps if st.get("zone") != 3] or s.steps
+            elif s.kind == "strength":
+                from .strength import make_strength
+                notes.append(f"{s.title} → strength & core: your legs have had enough this week.")
+                s = make_strength("strength_core", phase)
             elif s.kind in ("run_quality", "bike_quality", "swim_css"):
                 notes.append(f"{s.title} swapped for an easy session after a heavy few days.")
                 s = (make_run("run_easy", (s.distance_km or 8) * 0.8, phase) if s.sport == "run"

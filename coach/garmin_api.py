@@ -51,6 +51,8 @@ def sport_of(type_key: str) -> str:
         return "bike"
     if type_key in SWIM_TYPES or "swim" in type_key:
         return "swim"
+    if "strength" in type_key or type_key in ("hiit", "indoor_cardio"):
+        return "strength"
     return "other"
 
 

@@ -489,7 +489,7 @@ def steps_km(steps: list[dict]) -> float:
 
 
 def describe_steps(steps: list[dict]) -> str:
-    """'15' easy · 4 × (400 m at 4:20/km, 400 m at 5:00/km) · 10' easy'."""
+    """One line per part: "15' easy", "4 × (400 m at 4:20/km, 400 m at 5:00/km)", "10' easy"."""
     from . import paces
 
     def amount(st):
@@ -511,7 +511,7 @@ def describe_steps(steps: list[dict]) -> str:
         if st.get("zone"):
             return f"{amount(st)} hard (Z{st['zone']}, uphill if you can)" if st["zone"] >= 4 else f"{amount(st)} Z{st['zone']}"
         return amount(st)
-    return " · ".join(one(st) for st in steps)
+    return "\n".join(one(st) for st in steps)
 
 
 def make_run(kind: str, km: float, phase: Phase, wk: int = 0) -> Session:
@@ -524,7 +524,7 @@ def make_run(kind: str, km: float, phase: Phase, wk: int = 0) -> Session:
         steps = build(n)
         total = _round_half(steps_km(steps))
         return Session(kind, "run", f"Quality · {name}, {total:g} km", "hard", total, None,
-                       describe_steps(steps) + ". Paces are set from your current fitness: if a rep feels "
+                       describe_steps(steps) + "\nPaces are set from your current fitness: if a rep feels "
                        "much harder than it should, run it by feel, and drop the last rep if your heart "
                        "rate doesn't come down in the recoveries.", steps)
     if kind == "run_long":

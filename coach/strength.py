@@ -120,10 +120,11 @@ def make_strength(kind: str, phase: Phase, wk: int = 0) -> Session:
     steps = [{"type": "repeat", "iterations": 2, "steps": WARMUP}] + blocks
     m = _minutes(steps)
 
-    def line(st):
-        names = [x["note"].split(" (press lap")[0] for x in st["steps"] if x["type"] == "interval"]
-        return f"{st['iterations']}× " + " + ".join(names)
-    detail = (f"Warm-up 2× (walking lunge, bear crawl, heel walks, press-up walk-out, 20\" each). "
-              + " | ".join(line(b) for b in blocks) + f". {tip}")
+    lines = ["Warm-up, 2 rounds of 20\" each: walking lunge, bear crawl, heel walks, press-up walk-out"]
+    for b in blocks:
+        rest_s = next((x["value"] for x in b["steps"] if x["type"] == "rest"), 0)
+        lines.append(f"{b['iterations']} rounds ({rest_s}\" rest after each):")
+        lines += [f"• {x['note'].split(' (press lap')[0]}" for x in b["steps"] if x["type"] == "interval"]
+    detail = "\n".join(lines + [tip])
     return Session(kind, "strength", f"{title} {m}'", "moderate" if kind == "strength" else "easy",
                    None, m, detail, steps)

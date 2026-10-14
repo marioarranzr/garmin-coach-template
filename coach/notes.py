@@ -240,7 +240,7 @@ def sync_plan(cfg: dict, days: list[tuple], api=None) -> int:
         for day, sessions, why, done in sorted(days, key=lambda x: x[0]):
             titles = " + ".join(list(done) + [x.title for x in sessions]) or "Rest"
             details = "\n\n".join(x for x in [why] + list(done)
-                                    + [f"{x.title}\n{x.detail}" for x in sessions] if x)
+                                    + ["\n".join(y for y in (x.title, x.detail, getattr(x, "how", "")) if y) for x in sessions] if x)
             api.add_task(content=titles[:480], project_id=pid, due_date=day, labels=[PLAN_LABEL],
                          description=(details[:3900] + "\n\n" + PLAN_MARK).strip())
             n += 1

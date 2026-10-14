@@ -63,7 +63,9 @@ def _steps(steps: list[dict], counter: list[int], swim: bool) -> list[dict]:
             step["zoneNumber"] = zn
         if pt:
             step["targetValueOne"], step["targetValueTwo"] = round(pt[1], 4), round(pt[2], 4)
-        if st.get("note"):
+        if st.get("how") and st.get("exercise"):   # strength: the watch shows the name; the note says how
+            step["description"] = st["how"][:100]
+        elif st.get("note"):
             step["description"] = st["note"][:100]
         if st.get("exercise"):                     # strength: Garmin's exercise, so the watch shows its name
             step["category"], step["exerciseName"] = st["exercise"]

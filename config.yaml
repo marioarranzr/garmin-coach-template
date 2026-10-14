@@ -13,6 +13,11 @@ athlete:
   pool_length_m: 25
   # Shortest ride worth planning (minutes): anything shorter becomes this long.
   min_ride_minutes: 30
+  # Interval sessions: how far you run easy to the track / to a flat path (km).
+  # That run is the warm-up and the way back the cool-down. Leave empty for a
+  # 15' warm-up and 10' cool-down wherever you are.
+  track_warmup_km: 
+  path_warmup_km: 
 
 # 4-week cycles (3 load weeks + 1 deload week) are counted from this Monday.
 plan_start: 2026-10-12

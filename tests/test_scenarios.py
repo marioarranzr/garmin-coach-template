@@ -1536,6 +1536,27 @@ def test_replanning_keeps_sessions_already_done():
     assert "swim" in task.content.lower() and "✓" not in task.content and "done" not in task.content.lower()
 
 
+def test_intervals_start_with_the_run_to_the_track_or_path():
+    from coach import paces as P
+    from coach.planner import Phase, make_run, set_venues
+    from coach.workouts import to_garmin
+    P.set_current(P.estimate(CFG, {"5k": 1325, "10k": 2760, "hm": 6120}, 25))
+    set_venues({"athlete": {"track_warmup_km": 2.5, "path_warmup_km": 3}})
+    try:
+        track = make_run("run_quality", 9, Phase("short", "base", "x", None, None, 1, False, 14), 0)   # rolling 400s
+        lines = track.detail.splitlines()
+        assert lines[0] == "2.5 km easy (easy run to the track)" and lines[-2] == "2.5 km easy (easy run home)"
+        assert track.steps[0]["end"] == "distance" and track.steps[0]["value"] == 2500
+        assert 8 <= track.distance_km <= 10
+        path = make_run("run_quality", 10, Phase("half", "build", "x", None, None, 1, False, 18), 0)  # cruise intervals
+        assert path.detail.startswith("3 km easy (easy run to your flat path)")
+        step = to_garmin(track, CFG, "x")["workoutSegments"][0]["workoutSteps"][0]
+        assert step["endCondition"]["conditionTypeKey"] == "distance" and step["description"] == "easy run to the track"
+    finally:
+        set_venues({})
+    assert make_run("run_quality", 9, Phase("short", "base", "x", None, None, 1, False, 14), 0).detail.startswith("15' easy")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

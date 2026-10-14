@@ -134,6 +134,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     set_swim_capacity(swim_capacity(acts, d))
     from .strength import set_loads
     set_loads(cfg)
+    from .planner import set_venues
+    set_venues(cfg)
     past = [a for a in acts if a["date"] < d.isoformat()]
 
     # learn where you actually do your long run/ride (3 of the last 4 weeks)

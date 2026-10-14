@@ -13,10 +13,6 @@ athlete:
   pool_length_m: 25
   # Shortest ride worth planning (minutes): anything shorter becomes this long.
   min_ride_minutes: 30
-  # If you cycle to the pool: minutes of riding there and back (e.g. 14 for
-  # 7' each way). A swim day then gets no extra recovery spin, and if you don't
-  # record those rides, each swim adds them to your load as easy riding.
-  bike_to_pool_minutes: 14
 
 # 4-week cycles (3 load weeks + 1 deload week) are counted from this Monday.
 plan_start: 2026-10-12

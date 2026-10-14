@@ -178,11 +178,11 @@ def _km(x: float) -> str:
     return f"{round(x)}" if x >= 10 else f"{x:g}"
 
 
-COMMUTE_MAX_MIN = 25   # a ride shorter than this (e.g. to the pool and back) is getting around, not training
+COMMUTE_MAX_MIN = 25   # a recorded ride shorter than this is getting around (a commute), not training
 
 
 def is_training(a: dict) -> bool:
-    return not a.get("commute") and not (a.get("sport") == "bike" and (a.get("duration_min") or 0) < COMMUTE_MAX_MIN)
+    return not (a.get("sport") == "bike" and (a.get("duration_min") or 0) < COMMUTE_MAX_MIN)
 
 
 def compliance(planned: list[dict], done: list[dict]) -> dict:

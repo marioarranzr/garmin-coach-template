@@ -7,7 +7,9 @@ SPORT = {"run": (1, "running"), "bike": (2, "cycling"), "swim": (4, "swimming"),
          "strength": (5, "strength_training")}
 STEP = {"warmup": (1, "warmup"), "cooldown": (2, "cooldown"), "interval": (3, "interval"),
         "recovery": (4, "recovery"), "rest": (5, "rest"), "repeat": (6, "repeat")}
-COND = {"lap": (1, "lap.button"), "time": (2, "time"), "distance": (3, "distance"), "iterations": (7, "iterations")}
+COND = {"lap": (1, "lap.button"), "time": (2, "time"), "distance": (3, "distance"), "iterations": (7, "iterations"),
+        "reps": (10, "reps")}
+WEIGHT_KG = {"unitId": 8, "unitKey": "kilogram", "factor": 1000.0}     # Garmin stores the weight in grams
 
 
 def _pace_target(label):
@@ -63,6 +65,11 @@ def _steps(steps: list[dict], counter: list[int], swim: bool) -> list[dict]:
             step["targetValueOne"], step["targetValueTwo"] = round(pt[1], 4), round(pt[2], 4)
         if st.get("note"):
             step["description"] = st["note"][:100]
+        if st.get("exercise"):                     # strength: Garmin's exercise, so the watch shows its name
+            step["category"], step["exerciseName"] = st["exercise"]
+            if st.get("kg"):
+                step["weightValue"] = float(st["kg"]) * 1000.0
+                step["weightUnit"] = dict(WEIGHT_KG)
         if swim:
             step["strokeType"] = {"strokeTypeId": 0, "displayOrder": 0}
             step["equipmentType"] = {"equipmentTypeId": 0, "displayOrder": 0}

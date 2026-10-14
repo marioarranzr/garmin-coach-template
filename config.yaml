@@ -121,7 +121,7 @@ garmin:
 # most you can put on the bar.
 strength:
   loads:
-    front_squat: 32
+    front_squat: 30          # 32 kg in June; restarting after 6 weeks off
     hip_thrust: 12
     row: 20
     dumbbell: 10

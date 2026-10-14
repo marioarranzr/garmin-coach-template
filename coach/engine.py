@@ -14,7 +14,7 @@ from . import week as W
 from .planner import (Session, compute_week_target, history_start, week_parts, key_day, key_session, learn_long_day, monday_of,
                       phase_for, plan_day,
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
-from .readiness import compliance, compute, evening as evening_readiness, consecutive_days, own_acwr, recent_load
+from .readiness import compliance, compute, is_training, evening as evening_readiness, consecutive_days, own_acwr, recent_load
 from . import ai
 from .calendar import Calendar, fit, footer
 from .notify import message, send
@@ -463,7 +463,8 @@ def account_for_today(final: list[Session], done_today: list[dict], phase, notes
         return final
     kept = []
     for s in final:
-        same = [a for a in done_today if a["sport"] == s.sport and s.sport in ("run", "bike", "swim")]
+        same = [a for a in done_today if a["sport"] == s.sport and s.sport in ("run", "bike", "swim")
+                and is_training(a)]                     # a short ride to the pool isn't the planned ride
         if same:
             a = same[0]
             notes.append(f"Already done today: {a['name']} ({a['distance_km']:g} km, {a['duration_min']:.0f}'), "

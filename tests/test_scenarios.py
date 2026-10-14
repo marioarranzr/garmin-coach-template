@@ -1395,6 +1395,21 @@ def test_ride_rules_min_30_and_no_spin_on_swim_days():
     assert [s.sport for s in res["final"]] == ["swim"] and "riding to the pool and back" in res["report"]
 
 
+def test_ride_to_the_pool_is_not_training():
+    """A recorded 10' ride to the pool doesn't count as today's planned ride or as yesterday's."""
+    wed = dt.date(2026, 10, 14)
+    cfg = dict(CFG, weekly_templates=dict(CFG["weekly_templates"],
+               run_focus=dict(CFG["weekly_templates"]["run_focus"], wed=["bike_quality"])))
+    api = FakeGarmin(wed, today_acts=[act("2026-10-14", "road_biking", 3, 10)])
+    with fresh():
+        res = engine.run_day(api, cfg, wed)
+    assert any(s.sport == "bike" for s in res["final"]) and "Already done today" not in res["report"]
+    from coach.readiness import compliance
+    c = compliance([{"title": "Bike 5×5' tempo", "sport": "bike", "kind": "bike_quality", "intensity": "hard"}],
+                   [{"sport": "bike", "name": "ride", "distance_km": 3, "duration_min": 10}])
+    assert c["missed"] == ["Bike 5×5' tempo"]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

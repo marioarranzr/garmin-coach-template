@@ -1514,6 +1514,28 @@ def test_done_sessions_show_as_done_and_strength_reads_line_by_line():
     assert title.startswith("Today: ✓ Lunch Swim 0.5 km + Rest")
 
 
+def test_replanning_keeps_sessions_already_done():
+    """Morning plan: swim + bike. You swim, then the plan is updated at noon: the swim stays in the
+    calendar as it was (done), only what's left is replaced."""
+    wed = dt.date(2026, 10, 14)
+    cfg = dict(CFG, weekly_templates=dict(CFG["weekly_templates"],
+               run_focus=dict(CFG["weekly_templates"]["run_focus"], wed=["swim_technique", "bike_quality"])))
+    todo = FakeTodoist([])
+    todo.day = wed
+    with fresh():
+        api = FakeGarmin(wed)
+        engine.run_day(api, cfg, wed, now=dt.datetime(2026, 10, 14, 8), notes_api=todo)
+        swim_item = next(i for i in api.cal["items"] if i["date"] == "2026-10-14" and "swim" in i["title"].lower())
+        later = FakeGarmin(wed, today_acts=[act("2026-10-14", "lap_swimming", 0.5, 20)])
+        res = engine.run_day(later, cfg, wed, now=dt.datetime(2026, 10, 14, 13, 37), notes_api=todo)
+        today = [i for i in later.cal["items"] if i["date"] == "2026-10-14"]
+        assert swim_item in today                                   # untouched
+        assert ("sched", swim_item["id"]) not in later.deleted
+        assert "Kept as they were (already done today)" in res["report"]
+    task = next(t for t in todo.plan if t.due_date == wed and t.id not in todo.completed)
+    assert task.content.startswith("✓ ") and "(done: 0.5 km)" in task.content and "swim" in task.content.lower()
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -295,9 +295,15 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     coach["schedule"] = sched
 
     # ── Garmin ──
+    # Planned sessions you've already done today stay as they are: what's done is
+    # history. Only what's still to do is replaced.
+    done_acts = [a for a in ctx["today_acts"] if is_training(a)]
+    done_sports = {a["sport"] for a in done_acts}
+    kept = [e for e in today_cal if e["session"].get("sport") in done_sports]
     uploads = []
     if upload:
-        G.remove_uploaded(api, today_cal)
+        G.remove_uploaded(api, [e for e in today_cal if e not in kept])
+        uploads += [dict(e, kept=True) for e in kept]
         for s in final:
             if not s.steps:
                 continue
@@ -320,8 +326,13 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         uploads = today_cal
 
     # what you've already done today, shown as ✓ next to what's left
-    done_today_titles = [f"{a['name']} {a['distance_km']:g} km" if a["distance_km"] else f"{a['name']} {a['duration_min']:.0f}'"
-                         for a in ctx["today_acts"] if is_training(a)]
+    def _did(a):
+        return f"{a['distance_km']:g} km" if a["distance_km"] else f"{a['duration_min']:.0f}'"
+    done_today_titles = []
+    for a in done_acts:
+        planned_one = next((e for e in kept if e["session"].get("sport") == a["sport"]), None)
+        done_today_titles.append(f"{planned_one['session']['title']} (done: {_did(a)})" if planned_one
+                                 else f"{a['name']} {_did(a)}")
 
     # ── the days ahead, as drafts in your Garmin calendar (replaced each morning) ──
     # always a week ahead from today: in the evening, tomorrow is real and the rest are drafts
@@ -356,7 +367,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                                             label=diary_label(cfg))
 
     # a push to your phone (and so your watch) with the plan, if NTFY_TOPIC is set
-    before = sorted(e["session"]["title"] for e in today_cal)
+    before = sorted(e["session"]["title"] for e in today_cal if e not in kept)     # what's done isn't a change
     after = sorted(s.title for s in final if s.steps)
     coach["unchanged"] = bool(today_cal) and before == after
     if evening:
@@ -613,7 +624,11 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
     L += coach_section(coach or {}, cfg or {})
     L += ["", "## Garmin"]
     if upload:
-        L.append(f"- Added to calendar: {', '.join(u['name'] for u in uploads) or 'nothing'}")
+        added = [u["name"] for u in uploads if not u.get("kept")]
+        L.append(f"- Added to calendar: {', '.join(added) or 'nothing'}")
+        done = [u["name"] for u in uploads if u.get("kept")]
+        if done:
+            L.append(f"- Kept as they were (already done today): {', '.join(done)}")
         if (coach or {}).get("was_evening_plan"):
             L.append("- Last night's plan still stands: no change after this morning's check."
                      if coach.get("unchanged") else "- Changed from last night's plan after this morning's check.")

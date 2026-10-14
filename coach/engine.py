@@ -18,8 +18,9 @@ from .readiness import compliance, compute, is_training, evening as evening_read
 from . import ai
 from .calendar import Calendar, fit, footer
 from .notify import message, send
-from .notes import (complete_notes, diary, diary_label, read_preferences, recent_notes, save_preferences,
-                    sync_plan)
+from .notes import (complete_notes, diary, diary_label, plan_tasks_on, read_preferences, recent_notes,
+                    rest_day_marker, save_preferences, sync_plan)
+from .calendar import session_from
 from .why import substantial, why_line
 from .workouts import to_garmin
 
@@ -62,16 +63,27 @@ def scheduled(api, cfg: dict, now: dt.datetime, upload: bool = True, **kw) -> di
     if now.time() < morning_check(cfg):
         # GitHub sometimes runs the evening schedule hours late, after midnight: if
         # today wasn't planned the evening before, plan it now (the morning check revisits it)
-        if now.hour < 4 and not Calendar(api, cfg).day(now.date()):
+        if now.hour < 4 and not coach_plan_for(api, cfg, now.date(), kw.get("notes_api")):
             return run_day(api, cfg, now.date(), upload=upload, now=now, evening=True, **kw)
         return {"status": "early", "report": f"Too early: the morning check starts at {morning_check(cfg):%H:%M}.\n"}
     if now.time() >= evening_plan(cfg):
         tomorrow = now.date() + dt.timedelta(days=1)
-        done = Calendar(api, cfg).day(tomorrow)
+        done = coach_plan_for(api, cfg, tomorrow, kw.get("notes_api"))
         if done:
             return {"status": "done", "report": f"Tomorrow is already planned ({', '.join(e['name'] for e in done)}).\n"}
         return run_day(api, cfg, tomorrow, upload=upload, now=now, evening=True, **kw)
     return run_day(api, cfg, now.date(), upload=upload, now=now, wait_for_sleep=True, **kw)
+
+
+def coach_plan_for(api, cfg: dict, day: dt.date, notes_api=None) -> list[dict]:
+    """The coach's plan for `day`: its workouts in Garmin, or a rest day (no workout;
+    read back from its Todoist plan task)."""
+    found = Calendar(api, cfg).day(day)
+    if found:
+        return found
+    rest = rest_day_marker(cfg, day, api=notes_api)
+    return [{"name": rest["title"], "workoutId": None, "scheduleId": None, "meta": rest["meta"],
+             "session": session_from(rest["title"], rest["meta"])}] if rest else []
 
 
 def planned_on(day: dt.date, calendar: Calendar, active: bool, acts: list[dict], cfg: dict) -> list[dict]:
@@ -104,7 +116,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     now = now or dt.datetime.now()
     deadline = sleep_deadline(cfg)
     calendar = Calendar(api, cfg)
-    today_cal = calendar.day(d)
+    today_cal = calendar.day(d) or coach_plan_for(api, cfg, d, notes_api)       # a rest day lives in Todoist
     checked = bool(today_cal) and all(e["meta"].get("at") and not e["meta"].get("eve") for e in today_cal)
     planned_sleep = all(e["meta"].get("sr", 1) for e in today_cal)
     # your own notes for today (Todoist); a new one after planning means re-plan
@@ -306,6 +318,11 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     if upload:
         G.remove_uploaded(api, [e for e in today_cal if e not in kept])
         uploads += [dict(e, kept=True) for e in kept]
+        if not plan_tasks_on(cfg, notes_api):
+            # without Todoist a rest day still needs a workout: it's how the coach knows it planned it
+            for s in final:
+                if s.kind == "rest" and not s.steps:
+                    s.steps = [{"type": "interval", "end": "time", "value": 20 * 60, "zone": None}]
         for s in final:
             if not s.steps:
                 continue
@@ -354,7 +371,10 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     # the coming days as tasks in Todoist, to see the week at a glance
     if upload:
         coach["plan_tasks"] = sync_plan(cfg, [(d, final, why, done_today_titles)] + [(day, sess, (wn or [""])[0])
-                                                                 for day, _, sess, wn in ahead], api=notes_api)
+                                                                 for day, _, sess, wn in ahead], api=notes_api,
+                                       # a day with nothing for Garmin (rest): the footer marks it as planned
+                                       footer="" if kept or any(s.steps for s in final)
+                                       else footer(phase.describe(), now, sleep_ready, evening))
 
     # notes the coach used: label them for your diary and complete them in Todoist (real runs only)
     if upload and used:

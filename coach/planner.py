@@ -757,9 +757,9 @@ def optional_swim(s: Session, phase: Phase) -> Session:
 
 
 def make_rest(reason: str = "") -> Session:
+    # no workout in Garmin: nothing to do on the watch (it's in the Todoist plan)
     return Session("rest", "other", "Rest / mobility 20'", "rest", None, 20,
-                   (reason + " " if reason else "") + "Full rest or 20' of gentle mobility and stretching.",
-                   [run_t(20 * 60, None)])
+                   (reason + " " if reason else "") + "Full rest or 20' of gentle mobility and stretching.")
 
 
 KEY_KINDS = ("run_long", "run_quality", "bike_long", "bike_quality")

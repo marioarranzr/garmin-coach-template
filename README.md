@@ -58,7 +58,11 @@ up in the evening. Each morning the coach checks it against how you slept.
    without it. If nothing reaches Garmin, it checks at 10:00
    (`wait_for_sleep_until`) at the latest. Later runs that morning stop
    straight away, unless you write a new note in Todoist.
-4. You can **re-run it any time** from GitHub, including from the mobile app.
+4. **What you've already done stays as it was.** When the plan for today is
+   updated (a new note, a re-run), sessions you've already done keep their
+   workout in Garmin and show as "✓ … (done: 0.5 km)" in Todoist; only what's
+   still to do changes. Past days are never touched.
+5. You can **re-run it any time** from GitHub, including from the mobile app.
    Before 21:00 a manual run re-plans today; after 21:00, tomorrow.
 
 GitHub sometimes delays scheduled runs by hours, or drops them, especially on

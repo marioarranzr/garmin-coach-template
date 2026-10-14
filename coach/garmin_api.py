@@ -157,6 +157,7 @@ def normalize_activity(a: dict) -> dict:
         "id": a.get("activityId"),
         "name": a.get("activityName"),
         "date": start[:10],
+        "start": str(start).replace(" ", "T")[:19],
         "type": type_key,
         "sport": sport_of(type_key),
         "distance_km": round((a.get("distance") or 0) / 1000, 2),

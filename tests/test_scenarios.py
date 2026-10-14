@@ -1604,6 +1604,45 @@ def test_rest_day_has_no_workout_but_is_planned_once():
         assert again["status"] == "done" and "already planned" in again["report"]
 
 
+def test_rides_only_in_strava_count_as_training():
+    """A MyWhoosh ride reaches Strava but not Garmin: the coach reads Strava, adds
+    it (not the ones Garmin already has) and today's planned ride is done."""
+    from coach import strava as S
+    d = dt.date(2026, 10, 14)
+    calls = []
+
+    def http(url, data=None, token=None):
+        calls.append(url)
+        if "oauth" in url:
+            return {"access_token": "a", "refresh_token": "r"}
+        return [{"id": 1, "name": "MyWhoosh ride", "sport_type": "VirtualRide", "start_date_local": "2026-10-14T16:00:00Z",
+                 "distance": 30000, "moving_time": 55 * 60, "average_heartrate": 135, "average_watts": 180},
+                # the same run as Garmin's (started 2' later on the phone): not added twice
+                {"id": 2, "name": "Morning run", "sport_type": "Run", "start_date_local": "2026-10-13T07:02:00Z",
+                 "distance": 7000, "moving_time": 42 * 60}]
+    old = {k: os.environ.get(k) for k in S.ENV + ("GARMIN_TOKENS_KEY",)}
+    try:
+        for k in S.ENV:
+            os.environ[k] = "x"
+        os.environ.pop("GARMIN_TOKENS_KEY", None)
+        with fresh():
+            api = FakeGarmin(d)
+            base = engine.run_day(api, CFG, d, now=dt.datetime(2026, 10, 14, 17), upload=False,
+                                  strava_http=lambda *a, **k: [] if "athlete" in a[0] else {"access_token": "a"})
+            res = engine.run_day(api, CFG, d, now=dt.datetime(2026, 10, 14, 17), upload=False, strava_http=http)
+    finally:
+        for k, v in old.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+    assert [s.sport for s in base["final"]] == ["bike"]          # without it: today's ride still to do
+    assert not any(s.sport == "bike" for s in res["final"])      # with it: done
+    assert "Only in Strava (not in Garmin), counted as training: Wed MyWhoosh ride (55')" in res["report"]
+    assert "Morning run" not in res["report"].split("Only in Strava")[1]
+    garmin = [{"date": "2026-10-13", "start": "2026-10-13T07:00:00", "sport": "run", "duration_min": 42}]
+    merged, extra = S.merge(garmin, [S.normalize({"sport_type": "Run", "start_date_local": "2026-10-13T07:02:00Z",
+                                                  "moving_time": 2520})])
+    assert len(merged) == 1 and not extra
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

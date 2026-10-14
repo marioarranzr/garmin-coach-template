@@ -35,6 +35,9 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}     # optional: AI coach (Claude)
       TODOIST_API_TOKEN: ${{ secrets.TODOIST_API_TOKEN }}     # optional: your notes
       NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}                   # optional: today's plan as a notification
+      STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}       # optional: rides only in Strava (python -m coach strava)
+      STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+      STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
     steps:
       # Each run's summary (your sleep, HRV, readiness, notes) is visible to
       # anyone who can see the repository's Actions, and your encrypted Garmin
@@ -79,14 +82,15 @@ jobs:
             python -m coach run --auto                 # manual run: today, or tomorrow after the evening plan time
           fi
 
-      # The only file the coach commits: your Garmin session, re-encrypted when
-      # Garmin refreshes it. Everything else is read back from Garmin and Todoist.
+      # The only files the coach commits: your Garmin session (and Strava's token,
+      # if connected), encrypted, when they're refreshed. Everything else is read back from Garmin and Todoist.
       - name: Save the refreshed Garmin session
         if: always() && steps.guard.outputs.run == 'true'
         run: |
           git config user.name "garmin-coach-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/garmin_tokens.enc || true
+          git add data/strava_token.enc 2>/dev/null || true      # only if Strava is connected (encrypted too)
           if ! git diff --cached --quiet; then
             git commit -m "Refresh Garmin session"
             # the repository may have changed during the run (e.g. you pushed):

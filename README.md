@@ -472,7 +472,8 @@ The coach keeps **no health data in your repository**: what it planned lives
 in your Garmin calendar and your diary in Todoist (see
 [Where the coach keeps its memory](#where-the-coach-keeps-its-memory)). The
 daily job commits only `data/garmin_tokens.enc`, your **encrypted** Garmin
-session, refreshed so it stays logged in.
+session, refreshed so it stays logged in (and `data/strava_token.enc`, Strava's
+token, encrypted the same way, if you connect Strava).
 
 - Still, run it from your **own private** repository, never from a public
   one: each run's summary on GitHub (sleep, HRV, readiness, your notes) is
@@ -584,6 +585,20 @@ notification, which your watch mirrors and keeps in its notification list:
 You get "Tomorrow: Long run 12 km" with the why and the rest of the week when the evening plan is made,
 and "Changed: …" only if the morning check changes it.
 
+**Rides that only reach Strava** (MyWhoosh, Zwift and other indoor apps that
+don't sync to Garmin). Without this the coach thinks you didn't ride. Run
+`python -m coach strava` on your computer: it walks you through creating a
+Strava API app (strava.com/settings/api, callback domain `localhost`) and
+authorising it, then prints three secrets to add: `STRAVA_CLIENT_ID`,
+`STRAVA_CLIENT_SECRET` and `STRAVA_REFRESH_TOKEN`. From then on the coach
+reads your Strava activities too and matches them to Garmin's (same sport,
+same day, starting within 20 minutes): what's only in Strava counts as done,
+for today's plan, the week and your training load (by duration, since Strava
+has no Training Effect). The run summary lists them ("Only in Strava…").
+Garmin's own numbers (its training load and readiness) still won't include
+them; only the coach's. Strava replaces its token now and then, so the latest
+one is kept encrypted in `data/strava_token.enc`, like the Garmin session.
+
 ### 6. Test it
 
 **Actions → Daily workout → Run workflow**, tick *Analyze only*, and run it.
@@ -604,6 +619,7 @@ added an AI key. From then on it runs on its own every morning.
 | `python -m coach run --scheduled` | What GitHub's schedule runs: nothing before the morning check, the morning check, or the evening plan |
 | `python -m coach run --date 2026-10-14` | Plans a specific day |
 | `python -m coach export-tokens` | Encrypts your session for GitHub and prints the key |
+| `python -m coach strava` | Optional: connects Strava, for rides that never reach Garmin |
 | `python -m coach update` | Brings in the latest template code, keeping your settings |
 
 Add `-v` to any command for detailed logs.

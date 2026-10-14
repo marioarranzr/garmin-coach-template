@@ -66,6 +66,9 @@ days are easy anyway unless recovery says so).
 - "season.athlete": rides shorter than "min_ride_minutes" aren't worth it for this athlete (they \
 become that long or are dropped). Short rides in the activities (under 25') are commutes, not \
 training.
+- Activities with "source": "strava" never reached Garmin (indoor rides in MyWhoosh or Zwift): \
+they're real training, with no Training Effect; judge their intensity from duration, heart rate \
+and power.
 - Swims in the activities include what was really swum ("swum_m", "intervals", "stops", the longest \
 stretch without stopping): compare it with what was planned. "swim_capacity" is what the next swim is \
 sized to. If a session was cut short or needed many stops, build up gradually from what was done, \
@@ -194,7 +197,7 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
               "training_status", "acwr", "steps_today", "after_training", "last_sync")
     recent = [{k: a.get(k) for k in ("date", "sport", "name", "distance_km", "duration_min", "avg_hr",
                                      "aerobic_te", "anaerobic_te", "swum_m", "longest_m", "stops", "rest_s",
-                                     "intervals") if a.get(k) is not None}
+                                     "intervals", "avg_power", "source") if a.get(k) is not None}
               for a in acts if a["date"] < d.isoformat()]
     return {
         "planning": planning,

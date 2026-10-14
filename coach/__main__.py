@@ -8,6 +8,7 @@
     python -m coach run --date 2026-10-14
     python -m coach week                  # preview of the next 7 days
     python -m coach export-tokens         # prepares the encrypted tokens for GitHub
+    python -m coach strava                # optional: connect Strava (rides that never reach Garmin)
     python -m coach update                # brings in the latest template code, keeps your settings
 """
 from __future__ import annotations
@@ -33,7 +34,7 @@ def load_cfg(path: str | None) -> dict:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="coach")
-    ap.add_argument("cmd", choices=["setup", "login", "run", "week", "semana", "export-tokens", "update"])
+    ap.add_argument("cmd", choices=["setup", "login", "run", "week", "semana", "export-tokens", "update", "strava"])
     ap.add_argument("--date", help="YYYY-MM-DD (default: today)")
     ap.add_argument("--dry-run", action="store_true", help="don't upload anything to Garmin")
     ap.add_argument("--wait-for-sleep", action="store_true",
@@ -55,6 +56,9 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:  # noqa: BLE001
         pass
+    if a.cmd == "strava":
+        from .strava import setup as strava_setup
+        raise SystemExit(strava_setup())
     if a.cmd == "update":
         from .update import run as update
         raise SystemExit(update(ROOT))
@@ -103,6 +107,8 @@ def main(argv=None):
 
     if a.cmd == "week":
         acts = G.fetch_activities(api, history_start(d), d - dt.timedelta(days=1))
+        from . import strava as S
+        acts = S.merge(acts, S.fetch(history_start(d), d - dt.timedelta(days=1)))[0]
         learned = {s: day for s in ("run", "bike") if (day := learn_long_day(acts, d, s))}
         cfg = dict(cfg, _learned_days=learned)
         wt = week_target(acts, d, cfg)

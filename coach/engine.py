@@ -100,7 +100,7 @@ def planned_on(day: dt.date, calendar: Calendar, active: bool, acts: list[dict],
 
 def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: bool = False,
             now: dt.datetime | None = None, notes_api=None, ai_client=None, poster=None,
-            evening: bool = False, **_ignored) -> dict:
+            evening: bool = False, strava_http=None, **_ignored) -> dict:
     """Plans day `d`.
 
     `evening`: d is tomorrow, planned the evening before from your training
@@ -143,6 +143,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     since = history_start(d)                 # one window for every look back (see planner.LOOKBACK_WEEKS)
     acts = G.fetch_activities(api, since, d)
     G.add_swim_details(api, acts, d - dt.timedelta(days=28))     # swim intervals and rests
+    # rides that reach Strava but not Garmin (MyWhoosh, Zwift…), if Strava is connected
+    from . import strava as S
+    acts, from_strava = S.merge(acts, S.fetch(since, d, **({"http": strava_http} if strava_http else {})))
     set_swim_capacity(swim_capacity(acts, d))
     from .strength import set_loads
     set_loads(cfg)
@@ -403,6 +406,11 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why,
                           coach, cfg, ahead, evening)
     report += sync_note(wellness.get("last_sync"), now)
+    recent_strava = [a for a in from_strava if a["date"] >= (d - dt.timedelta(days=7)).isoformat()]
+    if recent_strava:
+        report += ("\n> Only in Strava (not in Garmin), counted as training: "
+                   + "; ".join(f"{dt.date.fromisoformat(a['date']):%a} {a['name']} ({a['duration_min']:.0f}')"
+                               for a in recent_strava) + "\n")
     if coach.get("context"):
         # exactly what the AI coach was sent, folded away at the end of the run summary
         report += ("\n<details><summary>What the AI coach saw</summary>\n\n```json\n"

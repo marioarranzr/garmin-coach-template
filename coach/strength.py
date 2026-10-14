@@ -13,7 +13,8 @@ lighter in the race-specific weeks and taper, none in race week (just core).
 Loads come from `strength.loads` in config.yaml and grow 2 kg a week within each
 4-week block; the bar never goes above the weight you have (`strength.max_bar_kg`).
 
-On the watch each exercise is a step: do the reps, press lap; rests are timed.
+On the watch each exercise is a step from Garmin's exercise catalogue (its name,
+reps and weight on screen; the watch counts the reps); rests are timed.
 """
 from __future__ import annotations
 
@@ -40,16 +41,49 @@ def _load(key: str, wk: int) -> float:
     return min(round(base) + 2 * step, float((_loads or DEFAULT_LOADS).get("max_bar_kg", 48)))
 
 
+# Garmin's own exercise catalogue (category, exercise), so the watch shows the exercise
+# name, counts the reps and shows the weight instead of a plain "Go" step. Checked
+# against garminconnect.exercises; exercises it doesn't have show their category.
+GARMIN_EXERCISE = {
+    "Walking lunge": ("LUNGE", "WALKING_LUNGE"),
+    "Bear crawl": ("PLANK", "BEAR_CRAWL"),
+    "Heel walks": ("WARM_UP", ""),
+    "Press-up walk-out": ("WARM_UP", "WALKOUT_FROM_PUSH_UP_POSITION"),
+    "Front squat": ("SQUAT", "BARBELL_FRONT_SQUAT"),
+    "Step-up onto box (50 cm)": ("SQUAT", "DUMBBELL_STEP_UP"),
+    "Single-leg RDL with knee drive": ("DEADLIFT", "SINGLE_LEG_ROMANIAN_DEADLIFT_WITH_DUMBBELL"),
+    "Single-leg RDL": ("DEADLIFT", "SINGLE_LEG_ROMANIAN_DEADLIFT_WITH_DUMBBELL"),
+    "Raised-leg hip thrust": ("HIP_RAISE", "WEIGHTED_SINGLE_LEG_HIP_RAISE"),
+    "Bulgarian split squat (rear foot on box)": ("LUNGE", "DUMBBELL_BULGARIAN_SPLIT_SQUAT"),
+    "Single-leg calf raise": ("CALF_RAISE", "SINGLE_LEG_STANDING_DUMBBELL_CALF_RAISE"),
+    "Lateral walk": ("HIP_STABILITY", "LATERAL_WALKS_WITH_BAND_AT_ANKLES"),
+    "Hanging leg raise": ("LEG_RAISE", "HANGING_LEG_RAISE"),
+    "Side plank": ("PLANK", "SIDE_PLANK"),
+    "Box jump (50 cm), step down": ("PLYO", "BOX_JUMP"),
+    "Hurdle hops": ("PLYO", ""),
+    "Bent-over barbell row": ("ROW", "BENT_OVER_ROW_WITH_BARBELL"),
+    "Press-up": ("PUSH_UP", "PUSH_UP"),
+    "Single-arm snatch": ("OLYMPIC_LIFT", "SINGLE_ARM_DUMBBELL_SNATCH"),
+    "Prone Y-T-W raises (swim shoulders)": ("SHOULDER_STABILITY", "FLOOR_Y_RAISE"),
+    "Dead bug": ("HIP_STABILITY", "DEAD_BUG"),
+    "Bent-knee calf raise": ("CALF_RAISE", "SINGLE_LEG_BENT_KNEE_CALF_RAISE"),
+    "Standing side bend": ("CORE", "WEIGHTED_SIDE_BEND"),
+    "Glute bridge march": ("HIP_RAISE", "MARCHING_HIP_RAISE"),
+    "Superman hold": ("HYPEREXTENSION", "SUPERMAN_FROM_FLOOR"),
+}
+
+
 def ex(name: str, reps: int | None = None, secs: int | None = None, kg: float | None = None,
        each_side: bool = False) -> dict:
     what = f"{reps} reps" if reps else f"{secs}\""
     if each_side:
         what += " each side"
     note = f"{name} · {what}" + (f" @ {kg:g} kg" if kg else "")
+    step = {"type": "interval", "zone": None, "note": note, "exercise": GARMIN_EXERCISE.get(name), "kg": kg}
     if secs:
-        return {"type": "interval", "end": "time", "value": secs * (2 if each_side else 1), "zone": None,
-                "note": note}
-    return {"type": "interval", "end": "lap", "value": 1, "zone": None, "note": note + " (press lap when done)"}
+        return step | {"end": "time", "value": secs * (2 if each_side else 1)}
+    # the watch counts the reps (both sides together when it's each side)
+    return step | {"end": "reps", "value": reps * (2 if each_side else 1)}
 
 
 def _rest(secs: int) -> dict:
@@ -124,7 +158,7 @@ def make_strength(kind: str, phase: Phase, wk: int = 0) -> Session:
     for b in blocks:
         rest_s = next((x["value"] for x in b["steps"] if x["type"] == "rest"), 0)
         lines.append(f"{b['iterations']} rounds ({rest_s}\" rest after each):")
-        lines += [f"• {x['note'].split(' (press lap')[0]}" for x in b["steps"] if x["type"] == "interval"]
+        lines += [f"• {x['note']}" for x in b["steps"] if x["type"] == "interval"]
     detail = "\n".join(lines + [tip])
     return Session(kind, "strength", f"{title} {m}'", "moderate" if kind == "strength" else "easy",
                    None, m, detail, steps)

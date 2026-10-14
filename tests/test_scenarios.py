@@ -1464,7 +1464,15 @@ def test_strength_sessions_for_a_home_gym():
     w = to_garmin(s, CFG, "x")
     assert w["sportType"]["sportTypeKey"] == "strength_training" and w["estimatedDurationInSecs"] == s.duration_min * 60
     step = w["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
-    assert step["endCondition"]["conditionTypeKey"] == "lap.button" and step["description"].startswith("Front squat")
+    # each exercise is Garmin's own: the watch shows its name, counts the reps and shows the weight
+    assert step["endCondition"]["conditionTypeKey"] == "reps" and step["endConditionValue"] == 8
+    assert (step["category"], step["exerciseName"]) == ("SQUAT", "BARBELL_FRONT_SQUAT")
+    assert step["weightValue"] == 32000.0 and step["weightUnit"]["unitKey"] == "kilogram"
+    assert step["description"].startswith("Front squat")
+    from coach.strength import GARMIN_EXERCISE
+    from garminconnect.exercises import _RAW
+    known = {(c, e) for _, c, e in _RAW}
+    assert all(e == "" or (c, e) in known for c, e in GARMIN_EXERCISE.values())
     # tired: lower-body strength becomes strength & core (amber) or is dropped (orange)
     amber, _ = adjust([s], {"level": "amber", "score": 60, "reasons": [], "flags": {}}, {}, base, [])
     assert [x.kind for x in amber] == ["strength_core"]

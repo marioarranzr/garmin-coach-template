@@ -201,7 +201,8 @@ race, only core in the taper, nothing in the last days before it. Tired days:
 strength becomes strength & core, or is dropped. Loads come from
 `strength.loads` and go up 2 kg a week within each 4-week block (whole kilos,
 since plates go on in pairs), never above `strength.max_bar_kg`. On the watch
-each exercise is a step with its reps and load: do them, press lap.
+each exercise is one of Garmin's own (front squat, Bulgarian split squat…), so
+it shows its name, reps and weight, and the watch counts the reps.
 
 **Swims build up from what you actually swam.** The coach reads each pool
 swim's intervals from Garmin (how far you swam, where you stopped and for how

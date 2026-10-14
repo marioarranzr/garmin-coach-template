@@ -11,7 +11,7 @@ from . import garmin_api as G
 from .adjust import adjust
 from . import paces as P
 from . import week as W
-from .planner import (Session, compute_week_target, history_start, week_parts, key_day, key_session, learn_long_day, monday_of,
+from .planner import (Session, compute_week_target, history_start, set_swim_capacity, swim_capacity, week_parts, key_day, key_session, learn_long_day, monday_of,
                       phase_for, plan_day,
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
 from .readiness import compliance, compute, is_training, evening as evening_readiness, consecutive_days, own_acwr, recent_load
@@ -126,6 +126,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
 
     since = history_start(d)                 # one window for every look back (see planner.LOOKBACK_WEEKS)
     acts = G.fetch_activities(api, since, d)
+    G.add_swim_details(api, acts, d - dt.timedelta(days=28))     # swim intervals and rests
+    set_swim_capacity(swim_capacity(acts, d))
     past = [a for a in acts if a["date"] < d.isoformat()]
 
     # learn where you actually do your long run/ride (3 of the last 4 weeks)
@@ -230,6 +232,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         "week_idx": week_index(d, cfg),
         "quality_owed": led["quality_owed"], "hard_yesterday": led["hard_yesterday"],
         "this_week": W.summary(led),
+        "swim_capacity": {k: v for k, v in swim_capacity(acts, d).items()},
         "paces": {k: P.fmt(pace_set[k]) for k in ("5k", "10k", "thr", "hm", "mp")} | {"source": pace_set["source"]},
     }
     # Always judge readiness on the latest values Garmin has (first thing in the

@@ -192,6 +192,56 @@ def fetch_activities(api, start: dt.date, end: dt.date) -> list[dict]:
     return acts
 
 
+def _ts(v) -> dt.datetime | None:
+    try:
+        return dt.datetime.fromisoformat(str(v).replace("Z", "").replace(" ", "T")[:19])
+    except (TypeError, ValueError):
+        return None
+
+
+def swim_intervals(splits: dict | None) -> dict | None:
+    """What you actually swam, from the activity's laps: each swim interval and each
+    rest (Garmin records rests as laps with no distance, or as gaps between laps)."""
+    laps = (splits or {}).get("lapDTOs") or []
+    if not laps:
+        return None
+    parts, prev_end = [], None
+    for lap in sorted(laps, key=lambda x: str(x.get("startTimeGMT") or "")):
+        start = _ts(lap.get("startTimeGMT"))
+        dur = float(lap.get("duration") or lap.get("elapsedDuration") or 0)
+        dist = float(lap.get("distance") or 0)
+        if prev_end and start and (start - prev_end).total_seconds() >= 10:
+            parts.append({"rest_s": round((start - prev_end).total_seconds())})
+        if dist > 0 and lap.get("numberOfActiveLengths", 1) != 0:
+            parts.append({"m": round(dist), "s": round(dur)})
+        elif dur >= 5:
+            parts.append({"rest_s": round(dur)})
+        prev_end = start + dt.timedelta(seconds=dur) if start else None
+    swims = [x["m"] for x in parts if "m" in x]
+    if not swims:
+        return None
+    # consecutive intervals without a rest of 10"+ between them count as one stretch
+    stretch, longest = 0, 0
+    for x in parts:
+        if "m" in x:
+            stretch += x["m"]
+            longest = max(longest, stretch)
+        else:
+            stretch = 0
+    rests = [x["rest_s"] for x in parts if "rest_s" in x]
+    return {"swum_m": sum(swims), "longest_m": longest, "stops": len(rests), "rest_s": sum(rests),
+            "intervals": " · ".join(f"{x['m']} m" if "m" in x else f"rest {x['rest_s']}\"" for x in parts)[:300]}
+
+
+def add_swim_details(api, acts: list[dict], since: dt.date) -> None:
+    """Adds the swim intervals to the recent pool swims (one extra call per swim)."""
+    for a in acts:
+        if a["sport"] == "swim" and a.get("id") and a["date"] >= since.isoformat():
+            info = swim_intervals(_safe(getattr(api, "get_activity_splits", lambda _i: None), a["id"]))
+            if info:
+                a.update(info)
+
+
 def _body_battery_latest(bb_raw) -> float | None:
     """Most recent Body Battery reading of the day."""
     readings = []

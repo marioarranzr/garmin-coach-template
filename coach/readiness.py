@@ -205,6 +205,12 @@ def compliance(planned: list[dict], done: list[dict]) -> dict:
         "missed_long": "run_long" in planned_kinds and "run" not in sports_done,
         "extra_intensity": planned_easy and hard_done,
         "done_titles": [f"{a['name']} ({_km(a['distance_km'])} km, {a['duration_min']:.0f}')" for a in done],
+        # each planned session against what was done in that sport (e.g. 1300 m swim planned, 500 m swum)
+        "vs_plan": [{"planned": s.get("title"),
+                     "planned_km": s.get("distance_km"), "planned_min": s.get("duration_min"),
+                     "done_km": round(sum(a["distance_km"] for a in done if a["sport"] == s["sport"] and is_training(a)), 2),
+                     "done_min": round(sum(a["duration_min"] for a in done if a["sport"] == s["sport"] and is_training(a)))}
+                    for s in planned if s.get("sport") in ("run", "bike", "swim")],
     }
 
 

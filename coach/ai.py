@@ -66,6 +66,10 @@ days are easy anyway unless recovery says so).
 - "season.athlete": rides shorter than "min_ride_minutes" aren't worth it for this athlete (they \
 become that long or are dropped). Short rides in the activities (under 25') are commutes, not \
 training.
+- Swims in the activities include what was really swum ("swum_m", "intervals", "stops", the longest \
+stretch without stopping): compare it with what was planned. "swim_capacity" is what the next swim is \
+sized to. If a session was cut short or needed many stops, build up gradually from what was done, \
+not from the plan.
 - "athlete_preferences" are the athlete's lasting preferences: respect them in your call and \
 mention any that apply to how to do the day's session in "coach_note" (e.g. "walk 1' before the \
 strides").
@@ -189,7 +193,8 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
               "hrv_baseline_high", "body_battery_wake", "rhr", "rhr_7d", "stress_yesterday", "training_readiness",
               "training_status", "acwr", "steps_today", "after_training", "last_sync")
     recent = [{k: a.get(k) for k in ("date", "sport", "name", "distance_km", "duration_min", "avg_hr",
-                                     "aerobic_te", "anaerobic_te")}
+                                     "aerobic_te", "anaerobic_te", "swum_m", "longest_m", "stops", "rest_s",
+                                     "intervals") if a.get(k) is not None}
               for a in acts if a["date"] < d.isoformat()]
     return {
         "planning": planning,
@@ -209,8 +214,9 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
         "consecutive_training_days": ctx.get("consecutive_days"),
         "this_week_key_sessions": ctx.get("this_week"),
         "training_paces_per_km": ctx.get("paces"),
+        "swim_capacity": ctx.get("swim_capacity"),
         "yesterday_vs_plan": {k: (ctx.get("compliance") or {}).get(k)
-                              for k in ("run_planned", "run_done", "missed", "done_titles", "extra_intensity")},
+                              for k in ("run_planned", "run_done", "missed", "done_titles", "extra_intensity", "vs_plan")},
         "done_today_so_far": ctx.get("today_acts"),
         "activities_last_6_weeks": recent,
         "weekly_summary": weekly_summary(acts, d),

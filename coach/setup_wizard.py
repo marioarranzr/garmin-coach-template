@@ -237,8 +237,9 @@ athlete:
   pool_length_m: {answers['pool']}
   # Shortest ride worth planning (minutes): anything shorter becomes this long.
   min_ride_minutes: {answers.get('min_ride', 30)}
-  # If you cycle to the pool: minutes of riding there and back. A swim day then
-  # already includes that easy ride, so no recovery spin is added to it.
+  # If you cycle to the pool: minutes of riding there and back (e.g. 14 for
+  # 7' each way). A swim day then gets no extra recovery spin, and if you don't
+  # record those rides, each swim adds them to your load as easy riding.
   bike_to_pool_minutes: {answers.get('bike_to_pool', 0)}
 
 # 4-week cycles (3 load weeks + 1 deload week) are counted from this Monday.

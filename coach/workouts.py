@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from .planner import Session
 
-SPORT = {"run": (1, "running"), "bike": (2, "cycling"), "swim": (4, "swimming"), "other": (3, "other")}
+SPORT = {"run": (1, "running"), "bike": (2, "cycling"), "swim": (4, "swimming"), "other": (3, "other"),
+         "strength": (5, "strength_training")}
 STEP = {"warmup": (1, "warmup"), "cooldown": (2, "cooldown"), "interval": (3, "interval"),
         "recovery": (4, "recovery"), "rest": (5, "rest"), "repeat": (6, "repeat")}
 COND = {"lap": (1, "lap.button"), "time": (2, "time"), "distance": (3, "distance"), "iterations": (7, "iterations")}
@@ -95,7 +96,8 @@ def to_garmin(s: Session, cfg: dict, description: str) -> dict:
         "workoutName": f"{prefix} · {s.title}"[:60],
         "description": description[:1000],
         "sportType": sport,
-        "estimatedDurationInSecs": int(_estimate_secs(s.steps, pace, swim)),
+        "estimatedDurationInSecs": int(s.duration_min * 60 if s.sport == "strength" and s.duration_min
+                                       else _estimate_secs(s.steps, pace, swim)),
         "workoutSegments": [{
             "segmentOrder": 1,
             "sportType": sport,

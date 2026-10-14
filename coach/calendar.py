@@ -87,6 +87,8 @@ _KINDS = [
     (r"^Swim .*hard", ("swim_css", "swim", "hard")),
     (r"^Endurance swim", ("swim_endurance", "swim", "moderate")),
     (r"^Technique swim", ("swim_technique", "swim", "easy")),
+    (r"^Strength & core", ("strength_core", "strength", "easy")),
+    (r"^Strength", ("strength", "strength", "moderate")),
     (r"^Rest", ("rest", "other", "rest")),
 ]
 

@@ -128,6 +128,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     acts = G.fetch_activities(api, since, d)
     G.add_swim_details(api, acts, d - dt.timedelta(days=28))     # swim intervals and rests
     set_swim_capacity(swim_capacity(acts, d))
+    from .strength import set_loads
+    set_loads(cfg)
     past = [a for a in acts if a["date"] < d.isoformat()]
 
     # learn where you actually do your long run/ride (3 of the last 4 weeks)
@@ -300,6 +302,15 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
             try:
                 uploads.append(G.upload_and_schedule(api, to_garmin(s, cfg, desc), d.isoformat()))
             except Exception as e:  # noqa: BLE001
+                if s.sport == "strength":      # if Garmin refuses a strength workout, send it as "other"
+                    try:
+                        w = to_garmin(s, cfg, desc)
+                        w["sportType"] = w["workoutSegments"][0]["sportType"] = \
+                            {"sportTypeId": 3, "sportTypeKey": "other", "displayOrder": 3}
+                        uploads.append(G.upload_and_schedule(api, w, d.isoformat()))
+                        continue
+                    except Exception as e2:  # noqa: BLE001
+                        e = e2
                 log.error("Could not upload '%s' to Garmin: %s", s.title, e)
     else:
         uploads = today_cal

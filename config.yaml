@@ -68,18 +68,18 @@ peak_weekly_bike_hours: 9
 weekly_templates:
   # Used while the next race is a running race
   run_focus:
-    mon: [swim_technique]
+    mon: [swim_technique, strength_core]
     tue: [run_quality, bike_spin]
-    wed: [bike_quality]
+    wed: [bike_quality, strength]
     thu: [rest]
     fri: [run_strides]
     sat: [bike_long]
     sun: [run_long]
   # Used while the next race is a triathlon
   triathlon:
-    mon: [swim_technique]
+    mon: [swim_technique, strength_core]
     tue: [run_quality, swim_css]
-    wed: [bike_quality]
+    wed: [bike_quality, strength]
     thu: [rest]
     fri: [run_strides, swim_endurance]
     sat: [bike_long, run_brick]
@@ -115,6 +115,17 @@ garmin:
   # workout, the days after are drafts ("Coach draft · …") redrawn every
   # evening from what you did. 0 turns the drafts off.
   preview_days: 7
+
+# Strength sessions ("strength" and "strength_core" in your week) for a home gym:
+# your current loads (kg), grown 2 kg a week within each 4-week block, and the
+# most you can put on the bar.
+strength:
+  loads:
+    front_squat: 32
+    hip_thrust: 12
+    row: 20
+    dumbbell: 10
+  max_bar_kg: 48
 
 # AI coach: each day an AI makes the final call (keep, shorten, make easier
 # or rest) within the plan's safety limits, using all your data and notes.

@@ -1445,6 +1445,44 @@ def test_swims_build_up_from_what_you_actually_swam():
     assert swim_capacity([], fri)["cap_m"] == 600
 
 
+def test_strength_sessions_for_a_home_gym():
+    from coach import strength as S
+    from coach.planner import Phase
+    from coach.workouts import to_garmin
+    from coach.adjust import adjust
+    S.set_loads({"strength": {"loads": {"front_squat": 32, "hip_thrust": 12, "dumbbell": 10}, "max_bar_kg": 48}})
+    base = Phase("short", "base", "x", None, None, 1, False, 14)
+    s = S.make_strength("strength", base, 0)
+    assert s.sport == "strength" and "Front squat · 8 reps @ 32 kg" in s.detail and 25 <= s.duration_min <= 50
+    assert "Front squat · 8 reps @ 36 kg" in S.make_strength("strength", base, 2).detail      # +2 kg a week
+    assert "@ 32 kg" in S.make_strength("strength", base, 3).detail                           # deload week
+    S.set_loads({"strength": {"loads": {"front_squat": 46}, "max_bar_kg": 48}})
+    assert "@ 48 kg" in S.make_strength("strength", base, 2).detail                           # what you can load
+    power = S.make_strength("strength", Phase("half", "build", "x", None, None, 1, False, 18), 0)
+    assert power.title.startswith("Strength · power") and "Box jump" in power.detail
+    assert S.make_strength("strength", Phase("short", "taper", "x", None, None, 1, False, 11)).kind == "strength_core"
+    w = to_garmin(s, CFG, "x")
+    assert w["sportType"]["sportTypeKey"] == "strength_training" and w["estimatedDurationInSecs"] == s.duration_min * 60
+    step = w["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
+    assert step["endCondition"]["conditionTypeKey"] == "lap.button" and step["description"].startswith("Front squat")
+    # tired: lower-body strength becomes strength & core (amber) or is dropped (orange)
+    amber, _ = adjust([s], {"level": "amber", "score": 60, "reasons": [], "flags": {}}, {}, base, [])
+    assert [x.kind for x in amber] == ["strength_core"]
+    orange, _ = adjust([s], {"level": "orange", "score": 40, "reasons": [], "flags": {}}, {}, base, [])
+    assert not any(x.sport == "strength" for x in orange)
+    # in a week: uploaded next to the bike intervals
+    wed = dt.date(2026, 10, 14)
+    cfg = dict(CFG, weekly_templates=dict(CFG["weekly_templates"],
+               run_focus=dict(CFG["weekly_templates"]["run_focus"], wed=["bike_quality", "strength"])))
+    with fresh():
+        api = FakeGarmin(wed)
+        res = engine.run_day(api, cfg, wed)
+    assert [x.sport for x in res["final"]] == ["bike", "strength"]
+    assert any(u["workoutName"].startswith("Coach · Strength") for u in api.uploaded)
+    from coach.calendar import session_from
+    assert session_from("Strength & core 33'")["kind"] == "strength_core"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

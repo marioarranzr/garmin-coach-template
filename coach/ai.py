@@ -26,8 +26,8 @@ DEFAULT_MODELS = {"openai": "gpt-5.4-mini", "anthropic": "claude-sonnet-5-5"}
 DEFAULT_MODEL = DEFAULT_MODELS["anthropic"]
 
 KINDS = ["rest", "run_easy", "run_strides", "run_quality", "run_long", "run_brick",
-         "bike_easy", "bike_spin", "bike_long", "bike_quality", "swim_technique", "swim_endurance", "swim_css"]
-ALWAYS_ALLOWED = {"rest", "run_easy", "bike_easy", "bike_spin", "swim_technique"}   # the easy options
+         "bike_easy", "bike_spin", "bike_long", "bike_quality", "swim_technique", "swim_endurance", "swim_css", "strength", "strength_core"]
+ALWAYS_ALLOWED = {"rest", "run_easy", "bike_easy", "bike_spin", "swim_technique", "strength_core"}   # the easy options
 
 _num_or_null = {"anyOf": [{"type": "number"}, {"type": "null"}]}
 SCHEMA = {
@@ -274,6 +274,13 @@ def apply_limits(raw: list[dict], proposal: list[Session], phase: Phase, wk: int
             bike_budget = max(bike_budget - minutes, 0)
             bikes_added += 1
             out.append(make_bike(kind, phase, minutes, wk))
+        elif kind in ("strength", "strength_core"):
+            if any(x.sport == "strength" for x in out):
+                continue
+            if kind == "strength" and "strength" not in {p.kind for p in proposal}:
+                kind = "strength_core"                     # never heavier than the plan
+            from .strength import make_strength
+            out.append(make_strength(kind, phase, wk))
         else:  # swim
             if swims:
                 continue

@@ -174,6 +174,14 @@ that keeps your feel for the water. Skipping one isn't counted as missed and
 never makes a later swim a priority. Once a triathlon is your next race, swims
 are part of the plan again.
 
+**Swims build up from what you actually swam.** The coach reads each pool
+swim's intervals from Garmin (how far you swam, where you stopped and for how
+long, your longest stretch without stopping). The next swim is sized to it:
+at most ~25 % more than the most you've swum in the last 4 weeks, in reps no
+longer than what you held without stopping (a "Build-up swim": drills, then
+50/100/200 m reps with rest). After 4 weeks without swimming, it restarts at
+600 m. The AI sees each swim's intervals and the plan vs what you did.
+
 **Triathlons** can be sprint, Olympic, half Ironman (70.3), Ironman, or any
 distance you type as swim-bike-run km (`kind: tri`, `distances: 1.5-40-10`).
 For long-course races the long run builds towards ~85 % of the run leg (up to

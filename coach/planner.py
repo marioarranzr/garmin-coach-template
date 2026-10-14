@@ -633,8 +633,56 @@ def make_bike(kind: str, phase: Phase, minutes: float | None = None, wk: int = 0
                    f"{m:g}' in Z1-Z2, high cadence (85-95 rpm).", [run_t(m * 60, 2)])
 
 
+# What you can swim right now, from your recent swims (set each run, see swim_capacity)
+_swim_cap: dict = {}
+
+
+def swim_capacity(acts: list[dict], d: dt.date) -> dict:
+    """Your current swim capacity from the last 4 weeks of swims, with their intervals:
+    the next swim is at most ~25 % more than the most you've swum lately, in reps no
+    longer than what you swam without stopping. No recent swims: a 600 m restart."""
+    since = (d - dt.timedelta(days=28)).isoformat()
+    recent = [a for a in acts if a["sport"] == "swim" and since <= a["date"] < d.isoformat()]
+    if not recent:
+        return {"cap_m": 600, "rep_m": 50, "why": "no swims in the last 4 weeks: a short restart"}
+    best = max(a.get("swum_m") or a["distance_km"] * 1000 for a in recent)
+    longest = max(a.get("longest_m") or 0 for a in recent) or best
+    cap = max(400, int(round(best * 1.25 / 100)) * 100)
+    rep = 50 if longest < 200 else 100 if longest < 400 else 200
+    last = max(recent, key=lambda a: a["date"])
+    detail = f"last swim {last.get('swum_m') or round(last['distance_km'] * 1000)} m"
+    if last.get("stops"):
+        detail += f" with {last['stops']} stops (longest stretch {last.get('longest_m')} m)"
+    return {"cap_m": cap, "rep_m": rep, "best_m": round(best), "longest_m": round(longest),
+            "why": f"{detail}: building up from what you can swim now"}
+
+
+def set_swim_capacity(c: dict | None) -> None:
+    _swim_cap.clear()
+    _swim_cap.update(c or {})
+
+
+def _build_up_swim(kind: str, cap: int, rep: int, why: str) -> Session:
+    """A shorter swim sized to your current capacity: drills, then reps you can hold."""
+    drills = max(4, min(8, (cap - 200) // 100))
+    main_m = max(cap - 200 - drills * 50, rep)
+    n = max(1, main_m // rep)
+    steps = [swim(100, "warmup", "easy, any stroke"),
+             repeat(drills, [swim(50, "interval", "technique: alternate drills"), rest(20)]),
+             repeat(n, [swim(rep, "interval", "easy and smooth, stop if form goes"), rest(30)]),
+             swim(100, "cooldown", "easy")]
+    dist = 200 + drills * 50 + n * rep
+    return Session(kind if kind == "swim_technique" else "swim_technique", "swim", f"Build-up swim {dist} m",
+                   "easy", dist / 1000, None,
+                   f"100 easy, {drills}×50 drills (20\" rest), {n}×{rep} easy (30\" rest), 100 easy. Sized to "
+                   f"what you can swim now ({why}); it grows ~25 % as you do.", steps)
+
+
 def make_swim(kind: str, phase: Phase, short: bool = False) -> Session:
     s = _make_swim(kind, phase, short)
+    cap = _swim_cap.get("cap_m")
+    if cap and (s.distance_km or 0) * 1000 > cap:
+        s = _build_up_swim(kind, int(cap), int(_swim_cap.get("rep_m", 50)), _swim_cap.get("why", ""))
     return s if phase.focus == "tri" else optional_swim(s, phase)
 
 

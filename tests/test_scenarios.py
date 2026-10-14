@@ -65,6 +65,9 @@ class FakeGarmin:
     def get_activities_by_date(self, s, e):
         return [a for a in self.acts if s <= a["startTimeLocal"][:10] <= e]
 
+    def get_activity_splits(self, activity_id):
+        return (getattr(self, "splits", {}) or {}).get(activity_id)
+
     def get_sleep_data(self, d):
         if not self.synced:
             return {"dailySleepDTO": {"sleepTimeSeconds": None, "sleepScores": None}}
@@ -1403,6 +1406,43 @@ def test_ride_to_the_pool_is_not_training():
     c = compliance([{"title": "Bike 5×5' tempo", "sport": "bike", "kind": "bike_quality", "intensity": "hard"}],
                    [{"sport": "bike", "name": "ride", "distance_km": 3, "duration_min": 10}])
     assert c["missed"] == ["Bike 5×5' tempo"]
+
+
+def test_swims_build_up_from_what_you_actually_swam():
+    """Planned 1300 m, swam 300 m, rest, 100 m, rest, 100 m: the next swim is sized to that."""
+    from coach.garmin_api import swim_intervals
+    laps = {"lapDTOs": [
+        {"startTimeGMT": "2026-10-14T10:00:00", "duration": 420, "distance": 300, "numberOfActiveLengths": 12},
+        {"startTimeGMT": "2026-10-14T10:07:00", "duration": 30, "distance": 0, "numberOfActiveLengths": 0},
+        {"startTimeGMT": "2026-10-14T10:07:30", "duration": 140, "distance": 100, "numberOfActiveLengths": 4},
+        {"startTimeGMT": "2026-10-14T10:11:00", "duration": 140, "distance": 100, "numberOfActiveLengths": 4},
+    ]}
+    info = swim_intervals(laps)
+    assert info["swum_m"] == 500 and info["longest_m"] == 300 and info["stops"] == 2
+    assert info["intervals"].startswith('300 m · rest 30" · 100 m · rest 70"')
+    fri = dt.date(2026, 10, 23)                          # next Friday: optional technique swim
+    api = FakeGarmin(fri, swims=False)
+    swim_act = act("2026-10-14", "lap_swimming", 0.5, 20)
+    api.acts.append(swim_act)
+    api.splits = {swim_act["activityId"]: laps}
+    claude = FakeClaude({"decision": "keep", "sessions": [{"kind": "swim_technique", "distance_km": 0.6,
+                                                          "minutes": None}],
+                         "why": "x", "coach_note": "", "notes_used": []})
+    with fresh():
+        res = engine.run_day(api, CFG, fri, ai_client=claude)
+    sw = next(s for s in res["final"] if s.sport == "swim")
+    assert sw.distance_km <= 0.6 and "Build-up swim" in sw.title and "×100" in sw.detail
+    sent = json.loads(claude.requests[0]["messages"][0]["content"].split("\n", 1)[1])
+    done = next(a for a in sent["activities_last_6_weeks"] if a["sport"] == "swim" and a["date"] == "2026-10-14")
+    assert done["swum_m"] == 500 and done["stops"] == 2 and sent["swim_capacity"]["cap_m"] == 600
+    from coach.readiness import compliance
+    c = compliance([{"title": "Technique swim 1300 m", "sport": "swim", "kind": "swim_technique", "intensity": "easy",
+                     "distance_km": 1.3}], [{"sport": "swim", "name": "Pool", "distance_km": 0.5, "duration_min": 20}])
+    assert c["vs_plan"] == [{"planned": "Technique swim 1300 m", "planned_km": 1.3, "planned_min": None,
+                             "done_km": 0.5, "done_min": 20}]
+    # no recent swims: a short restart, not 1300 m
+    from coach.planner import swim_capacity
+    assert swim_capacity([], fri)["cap_m"] == 600
 
 
 if __name__ == "__main__":

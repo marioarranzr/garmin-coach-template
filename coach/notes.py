@@ -201,11 +201,41 @@ def _due(t) -> dt.date | None:
         return None
 
 
-def sync_plan(cfg: dict, days: list[tuple], api=None) -> int:
+def plan_tasks_on(cfg: dict, api=None) -> bool:
+    """Whether the plan goes to Todoist (so a rest day needs no workout in Garmin)."""
+    settings = cfg.get("todoist") or {}
+    return bool(settings.get("enabled", True) and settings.get("plan_project", "Training plan")
+                and _client(api) is not None)
+
+
+def rest_day_marker(cfg: dict, day: dt.date, api=None) -> dict | None:
+    """A rest day has no workout in Garmin: its Todoist plan task carries the footer
+    the coach reads back ("Checked 08:03."). {title, meta} or None."""
+    from .calendar import read_description
+    settings = cfg.get("todoist") or {}
+    try:
+        api = _client(api)
+        pid = api and _find_project(api, str(settings.get("plan_project", "Training plan")))
+        if not pid:
+            return None
+        for page in api.get_tasks(project_id=pid):
+            for t in page:
+                desc = getattr(t, "description", "") or ""
+                if _due(t) == day and desc.rstrip().endswith(PLAN_MARK):
+                    meta = read_description(desc)
+                    if meta.get("at") or meta.get("eve"):
+                        return {"title": t.content, "meta": meta}
+    except Exception as e:  # noqa: BLE001
+        log.warning("Couldn't read the rest day in Todoist: %s", e)
+    return None
+
+
+def sync_plan(cfg: dict, days: list[tuple], api=None, footer: str = "") -> int:
     """Your coming days as Todoist tasks, so the week is easy to see: one task per
     day ("Quality · Rolling 400s, 8 km"), due that day, in the `plan_project`
     project (created if needed). `days`: [(date, sessions, why)], from the first
-    day being planned.
+    day being planned. `footer` goes on that first day's task (the coach reads it
+    back on rest days, which have no workout in Garmin).
 
     Days before that are over: their tasks are completed (so the evening plan
     ticks off today, and in the morning today's task is on top, not yesterday's).
@@ -241,6 +271,8 @@ def sync_plan(cfg: dict, days: list[tuple], api=None) -> int:
             titles = " + ".join(list(done) + [x.title for x in sessions]) or "Rest"
             details = "\n\n".join(x for x in [why] + list(done)
                                     + ["\n".join(y for y in (x.title, x.detail, getattr(x, "how", "")) if y) for x in sessions] if x)
+            if footer and day == first:
+                details = "\n\n".join(x for x in (details[:3700], footer) if x)
             api.add_task(content=titles[:480], project_id=pid, due_date=day, labels=[PLAN_LABEL],
                          description=(details[:3900] + "\n\n" + PLAN_MARK).strip())
             n += 1

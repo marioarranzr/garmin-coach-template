@@ -754,8 +754,17 @@ def test_ai_coach_can_choose_rest_from_your_note():
     sent = json.loads(claude.requests[0]["messages"][0]["content"].split("\n", 1)[1])
     assert sent["athlete_notes_today"][0]["text"] == "knee hurts a bit"
     assert sent["rule_proposal_today"] and sent["activities_last_6_weeks"] and sent["weekly_summary"]
-    assert api.uploaded[0]["description"].startswith("Rest today")
+    # a rest day is no workout on the watch: it's in the Todoist plan, which marks it as planned
+    assert not api.uploaded
+    task = next(t for t in res["todo"].plan if t.due_date == dt.date(2026, 10, 18))
+    assert task.content == "Rest / mobility 20'" and task.description.startswith("Rest today")
+    assert "Checked 09:00." in task.description
     assert res["todo"].completed == ["t0"]                  # the knee note, not "buy milk"
+    # so the next scheduled run that morning knows it's done (and doesn't plan it again)
+    with fresh():
+        again = engine.run_day(api, CFG, dt.date(2026, 10, 18), notes_api=res["todo"], ai_client=FakeClaude(answer),
+                               now=dt.datetime(2026, 10, 18, 9, 47), wait_for_sleep=True)
+    assert again["status"] == "done" and "Rest / mobility" in again["report"]
 
 
 def test_ai_coach_cannot_exceed_the_plan():
@@ -1069,7 +1078,8 @@ def test_drafts_show_the_week_ahead_and_are_replaced():
         assert on_tue and all(t.startswith("Coach ·") for t in on_tue)
         for day in ("2026-10-14", "2026-10-18"):
             assert len([i for i in items if i["date"] == day]) == len({i["title"] for i in items if i["date"] == day})
-        assert any(i["date"] == "2026-10-19" for i in items)   # one more day ahead
+        assert any(i["date"] == "2026-10-18" for i in items)
+        assert not any(i["date"] == "2026-10-19" for i in items)   # Monday is a rest day: no workout for it
 
 
 def test_drafts_follow_the_week_when_you_train_early():
@@ -1241,7 +1251,7 @@ def test_notes_about_the_week_rearrange_it():
         sent = json.loads(claude.schedule_requests[0]["messages"][0]["content"].split("\n", 1)[1])
         assert [n["text"] for n in sent["open_notes"]][0].startswith("I can't train on Sunday")
         sunday = [i["title"] for i in api.cal["items"] if i["date"] == "2026-10-18"]
-        assert sunday == ["Coach draft · Rest / mobility 20'"]
+        assert sunday == []                    # rest: no workout in Garmin
         long_day = [i["date"] for i in api.cal["items"] if "Long run" in i["title"]]
         assert long_day and long_day[0] < "2026-10-18"
         assert "## Your notes about the week" in res["report"] and "No training: Sun 18/10" in res["report"]
@@ -1567,6 +1577,23 @@ def test_intervals_start_with_the_run_to_the_track_or_path():
     finally:
         set_venues({})
     assert make_run("run_quality", 9, Phase("short", "base", "x", None, None, 1, False, 14), 0).detail.startswith("15' easy")
+
+
+def test_rest_day_has_no_workout_but_is_planned_once():
+    """Monday is a rest day: nothing goes to the watch, and the later evening runs
+    know it's planned (from its Todoist task) instead of planning it again."""
+    sun, mon = dt.date(2026, 10, 18), dt.date(2026, 10, 19)
+    with fresh():
+        todo = FakeTodoist([])
+        todo.day = sun
+        api = FakeGarmin(sun)
+        res = engine.scheduled(api, CFG, dt.datetime(2026, 10, 18, 21, 17), notes_api=todo, ai_client=FakeClaude())
+        assert [s.kind for s in res["final"]] == ["rest"]
+        assert not [i for i in api.cal["items"] if i["date"] == mon.isoformat()]
+        task = next(t for t in todo.plan if t.due_date == mon)
+        assert "Planned the evening before" in task.description
+        again = engine.scheduled(api, CFG, dt.datetime(2026, 10, 18, 21, 47), notes_api=todo, ai_client=FakeClaude())
+        assert again["status"] == "done" and "already planned" in again["report"]
 
 
 if __name__ == "__main__":

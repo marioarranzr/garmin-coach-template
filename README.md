@@ -44,8 +44,12 @@ up in the evening. Each morning the coach checks it against how you slept.
 1. **Every evening at 21:00** (`evening_plan`), it plans **tomorrow** from
    your training load and what you did today. That becomes the real workout
    in your Garmin calendar. The days after it, up to a week ahead, are drafts
-   ("Coach draft · …"), redrawn every evening from what you've done. Your
-   phone gets "Tomorrow: Easy run 8 km" if notifications are on.
+   ("Coach draft · …"), redrawn every evening from what you've done. Rest
+   days get no workout (there's nothing to do on the watch); they're in the
+   Todoist plan, whose task marks the day as planned. Without Todoist a rest
+   day is still a "Rest / mobility" workout, since that's how the coach knows
+   it planned it. Your phone gets "Tomorrow: Easy run 8 km" if notifications
+   are on.
 2. **Every morning from 08:00** (`morning_check`), it checks today's workout
    with last night's sleep, HRV, Body Battery and Training Readiness, and
    your Todoist notes. That's also when the AI coach makes its call.

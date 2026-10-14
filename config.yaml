@@ -15,7 +15,7 @@ athlete:
   min_ride_minutes: 30
   # If you cycle to the pool: minutes of riding there and back. A swim day then
   # already includes that easy ride, so no recovery spin is added to it.
-  bike_to_pool_minutes: 0
+  bike_to_pool_minutes: 20
 
 # 4-week cycles (3 load weeks + 1 deload week) are counted from this Monday.
 plan_start: 2026-10-12

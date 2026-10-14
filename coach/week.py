@@ -34,7 +34,7 @@ def ledger(acts: list[dict], d: dt.date, tpl: dict, dist: dict, bdist: dict | No
     kinds = [k for day in WEEKDAYS for k in tpl.get(day, []) if quality_ok or k != "run_quality"]
     before = [k for day in WEEKDAYS[:d.weekday()] for k in tpl.get(day, []) if quality_ok or k != "run_quality"]
     runs = [a for a in week if a["sport"] == "run"]
-    rides = [a for a in week if a["sport"] == "bike"]
+    rides = [a for a in week if a["sport"] == "bike" and a.get("duration_min", 0) >= 25]   # not commutes
     long_km = dist.get("long") or 0
     long_run = max(runs, key=lambda a: a["distance_km"], default=None)
     floor = max(0.85 * long_km, (dist.get("easy") or 0) + 1.5, 6)

@@ -178,6 +178,13 @@ def _km(x: float) -> str:
     return f"{round(x)}" if x >= 10 else f"{x:g}"
 
 
+COMMUTE_MAX_MIN = 25   # a ride shorter than this (e.g. to the pool and back) is getting around, not training
+
+
+def is_training(a: dict) -> bool:
+    return not (a.get("sport") == "bike" and (a.get("duration_min") or 0) < COMMUTE_MAX_MIN)
+
+
 def compliance(planned: list[dict], done: list[dict]) -> dict:
     """Compares yesterday's plan with what was actually done."""
     run_planned = sum(s.get("distance_km") or 0 for s in planned if s["sport"] == "run")
@@ -185,7 +192,7 @@ def compliance(planned: list[dict], done: list[dict]) -> dict:
     planned_kinds = {s["kind"] for s in planned}
     planned_easy = all(s["intensity"] in ("easy", "rest") for s in planned)
     hard_done = any((a.get("aerobic_te") or 0) >= 3.8 or (a.get("anaerobic_te") or 0) >= 2.5 for a in done)
-    sports_done = {a["sport"] for a in done}
+    sports_done = {a["sport"] for a in done if is_training(a)}
     missed = [s["title"] for s in planned
               if s["sport"] in ("run", "bike", "swim") and s["sport"] not in sports_done and not s.get("optional")]
     return {

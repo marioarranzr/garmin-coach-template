@@ -1493,6 +1493,27 @@ def test_late_evening_run_after_midnight_still_plans_the_day():
         assert engine.scheduled(FakeGarmin(wed), CFG, dt.datetime(2026, 10, 14, 1, 47))["status"] == "early"
 
 
+def test_done_sessions_show_as_done_and_strength_reads_line_by_line():
+    wed = dt.date(2026, 10, 14)
+    cfg = dict(CFG, weekly_templates=dict(CFG["weekly_templates"],
+               run_focus=dict(CFG["weekly_templates"]["run_focus"], wed=["bike_quality", "strength"])))
+    api = FakeGarmin(wed, today_acts=[act("2026-10-14", "lap_swimming", 0.5, 20)])
+    api.acts[-1]["activityName"] = "Lunch Swim"
+    todo = FakeTodoist([])
+    todo.day = wed
+    with fresh():
+        engine.run_day(api, cfg, wed, notes_api=todo, now=dt.datetime(2026, 10, 14, 13, 37))
+    task = next(t for t in todo.plan if t.due_date == wed)
+    assert task.content.startswith("✓ Lunch Swim 0.5 km + Bike")
+    lines = task.description.splitlines()
+    assert "✓ Done: Lunch Swim 0.5 km" in lines and "• Front squat · 8 reps @ 30 kg" in lines
+    assert any(x.startswith("3 rounds (90\" rest") for x in lines)
+    from coach.notify import message
+    from coach.planner import make_rest
+    title, _ = message([make_rest()], "", "", {"score": 70}, done=["Lunch Swim 0.5 km"])
+    assert title.startswith("Today: ✓ Lunch Swim 0.5 km + Rest")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

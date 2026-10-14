@@ -223,7 +223,8 @@ def sync_plan(cfg: dict, days: list[tuple], api=None) -> int:
         pid = _find_project(api, str(name))
         if not pid:
             pid = api.add_project(name=str(name)).id
-        first = min(day for day, _, _ in days)
+        days = [tuple(x) + ((),) * (4 - len(x)) for x in days]       # (day, sessions, why, done)
+        first = min(x[0] for x in days)
         for page in api.get_tasks(project_id=pid):
             for t in page:
                 ours = PLAN_LABEL in (getattr(t, "labels", None) or []) or \
@@ -236,9 +237,10 @@ def sync_plan(cfg: dict, days: list[tuple], api=None) -> int:
                 else:
                     api.delete_task(t.id)            # replaced below
         n = 0
-        for day, sessions, why in sorted(days, key=lambda x: x[0]):
-            titles = " + ".join(x.title for x in sessions) or "Rest"
-            details = "\n\n".join(x for x in [why] + [f"{x.title}: {x.detail}" for x in sessions] if x)
+        for day, sessions, why, done in sorted(days, key=lambda x: x[0]):
+            titles = " + ".join([f"✓ {x}" for x in done] + [x.title for x in sessions]) or "Rest"
+            details = "\n\n".join(x for x in [why] + [f"✓ Done: {x}" for x in done]
+                                    + [f"{x.title}\n{x.detail}" for x in sessions] if x)
             api.add_task(content=titles[:480], project_id=pid, due_date=day, labels=[PLAN_LABEL],
                          description=(details[:3900] + "\n\n" + PLAN_MARK).strip())
             n += 1

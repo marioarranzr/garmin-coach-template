@@ -319,6 +319,10 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     else:
         uploads = today_cal
 
+    # what you've already done today, shown as ✓ next to what's left
+    done_today_titles = [f"{a['name']} {a['distance_km']:g} km" if a["distance_km"] else f"{a['name']} {a['duration_min']:.0f}'"
+                         for a in ctx["today_acts"] if is_training(a)]
+
     # ── the days ahead, as drafts in your Garmin calendar (replaced each morning) ──
     # always a week ahead from today: in the evening, tomorrow is real and the rest are drafts
     preview = int((cfg.get("garmin") or {}).get("preview_days", 7))
@@ -341,7 +345,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
 
     # the coming days as tasks in Todoist, to see the week at a glance
     if upload:
-        coach["plan_tasks"] = sync_plan(cfg, [(d, final, why)] + [(day, sess, (wn or [""])[0])
+        coach["plan_tasks"] = sync_plan(cfg, [(d, final, why, done_today_titles)] + [(day, sess, (wn or [""])[0])
                                                                  for day, _, sess, wn in ahead], api=notes_api)
 
     # notes the coach used: label them for your diary and complete them in Todoist (real runs only)
@@ -364,7 +368,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     else:   # the morning check keeps last night's plan: no need to buzz your wrist (manual runs still do)
         label = None if wait_for_sleep else "Today"
     coach["notified"] = bool(upload and label and send(*message(final, why, coach.get("coach_note", ""), r, label,
-                                                               ahead if evening else ahead[:2]), poster=poster))
+                                                               ahead if evening else ahead[:2],
+                                                               done=done_today_titles), poster=poster))
     coach["was_evening_plan"] = any(e["meta"].get("eve") for e in today_cal)
 
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why,

@@ -202,7 +202,9 @@ strength becomes strength & core, or is dropped. Loads come from
 `strength.loads` and go up 2 kg a week within each 4-week block (whole kilos,
 since plates go on in pairs), never above `strength.max_bar_kg`. On the watch
 each exercise is one of Garmin's own (front squat, Bulgarian split squat…), so
-it shows its name, reps and weight, and the watch counts the reps.
+it shows its name, reps and weight, and the watch counts the reps. Each step's
+note says in one line how to do the exercise, and the Todoist plan lists them
+all under the session.
 
 **Swims build up from what you actually swam.** The coach reads each pool
 swim's intervals from Garmin (how far you swam, where you stopped and for how

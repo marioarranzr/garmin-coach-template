@@ -73,13 +73,46 @@ GARMIN_EXERCISE = {
 }
 
 
+# How to do each one, in a line: the watch shows it as the step's note (it already shows
+# the exercise name, reps and weight), and the Todoist plan lists them under the session.
+# Kept under 100 characters, Garmin's limit for a step note.
+HOW = {
+    "Walking lunge": "Long step forward, back knee almost to the floor, push up and step through to the next lunge.",
+    "Bear crawl": "On hands and toes, knees just off the floor, back flat; crawl forward with opposite hand and foot.",
+    "Heel walks": "Heel walks: walk on your heels, toes pulled up high, short steps, tall posture.",
+    "Press-up walk-out": "From standing, hands to the floor, walk them out to a press-up, one press-up, walk back, stand.",
+    "Front squat": "Bar on the front of the shoulders, elbows high; sit down between your heels, chest up, drive up.",
+    "Step-up onto box (50 cm)": "Whole foot on the box, push through that heel to stand tall on it; step down slowly.",
+    "Single-leg RDL with knee drive": "Hinge on one leg, back flat, dumbbell to mid-shin; stand up and drive the other knee high.",
+    "Single-leg RDL": "On one leg, hinge at the hips with a flat back, dumbbell to mid-shin, squeeze the glute to stand.",
+    "Raised-leg hip thrust": "Shoulders on the box, one foot down, other leg up; drive hips up until flat, squeeze, lower.",
+    "Bulgarian split squat (rear foot on box)": "Rear foot on the box, front foot far ahead; drop the back knee straight down, push up.",
+    "Single-leg calf raise": "On one foot on a step edge, heel low; rise as high as you can, 1\" pause, lower slowly.",
+    "Lateral walk": "Band around the ankles, half squat, toes forward; side steps without letting the feet touch.",
+    "Hanging leg raise": "Hang from the bar, no swinging; lift knees (or straight legs) to hip height, lower slowly.",
+    "Side plank": "On one forearm, elbow under the shoulder, body straight from head to feet, hips high.",
+    "Box jump (50 cm), step down": "Quick dip and arm swing, jump onto the box, land softly in a half squat; step back down.",
+    "Hurdle hops": "Hurdle hops: two-footed hops over a low object, quick and springy off the ground.",
+    "Bent-over barbell row": "Hinge to ~45°, flat back; pull the bar to your lower ribs, squeeze shoulder blades, lower slowly.",
+    "Press-up": "Hands under the shoulders, body straight; chest to just above the floor, push back up.",
+    "Single-arm snatch": "Dumbbell between your feet, squat down; jump it up in one move to straight arm overhead.",
+    "Prone Y-T-W raises (swim shoulders)": "Face down, forehead on a towel; arms in a Y, then T, then W, thumbs up; lift them, squeeze, lower.",
+    "Dead bug": "On your back, arms up, knees at 90°; lower opposite arm and leg, lower back stays on the floor.",
+    "Bent-knee calf raise": "Knees bent, dumbbell on the thighs; rise onto your toes, pause, lower slowly (works the soleus).",
+    "Standing side bend": "Dumbbell in one hand, stand tall; bend sideways toward it, come back up using the other side.",
+    "Glute bridge march": "Hips up in a bridge; lift one knee, then the other, without letting the hips drop or twist.",
+    "Superman hold": "Face down, arms forward; lift arms, chest and legs a few cm off the floor and hold.",
+}
+
+
 def ex(name: str, reps: int | None = None, secs: int | None = None, kg: float | None = None,
        each_side: bool = False) -> dict:
     what = f"{reps} reps" if reps else f"{secs}\""
     if each_side:
         what += " each side"
     note = f"{name} · {what}" + (f" @ {kg:g} kg" if kg else "")
-    step = {"type": "interval", "zone": None, "note": note, "exercise": GARMIN_EXERCISE.get(name), "kg": kg}
+    step = {"type": "interval", "zone": None, "note": note, "exercise": GARMIN_EXERCISE.get(name), "kg": kg,
+            "how": HOW.get(name, "")}
     if secs:
         return step | {"end": "time", "value": secs * (2 if each_side else 1)}
     # the watch counts the reps (both sides together when it's each side)
@@ -160,5 +193,8 @@ def make_strength(kind: str, phase: Phase, wk: int = 0) -> Session:
         lines.append(f"{b['iterations']} rounds ({rest_s}\" rest after each):")
         lines += [f"• {x['note']}" for x in b["steps"] if x["type"] == "interval"]
     detail = "\n".join(lines + [tip])
+    names = dict.fromkeys(x["note"].split(" · ")[0] for b in [steps[0]] + blocks for x in b["steps"]
+                          if x["type"] == "interval")
+    how = "How to:\n" + "\n".join(f"• {n}: {HOW[n].split(': ', 1)[-1]}" for n in names if n in HOW)
     return Session(kind, "strength", f"{title} {m}'", "moderate" if kind == "strength" else "easy",
-                   None, m, detail, steps)
+                   None, m, detail, steps, how=how)

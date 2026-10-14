@@ -1468,7 +1468,11 @@ def test_strength_sessions_for_a_home_gym():
     assert step["endCondition"]["conditionTypeKey"] == "reps" and step["endConditionValue"] == 8
     assert (step["category"], step["exerciseName"]) == ("SQUAT", "BARBELL_FRONT_SQUAT")
     assert step["weightValue"] == 32000.0 and step["weightUnit"]["unitKey"] == "kilogram"
-    assert step["description"].startswith("Front squat")
+    assert step["description"].startswith("Bar on the front of the shoulders")      # how to do it
+    from coach.strength import HOW
+    assert all(len(v) <= 100 for v in HOW.values())
+    core = S.make_strength("strength_core", base, 0)
+    assert "• Prone Y-T-W raises (swim shoulders): Face down, forehead on a towel" in core.how
     from coach.strength import GARMIN_EXERCISE
     from garminconnect.exercises import _RAW
     known = {(c, e) for _, c, e in _RAW}

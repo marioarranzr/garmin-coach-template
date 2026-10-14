@@ -278,6 +278,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         if coach.get("used"):
             final, why = coach["sessions"], coach["why"] or why
             notes += [f"Safety limit: {x}." for x in coach.get("limited", [])]
+    final = ride_rules(final, cfg, phase, notes)
     coach["notes_today"] = notes_today
     coach["history_count"] = len(history) if coach.get("used") else 0
     used_ids = set(coach.get("notes_used") or []) | set(sched.get("notes_used") or [])
@@ -432,6 +433,27 @@ def coach_section(coach: dict, cfg: dict) -> list[str]:
             if coach.get("completed"):
                 L.append(f"- Completed in Todoist: {len(coach['completed'])} note(s) (they're in your completed tasks).")
     return L
+
+
+def ride_rules(final: list[Session], cfg: dict, phase, notes: list[str]) -> list[Session]:
+    """Your riding habits: no ride shorter than `athlete.min_ride_minutes` (default 30),
+    and on a swim day your ride to the pool and back (`athlete.bike_to_pool_minutes`)
+    already is the recovery spin."""
+    from .planner import make_bike
+    ath = cfg.get("athlete") or {}
+    min_ride = float(ath.get("min_ride_minutes", 30) or 0)
+    commute = float(ath.get("bike_to_pool_minutes", 0) or 0)
+    out = []
+    swim_day = any(s.sport == "swim" for s in final)
+    for s in final:
+        if s.kind == "bike_spin" and swim_day and commute >= 15:
+            notes.append(f"No recovery spin: riding to the pool and back (~{commute:g}') already is one.")
+            continue
+        if s.sport == "bike" and s.duration_min and s.duration_min < min_ride:
+            notes.append(f"{s.title} → {min_ride:g}': shorter rides aren't worth getting on the bike for.")
+            s = make_bike(s.kind, phase, min_ride)
+        out.append(s)
+    return out
 
 
 def account_for_today(final: list[Session], done_today: list[dict], phase, notes: list[str]) -> list[Session]:

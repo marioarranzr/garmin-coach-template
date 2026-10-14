@@ -167,36 +167,36 @@ def build_templates(sport: str, run_days: int, long_day: int, rest_day: int) -> 
     return templates
 
 
-def cron_for(morning: str, tz: str, until: str = "10:00", evening: str | None = "21:00") -> str:
-    """GitHub cron (UTC) for the morning check (hourly from `morning` until the
-    first run at or after `until`) and the evening plan (at `evening`, plus one
-    retry an hour later). GitHub cron has no time zones, so it lists the UTC
-    hours for both your winter and summer offsets; the coach then checks your
-    local time and only acts from `morning` and from `evening`, so the first
-    check is at 08:00 local all year. Runs are on the minute of `morning`."""
+def cron_for(morning: str, tz: str, until: str = "10:00", evening: str | None = "21:00",
+             minutes: tuple[int, int] = (17, 47)) -> str:
+    """GitHub cron (UTC) for the morning check (from `morning` until past `until`)
+    and the evening plan (from `evening`, for 2 hours).
+
+    GitHub cron has no time zones, so this lists the UTC hours for both your winter
+    and summer offsets; the coach checks your local time and only acts from
+    `morning` and from `evening`, so it's 08:00 local all year. GitHub delays and
+    sometimes drops scheduled runs, especially on the hour, so runs are at :17 and
+    :47: if one is dropped, the next comes 30 minutes later (later runs that find
+    the day already planned stop straight away)."""
     zone = ZoneInfo(tz)
     offsets = {dt.datetime(2026, m, 15, 12, tzinfo=zone).utcoffset() for m in (1, 7)}
-    mh, mm = (int(x) for x in morning.split(":"))
+    mh, _ = (int(x) for x in morning.split(":"))
     uh, um = (int(x) for x in until.split(":"))
-    local = [mh]
-    while (local[-1], mm) < (uh, um) and len(local) < 12:
-        local.append(local[-1] + 1)
+    local = list(range(mh, max(uh + (1 if um else 0), mh) + 1))
     if evening:
-        eh, em = (int(x) for x in evening.split(":"))
-        first = eh if em <= mm else eh + 1      # the first run on the minute at or after `evening`
-        local += [first, first + 1]
+        eh, _ = (int(x) for x in evening.split(":"))
+        local += [eh, eh + 1]
     hours = set()
     for h in local:
         for off in offsets:
-            t = dt.datetime(2026, 1, 1, h % 24, mm) - off
-            hours.add(t.hour)
+            hours.add((dt.datetime(2026, 1, 1, h % 24, 0) - off).hour)
     hs = sorted(hours)
     spans, start = [], hs[0]
     for a, b in zip(hs, hs[1:] + [None]):
         if b != a + 1:
             spans.append(f"{start}-{a}" if a != start else f"{a}")
             start = b
-    return f"{mm} {','.join(spans)} * * *"
+    return f"{','.join(str(m) for m in minutes)} {','.join(spans)} * * *"
 
 
 def peaks_for(sport: str, run_days: int) -> dict:

@@ -6,8 +6,10 @@ on:
     # GitHub cron is UTC and has no time zones, so this lists the UTC hours for
     # both winter and summer time (here 21:00 and 08:00-10:00 in Europe/Madrid);
     # the coach checks your local time (TZ below) and acts only from 21:00 and
-    # from 08:00. `python -m coach setup` sets this for your time zone.
-    - cron: "0 6-9,19-21 * * *"
+    # from 08:00. Runs are at :17 and :47 because GitHub delays or drops
+    # scheduled runs on the hour; extra runs stop straight away.
+    # `python -m coach setup` sets this for your time zone.
+    - cron: "17,47 6-9,19-21 * * *"
   workflow_dispatch:        # "Run workflow" button (also from the GitHub mobile app)
     inputs:
       dry_run:

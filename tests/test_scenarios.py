@@ -1410,6 +1410,17 @@ def test_ride_to_the_pool_is_not_training():
     assert c["missed"] == ["Bike 5×5' tempo"]
 
 
+def test_unrecorded_pool_rides_count_as_easy_load_only():
+    from coach.engine import with_pool_rides
+    cfg = dict(CFG, athlete=dict(CFG["athlete"], bike_to_pool_minutes=14))
+    acts = [{"date": "2026-10-13", "sport": "swim", "name": "Pool", "distance_km": 1.5, "duration_min": 40}]
+    out = with_pool_rides(acts, cfg)
+    ride = next(a for a in out if a["sport"] == "bike")
+    assert ride["duration_min"] == 14 and ride["commute"]
+    from coach.readiness import is_training
+    assert not is_training(ride) and with_pool_rides(acts, CFG) == acts
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

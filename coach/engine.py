@@ -125,7 +125,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         return {"status": "waiting", "report": msg + "\n"}
 
     since = history_start(d)                 # one window for every look back (see planner.LOOKBACK_WEEKS)
-    acts = G.fetch_activities(api, since, d)
+    acts = with_pool_rides(G.fetch_activities(api, since, d), cfg)
     past = [a for a in acts if a["date"] < d.isoformat()]
 
     # learn where you actually do your long run/ride (3 of the last 4 weeks)
@@ -435,6 +435,20 @@ def coach_section(coach: dict, cfg: dict) -> list[str]:
     return L
 
 
+def with_pool_rides(acts: list[dict], cfg: dict) -> list[dict]:
+    """You cycle to the pool and back without recording it: each swim gets that easy
+    ride added (`athlete.bike_to_pool_minutes`), so your load is complete. It's getting
+    around, not a session: rides this short never count as a planned ride."""
+    commute = float((cfg.get("athlete") or {}).get("bike_to_pool_minutes", 0) or 0)
+    if commute <= 0:
+        return acts
+    rides = [{"date": a["date"], "sport": "bike", "name": "Ride to the pool and back (not recorded)",
+              "distance_km": round(commute / 60 * 18, 1), "duration_min": commute, "load": commute * 0.6,
+              "aerobic_te": 1.0, "anaerobic_te": 0.0, "commute": True}
+             for a in acts if a["sport"] == "swim"]
+    return sorted(acts + rides, key=lambda a: a["date"])
+
+
 def ride_rules(final: list[Session], cfg: dict, phase, notes: list[str]) -> list[Session]:
     """Your riding habits: no ride shorter than `athlete.min_ride_minutes` (default 30),
     and on a swim day your ride to the pool and back (`athlete.bike_to_pool_minutes`)
@@ -446,7 +460,7 @@ def ride_rules(final: list[Session], cfg: dict, phase, notes: list[str]) -> list
     out = []
     swim_day = any(s.sport == "swim" for s in final)
     for s in final:
-        if s.kind == "bike_spin" and swim_day and commute >= 15:
+        if s.kind == "bike_spin" and swim_day and commute > 0:
             notes.append(f"No recovery spin: riding to the pool and back (~{commute:g}') already is one.")
             continue
         if s.sport == "bike" and s.duration_min and s.duration_min < min_ride:

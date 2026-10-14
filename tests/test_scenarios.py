@@ -1376,9 +1376,8 @@ def test_lasting_preferences_are_kept_in_todoist_and_reach_the_ai():
     assert strides.steps[1] == {"type": "recovery", "end": "time", "value": 60, "zone": 1}
 
 
-def test_ride_rules_min_30_and_no_spin_on_swim_days():
-    """'I could swim today' → AI picks a swim + 20' spin. Rides under 30' become 30'; and if you
-    cycle to the pool, a swim day has no extra spin."""
+def test_rides_are_at_least_30_minutes():
+    """'I could swim today' → AI picks a swim + 20' spin: the spin becomes 30'."""
     wed = dt.date(2026, 10, 14)
     answer = {"decision": "adjust", "why": "Easy swim and spin.", "coach_note": "", "notes_used": [],
               "sessions": [{"kind": "swim_technique", "distance_km": 1.3, "minutes": None},
@@ -1389,10 +1388,6 @@ def test_ride_rules_min_30_and_no_spin_on_swim_days():
         res = engine.run_day(FakeGarmin(wed), cfg, wed, ai_client=FakeClaude(answer))
     spin = next(s for s in res["final"] if s.sport == "bike")
     assert spin.duration_min == 30 and "shorter rides aren't worth" in res["report"]
-    cfg2 = dict(cfg, athlete=dict(cfg["athlete"], bike_to_pool_minutes=20))
-    with fresh():
-        res = engine.run_day(FakeGarmin(wed), cfg2, wed, ai_client=FakeClaude(answer))
-    assert [s.sport for s in res["final"]] == ["swim"] and "riding to the pool and back" in res["report"]
 
 
 def test_ride_to_the_pool_is_not_training():
@@ -1408,17 +1403,6 @@ def test_ride_to_the_pool_is_not_training():
     c = compliance([{"title": "Bike 5×5' tempo", "sport": "bike", "kind": "bike_quality", "intensity": "hard"}],
                    [{"sport": "bike", "name": "ride", "distance_km": 3, "duration_min": 10}])
     assert c["missed"] == ["Bike 5×5' tempo"]
-
-
-def test_unrecorded_pool_rides_count_as_easy_load_only():
-    from coach.engine import with_pool_rides
-    cfg = dict(CFG, athlete=dict(CFG["athlete"], bike_to_pool_minutes=14))
-    acts = [{"date": "2026-10-13", "sport": "swim", "name": "Pool", "distance_km": 1.5, "duration_min": 40}]
-    out = with_pool_rides(acts, cfg)
-    ride = next(a for a in out if a["sport"] == "bike")
-    assert ride["duration_min"] == 14 and ride["commute"]
-    from coach.readiness import is_training
-    assert not is_training(ride) and with_pool_rides(acts, CFG) == acts
 
 
 if __name__ == "__main__":

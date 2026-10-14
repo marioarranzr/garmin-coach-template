@@ -68,7 +68,7 @@ GARMIN_EXERCISE = {
     "Prone T raise": ("SHOULDER_STABILITY", "FLOOR_T_RAISE"),
     "Prone W raise": ("SHOULDER_STABILITY", "INCLINE_W_RAISE"),     # no floor W in Garmin's list
     "Dead bug": ("HIP_STABILITY", "DEAD_BUG"),
-    "Bent-knee calf raise": ("CALF_RAISE", "SINGLE_LEG_BENT_KNEE_CALF_RAISE"),
+    "Seated calf raise": ("CALF_RAISE", "WEIGHTED_SEATED_CALF_RAISE"),
     "Standing side bend": ("CORE", "WEIGHTED_SIDE_BEND"),
     "Glute bridge march": ("HIP_RAISE", "MARCHING_HIP_RAISE"),
     "Superman hold": ("HYPEREXTENSION", "SUPERMAN_FROM_FLOOR"),
@@ -102,37 +102,53 @@ HOW = {
     "Prone T raise": "Face down, forehead on a towel; arms out to the sides in a T, thumbs up; lift, squeeze, lower.",
     "Prone W raise": "Face down, forehead on a towel; elbows bent, hands by your shoulders (W); lift, squeeze, lower.",
     "Dead bug": "On your back, arms up, knees at 90°; lower opposite arm and leg, lower back stays on the floor.",
-    "Bent-knee calf raise": "Knees bent, dumbbell on the thighs; rise onto your toes, pause, lower slowly (works the soleus).",
+    "Seated calf raise": "Sit on the box, both feet on a plate, dumbbell on your knees; rise onto your toes, lower slowly.",
     "Standing side bend": "Dumbbell in one hand, stand tall; bend sideways toward it, come back up using the other side.",
     "Glute bridge march": "Hips up in a bridge; lift one knee, then the other, without letting the hips drop or twist.",
     "Superman hold": "Face down, arms forward; lift arms, chest and legs a few cm off the floor and hold.",
 }
 
 
+# one side at a time: what changes sides ("left leg", then "right leg")
+SIDE = {"Side plank": "side", "Standing side bend": "hand"}
+# both sides, alternating within one set: what the total counts
+ALTERNATE = {"Single-arm snatch": "{n} reps, alternating hands (switch at the floor)",
+             "Dead bug": "{n} reps, alternating sides", "Glute bridge march": "{n} reps, alternating legs",
+             "Lateral walk": "{n} steps: {r} one way, {r} back"}
+
+
 def ex(name: str, reps: int | None = None, secs: int | None = None, kg: float | None = None,
-       each_side: bool = False) -> dict:
-    what = f"{reps} reps" if reps else f"{secs}\""
-    if each_side:
-        what += " each side"
-    note = f"{name} · {what}" + (f" @ {kg:g} kg" if kg else "")
-    step = {"type": "interval", "zone": None, "note": note, "exercise": GARMIN_EXERCISE.get(name), "kg": kg,
+       each_side: bool = False) -> list[dict]:
+    """The exercise's steps on the watch. `each_side`: `reps`/`secs` per side, as two
+    steps (left, then right), or as one set alternating sides (ALTERNATE: 2× the reps)."""
+    load = f" @ {kg:g} kg" if kg else ""
+    base = {"type": "interval", "zone": None, "exercise": GARMIN_EXERCISE.get(name), "kg": kg,
             "how": HOW.get(name, "")}
-    if secs:
-        return step | {"end": "time", "value": secs * (2 if each_side else 1)}
-    # the watch counts the reps (both sides together when it's each side)
-    return step | {"end": "reps", "value": reps * (2 if each_side else 1)}
+    end = {"end": "time", "value": secs} if secs else {"end": "reps", "value": reps}
+    what = f"{reps} reps" if reps else f"{secs}\""
+    if each_side and name in ALTERNATE:
+        n = reps * 2
+        line = f"{name} · {ALTERNATE[name].format(n=n, r=reps)}{load}"
+        return [base | {"end": "reps", "value": n, "note": line, "line": line}]
+    if each_side:
+        part = SIDE.get(name, "leg")
+        line = f"{name} · {what} each {part}, left then right{load}"
+        return [base | end | {"note": f"{name} · {what} · {lr} {part}{load}", "line": line}
+                for lr in ("left", "right")]
+    line = f"{name} · {what}{load}"
+    return [base | end | {"note": line, "line": line}]
 
 
 def _rest(secs: int) -> dict:
     return {"type": "rest", "end": "time", "value": secs, "zone": None}
 
 
-def _block(rounds: int, exercises: list[dict], rest_s: int) -> dict:
-    return {"type": "repeat", "iterations": rounds, "steps": exercises + [_rest(rest_s)]}
+def _block(rounds: int, exercises: list[list[dict]], rest_s: int) -> dict:
+    return {"type": "repeat", "iterations": rounds, "steps": [x for e in exercises for x in e] + [_rest(rest_s)]}
 
 
-WARMUP = [ex("Walking lunge", secs=30), ex("Bear crawl", secs=30), ex("Leg swings", secs=15, each_side=True),
-          ex("Press-up walk-out", secs=30)]
+WARMUP = [x for e in (ex("Walking lunge", secs=30), ex("Bear crawl", secs=30),
+                       ex("Leg swings", secs=15, each_side=True), ex("Press-up walk-out", secs=30)) for x in e]
 
 
 def _strength_blocks(phase: Phase, wk: int) -> tuple[str, list[dict], str]:
@@ -153,7 +169,7 @@ def _strength_blocks(phase: Phase, wk: int) -> tuple[str, list[dict], str]:
     blocks = [
         _block(rounds, [ex("Front squat", 8, kg=squat), ex("Step-up onto box (50 cm)", 8, kg=db, each_side=True)], 90),
         _block(rounds, [ex("Single-leg RDL with knee drive", 10, kg=db, each_side=True),
-                        ex("Raised-leg hip thrust", 10, kg=thrust)], 75),
+                        ex("Raised-leg hip thrust", 8, kg=thrust, each_side=True)], 75),
         _block(rounds, [ex("Bulgarian split squat (rear foot on box)", 8, kg=db, each_side=True),
                         ex("Single-leg calf raise", 15, kg=db, each_side=True), ex("Lateral walk", 10, each_side=True)], 60),
         _block(2, [ex("Hanging leg raise", 10), ex("Side plank", secs=40, each_side=True)], 45),
@@ -166,11 +182,11 @@ def _core_blocks(phase: Phase, wk: int) -> tuple[str, list[dict], str]:
     rounds = 2 if phase.name in ("taper", "race_week", "transition") else 3
     blocks = [
         _block(rounds, [ex("Bent-over barbell row", 10, kg=row), ex("Press-up", 10),
-                        ex("Single-arm snatch", 8, kg=db, each_side=True)], 60),
+                        ex("Single-arm snatch", 10, kg=db, each_side=True)], 60),
         # Y, T and W one after the other (swimming shoulders), then dead bugs
         _block(rounds, [ex("Prone Y raise", 8), ex("Prone T raise", 8), ex("Prone W raise", 8),
                         ex("Dead bug", 10, each_side=True)], 45),
-        _block(rounds, [ex("Bent-knee calf raise", 12, kg=db), ex("Standing side bend", 10, kg=db, each_side=True),
+        _block(rounds, [ex("Seated calf raise", 15, kg=db), ex("Standing side bend", 10, kg=db, each_side=True),
                         ex("Glute bridge march", 10, each_side=True)], 45),
         _block(2, [ex("Side plank", secs=40, each_side=True), ex("Superman hold", secs=30)], 30),
     ]
@@ -181,7 +197,7 @@ def _minutes(steps: list[dict]) -> int:
     def secs(st):
         if st["type"] == "repeat":
             return st["iterations"] * sum(secs(x) for x in st["steps"])
-        return st["value"] if st["end"] == "time" else 45          # ~45" per set of reps
+        return st["value"] if st["end"] == "time" else 15 + 3 * st["value"]   # ~3" a rep, plus setting up
     return round(sum(secs(st) for st in steps) / 60)
 
 
@@ -197,9 +213,9 @@ def make_strength(kind: str, phase: Phase, wk: int = 0) -> Session:
     for b in blocks:
         rest_s = next((x["value"] for x in b["steps"] if x["type"] == "rest"), 0)
         lines.append(f"{b['iterations']} rounds ({rest_s}\" rest after each):")
-        lines += [f"• {x['note']}" for x in b["steps"] if x["type"] == "interval"]
+        lines += [f"• {x}" for x in dict.fromkeys(x["line"] for x in b["steps"] if x["type"] == "interval")]
     detail = "\n".join(lines + [tip])
-    names = dict.fromkeys(x["note"].split(" · ")[0] for b in [steps[0]] + blocks for x in b["steps"]
+    names = dict.fromkeys(x["line"].split(" · ")[0] for b in [steps[0]] + blocks for x in b["steps"]
                           if x["type"] == "interval")
     how = "How to:\n" + "\n".join(f"• {n}: {HOW[n].split(': ', 1)[-1]}" for n in names if n in HOW)
     return Session(kind, "strength", f"{title} {m}'", "moderate" if kind == "strength" else "easy",

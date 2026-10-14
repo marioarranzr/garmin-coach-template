@@ -47,7 +47,7 @@ def _load(key: str, wk: int) -> float:
 GARMIN_EXERCISE = {
     "Walking lunge": ("LUNGE", "WALKING_LUNGE"),
     "Bear crawl": ("PLANK", "BEAR_CRAWL"),
-    "Heel walks": ("WARM_UP", ""),
+    "Leg swings": ("WARM_UP", "FORWARD_AND_BACKWARD_LEG_SWINGS"),
     "Press-up walk-out": ("WARM_UP", "WALKOUT_FROM_PUSH_UP_POSITION"),
     "Front squat": ("SQUAT", "BARBELL_FRONT_SQUAT"),
     "Step-up onto box (50 cm)": ("SQUAT", "DUMBBELL_STEP_UP"),
@@ -79,7 +79,7 @@ GARMIN_EXERCISE = {
 HOW = {
     "Walking lunge": "Long step forward, back knee almost to the floor, push up and step through to the next lunge.",
     "Bear crawl": "On hands and toes, knees just off the floor, back flat; crawl forward with opposite hand and foot.",
-    "Heel walks": "Heel walks: walk on your heels, toes pulled up high, short steps, tall posture.",
+    "Leg swings": "Hold a wall, swing one straight leg forward and back, relaxed and gradually higher.",
     "Press-up walk-out": "From standing, hands to the floor, walk them out to a press-up, one press-up, walk back, stand.",
     "Front squat": "Bar on the front of the shoulders, elbows high; sit down between your heels, chest up, drive up.",
     "Step-up onto box (50 cm)": "Whole foot on the box, push through that heel to stand tall on it; step down slowly.",
@@ -127,8 +127,8 @@ def _block(rounds: int, exercises: list[dict], rest_s: int) -> dict:
     return {"type": "repeat", "iterations": rounds, "steps": exercises + [_rest(rest_s)]}
 
 
-WARMUP = [ex("Walking lunge", secs=20), ex("Bear crawl", secs=20), ex("Heel walks", secs=20),
-          ex("Press-up walk-out", secs=20)]
+WARMUP = [ex("Walking lunge", secs=30), ex("Bear crawl", secs=30), ex("Leg swings", secs=15, each_side=True),
+          ex("Press-up walk-out", secs=30)]
 
 
 def _strength_blocks(phase: Phase, wk: int) -> tuple[str, list[dict], str]:
@@ -187,7 +187,7 @@ def make_strength(kind: str, phase: Phase, wk: int = 0) -> Session:
     steps = [{"type": "repeat", "iterations": 2, "steps": WARMUP}] + blocks
     m = _minutes(steps)
 
-    lines = ["Warm-up, 2 rounds of 20\" each: walking lunge, bear crawl, heel walks, press-up walk-out"]
+    lines = ["Warm-up, 2 rounds of 30\" each: walking lunge, bear crawl, leg swings, press-up walk-out"]
     for b in blocks:
         rest_s = next((x["value"] for x in b["steps"] if x["type"] == "rest"), 0)
         lines.append(f"{b['iterations']} rounds ({rest_s}\" rest after each):")

@@ -1482,7 +1482,8 @@ def test_strength_sessions_for_a_home_gym():
     from coach.strength import HOW
     assert all(len(v) <= 100 for v in HOW.values())
     core = S.make_strength("strength_core", base, 0)
-    assert "• Prone Y-T-W raises (swim shoulders): Face down, forehead on a towel" in core.how
+    assert "• Prone Y raise: Face down, forehead on a towel" in core.how
+    assert all(f"• Prone {x} raise · 8 reps" in core.detail for x in "YTW")      # 8 of each
     from coach.strength import GARMIN_EXERCISE
     from garminconnect.exercises import _RAW
     known = {(c, e) for _, c, e in _RAW}

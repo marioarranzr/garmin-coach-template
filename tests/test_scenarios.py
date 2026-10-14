@@ -299,7 +299,7 @@ def test_setup_wizard_writes_a_working_config():
     runs = [k for day in cfg["weekly_templates"]["run_focus"].values() for k in day if k.startswith("run_")]
     assert len(runs) == 4
     assert "cycling" in cfg["weekly_templates"]
-    assert "TZ: America/New_York" in flow and '"30 1-3,10-15 * * *"' in flow     # 06:30 morning, 21:00 evening
+    assert "TZ: America/New_York" in flow and '"17,47 1-3,10-15 * * *"' in flow     # 06:30 morning, 21:00 evening
     assert cfg["garmin"]["morning_check"] == "06:30" and cfg["garmin"]["evening_plan"] == "21:00"
     for i in range(0, 260, 3):   # the planner accepts it for the whole season
         plan_day(dt.date.today() + dt.timedelta(days=i), cfg, 30)
@@ -912,7 +912,7 @@ def test_update_command_keeps_your_settings():
         assert (mine / "data" / "garmin_tokens.enc").read_text() == "secret"
         flow = wf.read_text()
         # the schedule follows config.yaml's times in your time zone (08:00 check, 21:00 plan in Tokyo)
-        assert "TZ: Asia/Tokyo" in flow and '"0 0-1,12-13,23 * * *"' in flow and "NEW_SECRET" in flow
+        assert "TZ: Asia/Tokyo" in flow and '"17,47 0-1,12-13,23 * * *"' in flow and "NEW_SECRET" in flow
         assert (mine / "coach" / "why.py").read_text().endswith("# improved\n")
         assert update(mine, url=str(tpl)) == 0                    # already up to date
 
@@ -1173,9 +1173,9 @@ def test_manual_run_after_the_evening_time_plans_tomorrow():
 
 def test_schedule_is_local_time_all_year():
     from coach.setup_wizard import cron_for
-    assert cron_for("08:00", "Europe/Zurich", "10:00", "21:00") == "0 6-9,19-21 * * *"
-    assert cron_for("08:00", "UTC", "10:00", "21:00") == "0 8-10,21-22 * * *"
-    assert cron_for("08:00", "Australia/Sydney", "10:00", "21:00") == "0 0,10-12,21-23 * * *"
+    assert cron_for("08:00", "Europe/Zurich", "10:00", "21:00") == "17,47 6-9,19-21 * * *"
+    assert cron_for("08:00", "UTC", "10:00", "21:00") == "17,47 8-10,21-22 * * *"
+    assert cron_for("08:00", "Australia/Sydney", "10:00", "21:00") == "17,47 0,10-12,21-23 * * *"
 
 
 def test_long_and_custom_triathlons():
@@ -1481,6 +1481,16 @@ def test_strength_sessions_for_a_home_gym():
     assert any(u["workoutName"].startswith("Coach · Strength") for u in api.uploaded)
     from coach.calendar import session_from
     assert session_from("Strength & core 33'")["kind"] == "strength_core"
+
+
+def test_late_evening_run_after_midnight_still_plans_the_day():
+    """GitHub ran the 21:00 schedule at 01:14: today isn't planned yet, so it's planned now."""
+    wed = dt.date(2026, 10, 14)
+    with fresh():
+        res = engine.scheduled(FakeGarmin(wed), CFG, dt.datetime(2026, 10, 14, 1, 14))
+        assert res["status"] == "planned" and "## Tomorrow" in res["report"]
+        # planned: a later early run does nothing, and the morning check revisits it
+        assert engine.scheduled(FakeGarmin(wed), CFG, dt.datetime(2026, 10, 14, 1, 47))["status"] == "early"
 
 
 if __name__ == "__main__":

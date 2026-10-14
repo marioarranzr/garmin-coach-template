@@ -60,6 +60,10 @@ def scheduled(api, cfg: dict, now: dt.datetime, upload: bool = True, **kw) -> di
     the morning check of today's plan until the evening; after the evening plan
     time, tomorrow's plan (once)."""
     if now.time() < morning_check(cfg):
+        # GitHub sometimes runs the evening schedule hours late, after midnight: if
+        # today wasn't planned the evening before, plan it now (the morning check revisits it)
+        if now.hour < 4 and not Calendar(api, cfg).day(now.date()):
+            return run_day(api, cfg, now.date(), upload=upload, now=now, evening=True, **kw)
         return {"status": "early", "report": f"Too early: the morning check starts at {morning_check(cfg):%H:%M}.\n"}
     if now.time() >= evening_plan(cfg):
         tomorrow = now.date() + dt.timedelta(days=1)

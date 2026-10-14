@@ -61,6 +61,11 @@ up in the evening. Each morning the coach checks it against how you slept.
 4. You can **re-run it any time** from GitHub, including from the mobile app.
    Before 21:00 a manual run re-plans today; after 21:00, tomorrow.
 
+GitHub sometimes delays scheduled runs by hours, or drops them, especially on
+the hour. So the coach runs at :17 and :47 within each window, and runs that
+find nothing to do stop straight away. If the evening plan only arrives after
+midnight, it plans that day then, and the morning check revisits it.
+
 The times are your local time all year: GitHub's schedule has no time zones,
 so it runs at the UTC hours for both your winter and summer time, and the
 coach only acts from 08:00 and from 21:00 on your clock (the run summary

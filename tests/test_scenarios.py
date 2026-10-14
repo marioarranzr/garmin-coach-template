@@ -1376,6 +1376,25 @@ def test_lasting_preferences_are_kept_in_todoist_and_reach_the_ai():
     assert strides.steps[1] == {"type": "recovery", "end": "time", "value": 60, "zone": 1}
 
 
+def test_ride_rules_min_30_and_no_spin_on_swim_days():
+    """'I could swim today' → AI picks a swim + 20' spin. Rides under 30' become 30'; and if you
+    cycle to the pool, a swim day has no extra spin."""
+    wed = dt.date(2026, 10, 14)
+    answer = {"decision": "adjust", "why": "Easy swim and spin.", "coach_note": "", "notes_used": [],
+              "sessions": [{"kind": "swim_technique", "distance_km": 1.3, "minutes": None},
+                           {"kind": "bike_spin", "distance_km": None, "minutes": 20}]}
+    cfg = dict(CFG, weekly_templates=dict(CFG["weekly_templates"],
+               run_focus=dict(CFG["weekly_templates"]["run_focus"], wed=["bike_quality"])))
+    with fresh():
+        res = engine.run_day(FakeGarmin(wed), cfg, wed, ai_client=FakeClaude(answer))
+    spin = next(s for s in res["final"] if s.sport == "bike")
+    assert spin.duration_min == 30 and "shorter rides aren't worth" in res["report"]
+    cfg2 = dict(cfg, athlete=dict(cfg["athlete"], bike_to_pool_minutes=20))
+    with fresh():
+        res = engine.run_day(FakeGarmin(wed), cfg2, wed, ai_client=FakeClaude(answer))
+    assert [s.sport for s in res["final"]] == ["swim"] and "riding to the pool and back" in res["report"]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

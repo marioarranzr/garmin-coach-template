@@ -235,6 +235,11 @@ athlete:
   easy_pace_min_per_km: {answers['easy_pace']:g}
   # Pool length for swim workouts on the watch (it counts lengths).
   pool_length_m: {answers['pool']}
+  # Shortest ride worth planning (minutes): anything shorter becomes this long.
+  min_ride_minutes: {answers.get('min_ride', 30)}
+  # If you cycle to the pool: minutes of riding there and back. A swim day then
+  # already includes that easy ride, so no recovery spin is added to it.
+  bike_to_pool_minutes: {answers.get('bike_to_pool', 0)}
 
 # 4-week cycles (3 load weeks + 1 deload week) are counted from this Monday.
 plan_start: {monday.isoformat()}
@@ -570,6 +575,7 @@ def existing_setup(cfg: dict, workflow: str) -> dict:
                      "until": str(g.get("wait_for_sleep_until", "10:00")),
                      "prefix": g.get("workout_prefix", "Coach"), "preview_days": g.get("preview_days", 7),
                      "pool": ath.get("pool_length_m"),
+                     "min_ride": ath.get("min_ride_minutes", 30), "bike_to_pool": ath.get("bike_to_pool_minutes", 0),
                      "ai_enabled": (cfg.get("ai") or {}).get("enabled", True),
                      "ai_provider": (cfg.get("ai") or {}).get("provider", "auto"),
                      "openai_model": (cfg.get("ai") or {}).get("openai_model", "gpt-5.4-mini"),
@@ -742,6 +748,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
                "min_long_run_km": extras.get("min_long_run_km", 0),
                "until": extras.get("until", "10:00"), "prefix": extras.get("prefix", "Coach"),
                "preview_days": extras.get("preview_days", 7),
+               "min_ride": extras.get("min_ride", 30), "bike_to_pool": extras.get("bike_to_pool", 0),
                **{k: extras[k] for k in ("ai_enabled", "ai_provider", "openai_model", "anthropic_model",
                                          "todoist_enabled", "todoist_project",
                                          "todoist_lookback_hours", "todoist_diary_label", "todoist_plan_project") if k in extras},

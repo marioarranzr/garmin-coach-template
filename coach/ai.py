@@ -63,6 +63,9 @@ allows, and ease off only when there's a real reason.
 - "coming_days" is the plan for the next days. Keep the day coherent with it (e.g. don't turn a day \
 before the long run or a quality session into a hard one, and don't cut a key session when the next \
 days are easy anyway unless recovery says so).
+- "season.athlete": rides shorter than "min_ride_minutes" aren't worth it for this athlete (they \
+become that long or are dropped). If "bike_to_pool_minutes" is set, they cycle to the pool, so a \
+swim day already includes that much easy riding: never add a recovery spin to a swim day.
 - "athlete_preferences" are the athlete's lasting preferences: respect them in your call and \
 mention any that apply to how to do the day's session in "coach_note" (e.g. "walk 1' before the \
 strides").
@@ -171,6 +174,8 @@ def season_context(d, cfg: dict) -> dict:
         "athlete": {"sports": ath.get("sports"), "easy_pace_min_per_km": ath.get("easy_pace_min_per_km"),
                     "run_days_per_week": sum(any(k.startswith("run_") for k in tpl.get(w, [])) for w in WEEKDAYS),
                     "min_long_run_km": cfg.get("min_long_run_km"),
+                    "min_ride_minutes": ath.get("min_ride_minutes", 30),
+                    "bike_to_pool_minutes": ath.get("bike_to_pool_minutes", 0),
                     "this_block_week": {w: tpl.get(w, []) for w in WEEKDAYS}},
     }
 

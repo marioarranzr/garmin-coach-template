@@ -1484,6 +1484,13 @@ def test_strength_sessions_for_a_home_gym():
     core = S.make_strength("strength_core", base, 0)
     assert "• Prone Y raise: Face down, forehead on a towel" in core.how
     assert all(f"• Prone {x} raise · 8 reps" in core.detail for x in "YTW")      # 8 of each
+    # one side at a time: a step per side on the watch; alternating: one set counting both
+    calf = [x for st in s.steps for x in st.get("steps", []) if x.get("note", "").startswith("Single-leg calf")]
+    assert [x["note"] for x in calf] == ["Single-leg calf raise · 15 reps · left leg @ 10 kg",
+                                         "Single-leg calf raise · 15 reps · right leg @ 10 kg"]
+    assert all(x["value"] == 15 for x in calf)
+    assert "• Single-leg calf raise · 15 reps each leg, left then right @ 10 kg" in s.detail
+    assert "• Single-arm snatch · 20 reps, alternating hands (switch at the floor) @ 10 kg" in core.detail
     from coach.strength import GARMIN_EXERCISE
     from garminconnect.exercises import _RAW
     known = {(c, e) for _, c, e in _RAW}

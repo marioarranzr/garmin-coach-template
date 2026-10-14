@@ -326,13 +326,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         uploads = today_cal
 
     # what you've already done today, shown as ✓ next to what's left
-    def _did(a):
-        return f"{a['distance_km']:g} km" if a["distance_km"] else f"{a['duration_min']:.0f}'"
-    done_today_titles = []
-    for a in done_acts:
-        planned_one = next((e for e in kept if e["session"].get("sport") == a["sport"]), None)
-        done_today_titles.append(f"{planned_one['session']['title']} (done: {_did(a)})" if planned_one
-                                 else f"{a['name']} {_did(a)}")
+    # the plan shows what you were meant to train today, as planned (what you did is in Garmin)
+    done_today_titles = [e["session"]["title"] for e in kept]
 
     # ── the days ahead, as drafts in your Garmin calendar (replaced each morning) ──
     # always a week ahead from today: in the evening, tomorrow is real and the rest are drafts

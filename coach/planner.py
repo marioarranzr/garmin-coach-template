@@ -465,6 +465,38 @@ QUALITY = {
     ("tri", "base"): [("Fartlek 1'/1'", _fartlek, (8, 12)), ("Tempo", _tempo, (3, 5))],
     ("tri", "build"): [("1 km repeats", _km_reps, (4, 6)), ("Threshold 10'", _thr_10, (2, 3))],
 }
+# where each session is best done: on a track, or on a flat path/road (hills: your hill)
+VENUE = {"Rolling 400s": "track", "Over-unders 1K": "track", "1 km repeats": "track", "Pyramid": "track",
+         "800s": "track", "Sharpener 1 km": "track", "Openers 400 m": "track",
+         "Hill reps 60\"": "hill"}
+_venue_km: dict = {}
+
+
+def set_venues(cfg: dict) -> None:
+    """How far you run easy to get to the track / a flat path for interval sessions
+    (`athlete.track_warmup_km`, `athlete.path_warmup_km`): that run is the warm-up,
+    and the way back the cool-down. Not set: 15' warm-up and 10' cool-down."""
+    ath = cfg.get("athlete") or {}
+    _venue_km.clear()
+    for venue, key in (("track", "track_warmup_km"), ("path", "path_warmup_km")):
+        if ath.get(key):
+            _venue_km[venue] = float(ath[key])
+    if "path" in _venue_km:
+        _venue_km.setdefault("hill", _venue_km["path"])
+
+
+def _with_venue(name: str, steps: list[dict]) -> list[dict]:
+    venue = VENUE.get(name, "path")
+    km = _venue_km.get(venue)
+    if not km or not steps or steps[0]["type"] != "warmup":
+        return steps
+    where = {"track": "the track", "path": "your flat path", "hill": "your hill"}[venue]
+    out = [dict(steps[0], end="distance", value=km * 1000, note=f"easy run to {where}")] + steps[1:]
+    if out[-1]["type"] == "cooldown":
+        out[-1] = dict(out[-1], end="distance", value=km * 1000, note="easy run home")
+    return out
+
+
 QUALITY[("tri", "taper")] = QUALITY[("short", "taper")]
 QUALITY[("tri", "race_week")] = QUALITY[("short", "race_week")]
 
@@ -503,7 +535,7 @@ def describe_steps(steps: list[dict]) -> str:
         if st["type"] == "repeat":
             return f"{st['iterations']} × (" + ", ".join(one(x) for x in st["steps"]) + ")"
         if st["type"] in ("warmup", "cooldown"):
-            return f"{amount(st)} easy"
+            return f"{amount(st)} easy" + (f" ({st['note']})" if st.get("note") else "")
         if st["type"] == "recovery":
             return f"{amount(st)} jog"
         if st.get("pace"):
@@ -519,9 +551,9 @@ def make_run(kind: str, km: float, phase: Phase, wk: int = 0) -> Session:
     if kind == "run_quality":
         opts = QUALITY.get((phase.focus, phase.name)) or QUALITY[(phase.focus, "base")]
         name, build, (lo, hi) = opts[wk % len(opts)]
-        # as many reps as fit the week's quality distance
-        n = min(range(lo, hi + 1), key=lambda k: abs(steps_km(build(k)) - km))
-        steps = build(n)
+        # as many reps as fit the week's quality distance (including the run to the track and back)
+        n = min(range(lo, hi + 1), key=lambda k: abs(steps_km(_with_venue(name, build(k))) - km))
+        steps = _with_venue(name, build(n))
         total = _round_half(steps_km(steps))
         return Session(kind, "run", f"Quality · {name}, {total:g} km", "hard", total, None,
                        describe_steps(steps) + "\nPaces are set from your current fitness: if a rep feels "

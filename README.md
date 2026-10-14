@@ -611,6 +611,7 @@ workflow file, and keys in GitHub secrets.
 | `athlete.sports` | from setup | `run`, `run_bike`, `tri` or `bike` (used by the setup) |
 | `athlete.easy_pace_min_per_km` | from setup | Estimates workout durations, and your training paces when Garmin has no race prediction |
 | `athlete.pool_length_m` | 25 | Pool length for swim workouts on the watch |
+| `athlete.track_warmup_km` / `athlete.path_warmup_km` | — | How far you run easy to the track / to a flat path: interval sessions use that run as the warm-up and the way back as the cool-down (track: short reps; path: tempo and longer blocks) |
 | `athlete.min_ride_minutes` | 30 | Shortest ride worth planning: shorter ones become this long. Recorded rides under 25' are commutes, never training |
 | `plan_start` | next Monday | Monday from which the 4-week load/deload cycles count |
 | `races` | — | `name`, `date`, `kind` (`5k`, `10k`, `half`, `marathon`, `road`, `tri_sprint`, `tri_olympic`, `tri_half`, `tri_full`, `tri`, `bike`), `distance_km` (road and bike), `elevation_m` (bike), `distances` (`tri`: swim-bike-run km, e.g. `1.5-40-10`), `priority` (`A` or `B`) |

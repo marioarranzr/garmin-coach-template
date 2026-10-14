@@ -106,6 +106,8 @@ def main(argv=None):
         learned = {s: day for s in ("run", "bike") if (day := learn_long_day(acts, d, s))}
         cfg = dict(cfg, _learned_days=learned)
         wt = week_target(acts, d, cfg)
+        from .planner import set_venues
+        set_venues(cfg)
         from . import paces as P
         P.set_current(P.estimate(cfg, G.fetch_race_predictions(api), wt.get("chronic_km")))
         print(f"Phase: {phase_for(d, cfg).describe()}")

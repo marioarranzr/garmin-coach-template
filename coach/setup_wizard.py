@@ -256,6 +256,11 @@ athlete:
   pool_length_m: {answers['pool']}
   # Shortest ride worth planning (minutes): anything shorter becomes this long.
   min_ride_minutes: {answers.get('min_ride', 30)}
+  # Interval sessions: how far you run easy to the track / to a flat path (km).
+  # That run is the warm-up and the way back the cool-down. Leave empty for a
+  # 15' warm-up and 10' cool-down wherever you are.
+  track_warmup_km: {answers.get('track_km') or ''}
+  path_warmup_km: {answers.get('path_km') or ''}
 
 # 4-week cycles (3 load weeks + 1 deload week) are counted from this Monday.
 plan_start: {monday.isoformat()}
@@ -603,6 +608,7 @@ def existing_setup(cfg: dict, workflow: str) -> dict:
                      "prefix": g.get("workout_prefix", "Coach"), "preview_days": g.get("preview_days", 7),
                      "pool": ath.get("pool_length_m"),
                      "min_ride": ath.get("min_ride_minutes", 30),
+                     "track_km": ath.get("track_warmup_km"), "path_km": ath.get("path_warmup_km"),
                      "ai_enabled": (cfg.get("ai") or {}).get("enabled", True),
                      "ai_provider": (cfg.get("ai") or {}).get("provider", "auto"),
                      "openai_model": (cfg.get("ai") or {}).get("openai_model", "gpt-5.4-mini"),
@@ -776,6 +782,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
                "until": extras.get("until", "10:00"), "prefix": extras.get("prefix", "Coach"),
                "preview_days": extras.get("preview_days", 7),
                "min_ride": extras.get("min_ride", 30),
+               "track_km": extras.get("track_km"), "path_km": extras.get("path_km"),
                **{k: extras[k] for k in ("ai_enabled", "ai_provider", "openai_model", "anthropic_model",
                                          "todoist_enabled", "todoist_project",
                                          "todoist_lookback_hours", "todoist_diary_label", "todoist_plan_project") if k in extras},

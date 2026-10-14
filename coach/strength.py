@@ -64,7 +64,9 @@ GARMIN_EXERCISE = {
     "Bent-over barbell row": ("ROW", "BENT_OVER_ROW_WITH_BARBELL"),
     "Press-up": ("PUSH_UP", "PUSH_UP"),
     "Single-arm snatch": ("OLYMPIC_LIFT", "SINGLE_ARM_DUMBBELL_SNATCH"),
-    "Prone Y-T-W raises (swim shoulders)": ("SHOULDER_STABILITY", "FLOOR_Y_RAISE"),
+    "Prone Y raise": ("SHOULDER_STABILITY", "FLOOR_Y_RAISE"),
+    "Prone T raise": ("SHOULDER_STABILITY", "FLOOR_T_RAISE"),
+    "Prone W raise": ("SHOULDER_STABILITY", "INCLINE_W_RAISE"),     # no floor W in Garmin's list
     "Dead bug": ("HIP_STABILITY", "DEAD_BUG"),
     "Bent-knee calf raise": ("CALF_RAISE", "SINGLE_LEG_BENT_KNEE_CALF_RAISE"),
     "Standing side bend": ("CORE", "WEIGHTED_SIDE_BEND"),
@@ -96,7 +98,9 @@ HOW = {
     "Bent-over barbell row": "Hinge to ~45°, flat back; pull the bar to your lower ribs, squeeze shoulder blades, lower slowly.",
     "Press-up": "Hands under the shoulders, body straight; chest to just above the floor, push back up.",
     "Single-arm snatch": "Dumbbell between your feet, squat down; jump it up in one move to straight arm overhead.",
-    "Prone Y-T-W raises (swim shoulders)": "Face down, forehead on a towel; arms in a Y, then T, then W, thumbs up; lift them, squeeze, lower.",
+    "Prone Y raise": "Face down, forehead on a towel; arms overhead in a Y, thumbs up; lift them, squeeze, lower.",
+    "Prone T raise": "Face down, forehead on a towel; arms out to the sides in a T, thumbs up; lift, squeeze, lower.",
+    "Prone W raise": "Face down, forehead on a towel; elbows bent, hands by your shoulders (W); lift, squeeze, lower.",
     "Dead bug": "On your back, arms up, knees at 90°; lower opposite arm and leg, lower back stays on the floor.",
     "Bent-knee calf raise": "Knees bent, dumbbell on the thighs; rise onto your toes, pause, lower slowly (works the soleus).",
     "Standing side bend": "Dumbbell in one hand, stand tall; bend sideways toward it, come back up using the other side.",
@@ -163,7 +167,9 @@ def _core_blocks(phase: Phase, wk: int) -> tuple[str, list[dict], str]:
     blocks = [
         _block(rounds, [ex("Bent-over barbell row", 10, kg=row), ex("Press-up", 10),
                         ex("Single-arm snatch", 8, kg=db, each_side=True)], 60),
-        _block(rounds, [ex("Prone Y-T-W raises (swim shoulders)", 8), ex("Dead bug", 10, each_side=True)], 45),
+        # Y, T and W one after the other (swimming shoulders), then dead bugs
+        _block(rounds, [ex("Prone Y raise", 8), ex("Prone T raise", 8), ex("Prone W raise", 8),
+                        ex("Dead bug", 10, each_side=True)], 45),
         _block(rounds, [ex("Bent-knee calf raise", 12, kg=db), ex("Standing side bend", 10, kg=db, each_side=True),
                         ex("Glute bridge march", 10, each_side=True)], 45),
         _block(2, [ex("Side plank", secs=40, each_side=True), ex("Superman hold", secs=30)], 30),

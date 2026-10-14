@@ -22,7 +22,7 @@ def message(final, why: str, coach_note: str, r: dict, label: str = "Today", ahe
             done=()) -> tuple[str, str]:
     """`label`: Tomorrow (evening plan), Today, Changed (the morning check changed
     last night's plan) or Updated (a later re-plan)."""
-    sessions = [f"✓ {x}" for x in done] + [s.title for s in final] or ["Nothing left: already done 🎉"]
+    sessions = list(done) + [s.title for s in final] or ["Nothing left: already done 🎉"]
     title = f"{label}: " + " + ".join(sessions)
     lines = [x for x in (why, coach_note) if x]
     lines.append("It's in your Garmin calendar; the morning check adjusts it to your sleep." if r["score"] is None

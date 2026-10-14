@@ -1493,7 +1493,7 @@ def test_late_evening_run_after_midnight_still_plans_the_day():
         assert engine.scheduled(FakeGarmin(wed), CFG, dt.datetime(2026, 10, 14, 1, 47))["status"] == "early"
 
 
-def test_done_sessions_show_as_done_and_strength_reads_line_by_line():
+def test_plan_lists_only_what_to_train_and_strength_reads_line_by_line():
     wed = dt.date(2026, 10, 14)
     cfg = dict(CFG, weekly_templates=dict(CFG["weekly_templates"],
                run_focus=dict(CFG["weekly_templates"]["run_focus"], wed=["bike_quality", "strength"])))
@@ -1504,14 +1504,14 @@ def test_done_sessions_show_as_done_and_strength_reads_line_by_line():
     with fresh():
         engine.run_day(api, cfg, wed, notes_api=todo, now=dt.datetime(2026, 10, 14, 13, 37))
     task = next(t for t in todo.plan if t.due_date == wed)
-    assert task.content.startswith("✓ Lunch Swim 0.5 km + Bike")
+    assert task.content.startswith("Bike") and "Lunch Swim" not in task.content     # an unplanned swim isn't listed
     lines = task.description.splitlines()
-    assert "✓ Done: Lunch Swim 0.5 km" in lines and "• Front squat · 8 reps @ 30 kg" in lines
+    assert "• Front squat · 8 reps @ 30 kg" in lines
     assert any(x.startswith("3 rounds (90\" rest") for x in lines)
     from coach.notify import message
     from coach.planner import make_rest
-    title, _ = message([make_rest()], "", "", {"score": 70}, done=["Lunch Swim 0.5 km"])
-    assert title.startswith("Today: ✓ Lunch Swim 0.5 km + Rest")
+    title, _ = message([make_rest()], "", "", {"score": 70}, done=["Technique swim 1300 m"])
+    assert title == "Today: Technique swim 1300 m + Rest / mobility 20'"
 
 
 def test_replanning_keeps_sessions_already_done():
@@ -1533,7 +1533,7 @@ def test_replanning_keeps_sessions_already_done():
         assert ("sched", swim_item["id"]) not in later.deleted
         assert "Kept as they were (already done today)" in res["report"]
     task = next(t for t in todo.plan if t.due_date == wed and t.id not in todo.completed)
-    assert task.content.startswith("✓ ") and "(done: 0.5 km)" in task.content and "swim" in task.content.lower()
+    assert "swim" in task.content.lower() and "✓" not in task.content and "done" not in task.content.lower()
 
 
 if __name__ == "__main__":

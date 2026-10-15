@@ -577,10 +577,17 @@ def make_run(kind: str, km: float, phase: Phase, wk: int = 0) -> Session:
             detail = f"Long run {km:g} km in Z2, conversational pace. Drink if it goes over 75'."
         return Session(kind, "run", f"Long run {km:g} km", "moderate", km, None, detail, steps)
     if kind == "run_strides":
-        steps = [run_d(km * 1000, 2), jog(60), repeat(6, [run_t(20, None), jog(70)])]
-        return Session(kind, "run", f"Easy run {km:g} km + 6 strides", "easy", km, None,
-                       f"{km:g} km in Z2, 1' walk or easy jog, then 6 × 20\" strides (fast but relaxed) "
-                       "with 70\" easy jog between.", steps)
+        strides = [jog(60), repeat(6, [run_t(20, None), jog(70)])]
+        # the strides are part of the run (the watch keeps recording), so `km` is the
+        # whole run: the easy part is what's left after them (and they count as planned)
+        extra = steps_km(strides)
+        if km - extra < 3:               # too short a run for strides too: just the easy run
+            return make_run("run_easy", km, phase)
+        easy = round((km - extra) * 2) / 2
+        total = round(easy + extra, 1)
+        return Session(kind, "run", f"Easy run {easy:g} km + 6 strides", "easy", total, None,
+                       f"{easy:g} km in Z2, 1' walk or easy jog, then 6 × 20\" strides (fast but relaxed) "
+                       f"with 70\" easy jog between: ~{total:g} km in all.", [run_d(easy * 1000, 2)] + strides)
     if kind == "run_brick":
         return Session(kind, "run", f"Brick run {km:g} km", "moderate", km, None,
                        "Straight off the bike: 1 km easy, the rest in Z3 at triathlon pace.",

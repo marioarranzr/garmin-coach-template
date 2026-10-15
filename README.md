@@ -174,6 +174,11 @@ which days you run, ride, swim and rest:
 | Triathlon | `triathlon` | quality run + swim set, bike intervals, easy run + endurance swim, long ride + brick run, long run, technique swim |
 | Cycling event | `cycling` | two interval rides, a long ride, two short maintenance runs |
 
+A run's distance is the whole run as your watch records it: in an easy run
+with strides, the strides and the jogs between them (~2 km) are part of it, so
+"Easy run 6 km + 6 strides" is planned as ~7.8 km and isn't read as extra
+kilometres afterwards. Runs too short for both are just easy runs.
+
 **Built for performance, not maintenance.** Hard days are hard and easy days
 are easy, so multi-sport weeks use **doubles**: after the run intervals, a
 35' recovery spin (Z1, no impact, it flushes the legs and adds aerobic time);

@@ -785,6 +785,21 @@ def apply_constraints(tpl: dict, mon: dt.date, c: dict, today: dt.date | None = 
 
     for kind, date in c.get("moves") or []:
         t = idx(date)
+        if kind == "run" and t is not None:
+            # "I can run that day": the next run of the week (not the long run) moves there
+            here = WEEKDAYS[t]
+            if any(k.startswith("run_") for k in days[here]):
+                continue
+            order = list(range(t + 1, 7)) + list(range(t - 1, first - 1, -1))
+            pick = next(((WEEKDAYS[i], k) for i in order for pref in ("run_strides", "run_easy", "run_quality")
+                         for k in days[WEEKDAYS[i]] if k == pref), None)
+            k = "run_easy"
+            if pick:
+                src, k = pick
+                days[src].remove(k)
+                days[src] = days[src] or ["rest"]
+            days[here] = [x for x in days[here] if x not in ("rest", "off")] + [k]
+            continue
         if t is None or has(WEEKDAYS[t], kind):
             continue
         src = next((WEEKDAYS[i] for i in range(first, 7) if i != t and has(WEEKDAYS[i], kind)), None)

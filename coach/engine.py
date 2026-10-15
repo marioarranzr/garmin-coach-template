@@ -331,11 +331,11 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     history: list[dict] = []
     if coach["configured"] and final:     # evening: without sleep data; the morning check revisits it
         # notes already marked done (by the coach earlier, or by you) are context, not new input
-        earlier = [{"time": n["time"], "text": n["text"]} for n in notes_today if n["done"]]
+        earlier = [{"created": n["created"], "text": n["text"]} for n in notes_today if n["done"]]
         history = notes_history(diary(cfg, since, d, now, api=notes_api), calendar, acts, d)
         preview_n = max(int((cfg.get("garmin") or {}).get("preview_days", 7)), 6)
         context = ai.build_context(d, phase, wt, wellness, r, ctx, final, planned,
-                                   [{k: n[k] for k in ("id", "time", "text")} for n in open_notes],
+                                   [{k: n[k] for k in ("id", "created", "text")} for n in open_notes],
                                    acts, notes, why, earlier, history,
                                    season=ai.season_context(d, cfg),
                                    coming_days=W.drafts(d, cfg, acts, final, preview_n, quality_days),
@@ -650,7 +650,8 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
     if r["reasons"]:
         L += ["", "**Details:**"] + [f"- {x}" for x in r["reasons"]]
 
-    L += ["", "## Today so far" if evening else "## Yesterday", f"- Planned: {comp['run_planned']} km running",
+    L += ["", "## Today so far" if evening else "## Yesterday",
+          f"- Planned: {' + '.join(comp.get('planned_titles') or []) or 'rest'}",
           f"- Done: {', '.join(comp['done_titles']) or 'nothing recorded'}"]
     if comp["missed"]:
         L.append(f"- Skipped: {', '.join(comp['missed'])}")

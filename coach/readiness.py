@@ -197,6 +197,7 @@ def compliance(planned: list[dict], done: list[dict]) -> dict:
               if s["sport"] in ("run", "bike", "swim") and s["sport"] not in sports_done and not s.get("optional")]
     return {
         "run_planned": round(run_planned, 1),
+        "planned_titles": [s["title"] for s in planned if s.get("title")],
         "run_done": round(run_done, 1),
         "excess_km": round(run_done - run_planned, 1) if run_planned and run_done > run_planned else
                      (round(run_done, 1) if not run_planned and run_done else 0),

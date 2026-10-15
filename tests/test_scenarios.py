@@ -828,7 +828,7 @@ def test_openai_provider_and_note_completion():
         later, oai2, _ = _ai_day(answer, todo=res["todo"], client_cls=FakeOpenAI,
                                  now=dt.datetime.combine(dt.date(2026, 10, 18), dt.time(10)))
         sent = json.loads(oai2.requests[0]["messages"][1]["content"].split("\n", 1)[1])
-        assert sent["earlier_notes_today"] == [{"time": "07:45", "text": "legs heavy"}]
+        assert [(n["created"][11:16], n["text"]) for n in sent["earlier_notes_today"]] == [("07:45", "legs heavy")]
     with fresh() as tmp:                     # dry run: nothing completed
         res, _, _ = _ai_day(answer, notes=notes, client_cls=FakeOpenAI,
                             upload=False)
@@ -876,7 +876,7 @@ def test_notes_from_the_last_14_hours_open_and_done():
                                  now=dt.datetime.combine(day, dt.time(8)))
     sent = json.loads(claude.requests[0]["messages"][0]["content"].split("\n", 1)[1])
     assert [n["text"] for n in sent["athlete_notes_today"]] == ["very tired after the ride", "left calf tight"]
-    assert sent["earlier_notes_today"] == [{"time": "06:50", "text": "slept badly"}]
+    assert [(n["created"][11:16], n["text"]) for n in sent["earlier_notes_today"]] == [("06:50", "slept badly")]
     assert sorted(todo.completed) == ["t1", "t3"]                 # open ones it used; not the done one
     assert "“slept badly” (06:50, already done)" in res["report"]
 
@@ -975,8 +975,8 @@ def test_yesterday_is_read_back_from_the_garmin_calendar():
     uploaded = [s for s in first["final"] if s.steps]
     assert [e["session"]["kind"] for e in back] == [s.kind for s in uploaded]
     assert all(e["meta"]["r"] == first["readiness"]["score"] and e["meta"]["at"] == "07:42" for e in back)
-    planned_km = sum(s.distance_km or 0 for s in first["final"] if s.sport == "run")
-    assert f"Planned: {round(planned_km, 1)} km running" in res["report"]
+    # everything that was planned, not just the running km
+    assert f"- Planned: {' + '.join(s.title for s in uploaded)}" in res["report"]
 
 
 def test_workout_description_is_readable_and_read_back():
@@ -1667,6 +1667,16 @@ def test_daytime_checks_replan_only_after_new_training():
         later = engine.run_day(FakeGarmin(d, today_acts=[ride]), CFG, d, notes_api=todo,
                                now=dt.datetime(2026, 10, 14, 19), wait_for_sleep=True)
         assert later["status"] == "done"
+
+
+def test_a_note_saying_i_can_run_moves_a_run_onto_that_day():
+    """"Tomorrow I can run", written Wednesday: Thursday's rest day gets the week's next run."""
+    from coach.planner import apply_constraints
+    tpl = CFG["weekly_templates"]["run_focus"]
+    mon, thu = dt.date(2026, 10, 12), dt.date(2026, 10, 15)
+    days = apply_constraints(dict(tpl, thu=["rest"], fri=["run_strides"]), mon,
+                             {"moves": [("run", thu)]}, today=thu)
+    assert days["thu"] == ["run_strides"] and days["fri"] == ["rest"]
 
 
 if __name__ == "__main__":

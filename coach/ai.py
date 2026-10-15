@@ -86,6 +86,9 @@ one missed workout.
 - Look at the whole picture across sports: several big days in a row (e.g. long rides) leave the \
 legs tired even when HRV, sleep and Body Battery look fine. Running on tired legs is the classic \
 injury pattern, especially for someone returning to running.
+- Each note has the time it was written ("created"): read "today", "yesterday" and "tomorrow" in it \
+from that date, not from the day you're planning (a note from yesterday evening saying "tomorrow" \
+means the day you're planning; "today" in it means yesterday).
 - Take the athlete's own notes seriously (pain, illness, heavy legs, poor sleep, stress, motivation). \
 Pain in a joint or tendon means no running that day. Feeling great is not a reason to add volume.
 - Notes may include unrelated things (shopping, work); ignore those.
@@ -331,7 +334,7 @@ def _client(prov: str, client=None):
 
 
 # ── notes about the coming days ("can't train on Sunday", "long run Saturday") ──
-SCHEDULE_KINDS = ["run_long", "run_quality", "bike_long", "bike_quality", "swim"]
+SCHEDULE_KINDS = ["run_long", "run_quality", "bike_long", "bike_quality", "swim", "run"]
 SCHEDULE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -352,13 +355,13 @@ SCHEDULE_SYSTEM = """You read an athlete's short notes and pick out what they sa
 
 Return:
 - "unavailable": dates (YYYY-MM-DD) they can't train at all ("I can't train on Sunday", "travelling Friday and Saturday").
-- "moves": where they want a key session: {"kind": "run_long" | "run_quality" | "bike_long" | "bike_quality" | "swim", "date"} ("long run on Saturday this week", "intervals on Thursday").
+- "moves": where they want a key session: {"kind": "run_long" | "run_quality" | "bike_long" | "bike_quality" | "swim", "date"} ("long run on Saturday this week", "intervals on Thursday"). "kind": "run" means they want or can go for a run that day, any run ("tomorrow I can go for a run", "I haven't run since Tuesday, I'd like to run Thursday"): the next run of the week moves there, even onto a rest day.
 - "no_swim_until": the last date with no swims if they don't want to swim ("no swimming this week" → that week's Sunday), else "".
 - "summary": one short sentence of what changes, for the athlete, or "" if nothing.
-- "preferences": the athlete's LASTING preferences and feedback about how they like to train or how sessions should be built ("give me 1' of walking before the strides", "I prefer long runs on Saturday", "I don't like the treadmill"), as short imperative lines for a coach. Start from "current_preferences" and return the full updated list: keep them unless a note changes or cancels one, add new lasting ones from "open_notes", merge duplicates. One-off things (this week, how they feel today) are NOT preferences.
+- "preferences": the athlete's LASTING preferences and feedback about how they like to train or how sessions should be built ("give me 1' of walking before the strides", "I prefer long runs on Saturday", "I don't like the treadmill"), as short imperative lines for a coach. Start from "current_preferences" and return the full updated list: keep them unless a note changes or cancels one, add new lasting ones from "open_notes", merge duplicates. One-off things are NOT preferences: anything about a particular day or date (today, tomorrow, Friday, this week, "I can run tomorrow"), when they can or can't train, how they feel, the weather. Those go in "unavailable"/"moves" or nowhere; also drop any such entry already in "current_preferences".
 - "notes_used": the ids of the notes in "open_notes" that are about the schedule or are lasting preferences (never ids of other notes; "earlier_notes" have no ids and are context only).
 
-Resolve weekdays and "tomorrow"/"this week"/"next week" against the date each note was written ("created"), weeks run Monday to Sunday. Only dates from "today" up to "until" count; ignore anything older or later. If a later note contradicts an earlier one, the later one wins. If nothing is about the schedule, return empty lists, "" and []."""
+Resolve weekdays and "today"/"yesterday"/"tomorrow"/"this week"/"next week" against the date each note was written ("created"), NOT against "today": a note written on Wednesday evening saying "tomorrow I can run" means Thursday, even if you read it on Thursday. Weeks run Monday to Sunday. Only dates from "today" up to "until" count; ignore anything older or later. If a later note contradicts an earlier one, the later one wins. If nothing is about the schedule, return empty lists, "" and []."""
 
 
 def schedule_changes(cfg: dict, context: dict, client=None, prov: str | None = None) -> dict:

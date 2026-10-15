@@ -75,6 +75,42 @@ def scheduled(api, cfg: dict, now: dt.datetime, upload: bool = True, **kw) -> di
     return run_day(api, cfg, now.date(), upload=upload, now=now, wait_for_sleep=True, **kw)
 
 
+def last_check(cfg: dict, d: dt.date, today_cal: list[dict], notes_api=None) -> tuple[str | None, int | None]:
+    """When today's plan was last checked ("HH:MM") and how many of today's activities
+    it had seen: from the workouts' footers and today's Todoist plan task (kept up to
+    date even when nothing is re-uploaded). The latest check wins."""
+    metas = [e["meta"] for e in today_cal if e["meta"].get("at")]
+    marker = rest_day_marker(cfg, d, api=notes_api)
+    if marker and marker["meta"].get("at"):
+        metas.append(marker["meta"])
+    if not metas:
+        return None, None
+    last = max(metas, key=lambda m: m["at"])
+    return last["at"], last.get("seen")
+
+
+def todays_training(acts: list[dict], d: dt.date) -> list[dict]:
+    return [a for a in acts if a["date"] == d.isoformat() and is_training(a)]
+
+
+def trained_since(api, d: dt.date, at: str | None, seen: int | None, strava_http=None) -> list[str]:
+    """Training today (Garmin or Strava) the last check didn't see: more activities
+    than it counted (a watch synced late still counts), or, for checks that didn't
+    count them, ones that ended after it."""
+    if not at:
+        return []
+    from . import strava as S
+    acts = S.merge(G.fetch_activities(api, d, d), S.fetch(d, d, **({"http": strava_http} if strava_http else {})))[0]
+    acts = todays_training(acts, d)
+    if seen is not None:
+        new = acts[seen:] if len(acts) > seen else []
+    else:
+        since = dt.datetime.combine(d, dt.time.fromisoformat(at))
+        new = [a for a in acts if a.get("start") and dt.datetime.fromisoformat(a["start"])
+               + dt.timedelta(minutes=a.get("duration_min") or 0) > since]
+    return [f"{a.get('name') or a['sport']} ({a.get('duration_min', 0):.0f}')" for a in new]
+
+
 def coach_plan_for(api, cfg: dict, day: dt.date, notes_api=None) -> list[dict]:
     """The coach's plan for `day`: its workouts in Garmin, or a rest day (no workout;
     read back from its Todoist plan task)."""
@@ -124,8 +160,13 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     open_notes = [n for n in notes_today if not n["done"]]
     new_notes = [n for n in open_notes if _added_after(n, today_cal, d)]
     if wait_for_sleep and checked and planned_sleep and not new_notes:
-        msg = f"Today's workout was already checked this morning ({', '.join(e['name'] for e in today_cal)})."
-        return {"status": "done", "report": msg + "\n"}
+        # checked already: during the day, look again only if you've trained since
+        trained = trained_since(api, d, *last_check(cfg, d, today_cal, notes_api), strava_http=strava_http)
+        if not trained:
+            msg = (f"Today's workout was already checked ({', '.join(e['name'] for e in today_cal)}); "
+                   "no new training or notes since.")
+            return {"status": "done", "report": msg + "\n"}
+        log.info("New training since the last check (%s): checking the plan again.", ", ".join(trained))
 
     wellness = G.fetch_wellness(api, d - dt.timedelta(days=1) if evening else d)
     sleep_ready = evening or wellness.get("sleep_hours") is not None or wellness.get("sleep_score") is not None
@@ -146,6 +187,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     # rides that reach Strava but not Garmin (MyWhoosh, Zwift…), if Strava is connected
     from . import strava as S
     acts, from_strava = S.merge(acts, S.fetch(since, d, **({"http": strava_http} if strava_http else {})))
+    seen_today = len(todays_training(acts, d))
     set_swim_capacity(swim_capacity(acts, d))
     from .strength import set_loads
     set_loads(cfg)
@@ -330,7 +372,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
             if not s.steps:
                 continue
             body = _workout_description(s, r, [] if coach.get("used") else notes, why, coach.get("coach_note", ""))
-            desc = fit(body, footer(phase.describe(), now, sleep_ready, evening))
+            desc = fit(body, footer(phase.describe(), now, sleep_ready, evening, seen_today))
             try:
                 uploads.append(G.upload_and_schedule(api, to_garmin(s, cfg, desc), d.isoformat()))
             except Exception as e:  # noqa: BLE001
@@ -356,6 +398,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     preview = int((cfg.get("garmin") or {}).get("preview_days", 7))
     n_ahead = preview - (1 if evening else 0)
     ahead = W.drafts(d, cfg, acts, final, n_ahead, quality_days) if n_ahead > 0 else []
+    # the drafts of the next days as they were, to tell you if they change
+    old_drafts = ({day: calendar.plan(day, draft=True) for day, _, _, _ in ahead[:2]}
+                  if today_cal and not evening else {})
     if upload:
         draft_cfg = dict(cfg, garmin=dict(cfg.get("garmin") or {},
                                           workout_prefix=(cfg.get("garmin") or {}).get("workout_prefix", "Coach") + " draft"))
@@ -375,9 +420,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     if upload:
         coach["plan_tasks"] = sync_plan(cfg, [(d, final, why, done_today_titles)] + [(day, sess, (wn or [""])[0])
                                                                  for day, _, sess, wn in ahead], api=notes_api,
-                                       # a day with nothing for Garmin (rest): the footer marks it as planned
-                                       footer="" if kept or any(s.steps for s in final)
-                                       else footer(phase.describe(), now, sleep_ready, evening))
+                                       # when it was planned/checked (rest days have no workout to say so)
+                                       footer=footer(phase.describe(), now, sleep_ready, evening, seen_today))
 
     # notes the coach used: label them for your diary and complete them in Todoist (real runs only)
     if upload and used:
@@ -387,6 +431,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                                             label=diary_label(cfg))
 
     # a push to your phone (and so your watch) with the plan, if NTFY_TOPIC is set
+    ahead_changed = bool(today_cal) and not evening and any(
+        sorted(x["session"]["title"] for x in old_drafts.get(day, [])) != sorted(s.title for s in sess if s.steps)
+        for day, _, sess, _ in ahead[:2])
     before = sorted(e["session"]["title"] for e in today_cal if e not in kept)     # what's done isn't a change
     after = sorted(s.title for s in final if s.steps)
     coach["unchanged"] = bool(today_cal) and before == after
@@ -394,7 +441,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         label = "Tomorrow"
     elif not today_cal:
         label = "Today"
-    elif not coach["unchanged"]:
+    elif not coach["unchanged"] or ahead_changed:
         label = "Changed" if any(e["meta"].get("eve") for e in today_cal) else "Updated"
     else:   # the morning check keeps last night's plan: no need to buzz your wrist (manual runs still do)
         label = None if wait_for_sleep else "Today"

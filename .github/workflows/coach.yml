@@ -10,10 +10,19 @@ on:
     # scheduled runs on the hour; extra runs stop straight away.
     # `python -m coach setup` sets this for your time zone.
     - cron: "17,47 6-9,19-21 * * *"
+    # During the day, every 3 hours: re-checks today's plan if you've trained
+    # since the last check (a notification only if the plan changes). Any run
+    # between the morning check and the evening plan does this, so the hours
+    # don't need to be exact (13/16/19 in summer, 12/15/18 in winter in Europe).
+    - cron: "17 11,14,17 * * *"
   workflow_dispatch:        # "Run workflow" button (also from the GitHub mobile app)
     inputs:
       dry_run:
         description: "Analyze only, don't upload to Garmin"
+        type: boolean
+        default: false
+      scheduled:
+        description: "Act like a scheduled run (for an outside scheduler such as cron-job.org)"
         type: boolean
         default: false
 
@@ -76,7 +85,7 @@ jobs:
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             python -m coach run --auto --dry-run       # analyze only
-          elif [ "${{ github.event_name }}" = "schedule" ]; then
+          elif [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.scheduled }}" = "true" ]; then
             python -m coach run --scheduled            # morning check or evening plan, by your local time
           else
             python -m coach run --auto                 # manual run: today, or tomorrow after the evening plan time

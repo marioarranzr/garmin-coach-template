@@ -38,13 +38,18 @@ def fit(body: str, footer: str) -> str:
 EVENING = "Planned the evening before"
 
 
-def footer(phase_text: str, planned_at: dt.datetime, sleep_ready: bool, evening: bool = False) -> str:
+def footer(phase_text: str, planned_at: dt.datetime, sleep_ready: bool, evening: bool = False,
+           seen: int | None = None) -> str:
     """The last lines of a workout's description, which the coach reads back:
-    the evening plan says so; the morning check says when it checked."""
+    the evening plan says so; the morning check says when it checked, and how
+    many of that day's activities it had seen (a new one means: check again)."""
     if evening:
         return f"{phase_text}\n{EVENING} ({planned_at:%a %H:%M}); checked again in the morning."
     lines = [] if sleep_ready else [NO_SLEEP]
-    return "\n".join(lines + [f"{phase_text}", f"Checked {planned_at:%H:%M}."])
+    lines += [f"{phase_text}", f"Checked {planned_at:%H:%M}."]
+    if seen is not None:
+        lines.append(f"Activities seen today: {seen}.")
+    return "\n".join(lines)
 
 
 def read_description(description: str | None) -> dict:
@@ -69,6 +74,9 @@ def read_description(description: str | None) -> dict:
         meta["at"] = at[-1]              # checked that morning (or later that day)
     if EVENING in text:
         meta["eve"] = 1                  # planned the evening before, not checked yet
+    seen = re.findall(r"^Activities seen today: (\d+)\.$", text, flags=re.M)
+    if seen:
+        meta["seen"] = int(seen[-1])
     return meta
 
 

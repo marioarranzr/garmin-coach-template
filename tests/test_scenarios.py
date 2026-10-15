@@ -1643,6 +1643,32 @@ def test_rides_only_in_strava_count_as_training():
     assert len(merged) == 1 and not extra
 
 
+def test_daytime_checks_replan_only_after_new_training():
+    """Checks during the day re-plan only when you've trained since the last one
+    (even if the watch synced late), and notify only if the plan changes."""
+    d = dt.date(2026, 10, 14)                         # Wednesday: a ride in the plan
+    sent = []
+    with fresh():
+        todo = FakeTodoist([])
+        todo.day = d
+        first = engine.run_day(FakeGarmin(d), CFG, d, notes_api=todo, now=dt.datetime(2026, 10, 14, 8),
+                               wait_for_sleep=True, poster=lambda *a: sent.append(a))
+        assert any(s.sport == "bike" for s in first["final"])
+        task = next(t for t in todo.plan if t.due_date == d)
+        assert "Checked 08:00." in task.description and "Activities seen today: 0." in task.description
+        quiet = engine.run_day(FakeGarmin(d), CFG, d, notes_api=todo, now=dt.datetime(2026, 10, 14, 13),
+                               wait_for_sleep=True)
+        assert quiet["status"] == "done" and "no new training" in quiet["report"]
+        # a ride at 07:00 that only synced now: the 08:00 check hadn't seen it
+        ride = act("2026-10-14", "road_biking", 25, 60)
+        again = engine.run_day(FakeGarmin(d, today_acts=[ride]), CFG, d, notes_api=todo,
+                               now=dt.datetime(2026, 10, 14, 16), wait_for_sleep=True)
+        assert again["status"] != "done" and not any(s.sport == "bike" for s in again["final"])
+        later = engine.run_day(FakeGarmin(d, today_acts=[ride]), CFG, d, notes_api=todo,
+                               now=dt.datetime(2026, 10, 14, 19), wait_for_sleep=True)
+        assert later["status"] == "done"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

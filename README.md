@@ -62,18 +62,39 @@ up in the evening. Each morning the coach checks it against how you slept.
    without it. If nothing reaches Garmin, it checks at 10:00
    (`wait_for_sleep_until`) at the latest. Later runs that morning stop
    straight away, unless you write a new note in Todoist.
-4. **What you've already done stays as it was.** When the plan for today is
+4. **During the day, every 3 hours**, it checks whether you've trained since
+   the last check (in Garmin or, if connected, Strava; a watch that synced
+   late counts too, since it counts the day's activities). If you have, or
+   you wrote a new note, it plans the rest of today and the next days again,
+   and you get "Updated: …" only if something changed. Otherwise it stops
+   straight away. Nothing runs at night.
+5. **What you've already done stays as it was.** When the plan for today is
    updated (a new note, a re-run), sessions you've already done keep their
    workout in Garmin and stay in the Todoist task as they were planned; only
    what's still to do changes. The plan shows what to train; what you did is
    in Garmin. Past days are never touched.
-5. You can **re-run it any time** from GitHub, including from the mobile app.
+6. You can **re-run it any time** from GitHub, including from the mobile app.
    Before 21:00 a manual run re-plans today; after 21:00, tomorrow.
 
 GitHub sometimes delays scheduled runs by hours, or drops them, especially on
 the hour. So the coach runs at :17 and :47 within each window, and runs that
 find nothing to do stop straight away. If the evening plan only arrives after
 midnight, it plans that day then, and the morning check revisits it.
+
+**For reliable timing, trigger it from outside GitHub.** GitHub can drop most
+scheduled runs on busy days. A free scheduler like [cron-job.org](https://cron-job.org)
+runs on time, in your time zone, and starts the workflow through GitHub's API:
+1. Create a fine-grained token on GitHub (Settings → Developer settings →
+   Fine-grained tokens): only your private repository, permission
+   **Actions: Read and write**, expiry up to a year.
+2. On cron-job.org, create a job:
+   - URL `https://api.github.com/repos/<you>/<your-repo>/actions/workflows/coach.yml/dispatches`
+   - Schedule (custom, your time zone): minutes `0,30`, hours `8,9,10,13,16,19,21`
+   - Advanced → Request method **POST**; headers `Authorization: Bearer <token>`,
+     `Accept: application/vnd.github+json`; body
+     `{"ref":"main","inputs":{"scheduled":"true"}}`
+3. Keep GitHub's own schedule as a backup: extra runs find the day already
+   planned and stop straight away.
 
 The times are your local time all year: GitHub's schedule has no time zones,
 so it runs at the UTC hours for both your winter and summer time, and the

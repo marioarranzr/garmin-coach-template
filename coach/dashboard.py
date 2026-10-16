@@ -250,7 +250,7 @@ def _svg_history(history: list[dict]) -> str:
         label = dt.date.fromisoformat(h["week_of"]).strftime("%d/%m")
         if h["run_km"] > 0:
             bh = max((h["run_km"] / peak) * (chart_h - 2), 2)
-            parts.append(f'<rect x="{x:.1f}" y="{chart_h - bh:.1f}" width="{bar_w:.1f}" height="{bh:.1f}" fill="var(--run)" opacity="{bar_op}" rx="2"><title>{h["run_km"]:g} km · {label}</title></rect>')
+            parts.append(f'<rect x="{x:.1f}" y="{chart_h - bh:.1f}" width="{bar_w:.1f}" height="{bh:.1f}" fill="var(--run)" opacity="{bar_op}" rx="2" data-km="{h["run_km"]:g}" data-week="{label}" style="cursor:default"/>')
         else:
             parts.append(f'<rect x="{x:.1f}" y="{chart_h - 1:.1f}" width="{bar_w:.1f}" height="1" fill="var(--border)" opacity="0.35"/>')
         parts.append(f'<text x="{cx:.1f}" y="{VH}" text-anchor="middle" fill="var(--fg)" opacity="0.55" font-size="9.5">{label}</text>')
@@ -840,6 +840,12 @@ _PAGE = (
     '  .why-grid { grid-template-columns: 1fr; }\n'
     '  .tab { padding: 8px 12px; font-size: .8rem; }\n'
     '}\n'
+    '#chart-tip {\n'
+    '  position:fixed;background:var(--surface);border:1px solid var(--border);\n'
+    '  color:var(--fg);font-size:.8rem;padding:4px 10px;border-radius:6px;\n'
+    '  pointer-events:none;display:none;white-space:nowrap;z-index:100;\n'
+    '  box-shadow:0 2px 8px rgba(0,0,0,.4);\n'
+    '}\n'
     '</style>\n'
     '</head>\n'
     '<body>\n'
@@ -890,12 +896,27 @@ _PAGE = (
     '  </div>\n'
     '</section>\n'
     '\n'
+    '<div id="chart-tip"></div>\n'
     '<footer class="ftr">\n'
     '  Garmin Coach &middot; updated a few times a day via GitHub Actions\n'
     '</footer>\n'
     '</div>\n'
     '\n'
     '<script>\n'
+    '(function(){\n'
+    '  var tip=document.getElementById("chart-tip");\n'
+    '  document.querySelectorAll(".hist-chart rect[data-km]").forEach(function(r){\n'
+    '    r.addEventListener("mouseenter",function(){\n'
+    '      tip.textContent=r.dataset.km+" km · "+r.dataset.week;\n'
+    '      tip.style.display="block";\n'
+    '    });\n'
+    '    r.addEventListener("mousemove",function(e){\n'
+    '      tip.style.left=(e.clientX+14)+"px";\n'
+    '      tip.style.top=(e.clientY-32)+"px";\n'
+    '    });\n'
+    '    r.addEventListener("mouseleave",function(){tip.style.display="none";});\n'
+    '  });\n'
+    '})();\n'
     'function showTab(btn) {\n'
     '  document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));\n'
     '  document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));\n'

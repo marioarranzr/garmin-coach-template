@@ -229,69 +229,53 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
 # ── SVG chart ─────────────────────────────────────────────────────────────────
 
 def _svg_history(history: list[dict]) -> str:
-    """Stacked bar chart: run (green) + bike (orange) + swim (blue), each on its own scale."""
+    """Three-lane bar chart: one strip per sport (run/bike/swim), each on its own scale."""
     if not history:
         return "<p style='color:var(--muted);font-size:.83rem'>No history yet.</p>"
 
-    peak_run = max(h["run_km"] for h in history) or 1
-    peak_bike = max(h["bike_min"] for h in history) or 1
-    peak_swim = max(h["swim_m"] for h in history) or 1
-
-    def _fmt_bike(mins: float) -> str:
-        return f"{int(mins)}'" if mins < 120 else f"{mins / 60:.1g}h"
-
-    def _fmt_swim(m: float) -> str:
-        return f"{m / 1000:.1g}k" if m >= 1000 else f"{m:.0f}m"
-
     n = len(history)
-    VW, VH = 800, 155
-    bar_w = VW / n * 0.62
-    spacing = VW / n
-    chart_top = 42
-    chart_bot = 20
-    chart_h = VH - chart_top - chart_bot
+    VW, VH = 800, 158
+    chart_bot = 18
+    label_w = 44
+    GAP = 5
+    N_LANES = 3
+    lane_h = (VH - chart_bot - GAP * (N_LANES - 1)) // N_LANES  # ~43 px
 
-    H_RUN = chart_h * 0.60
-    H_BIKE = chart_h * 0.25
-    H_SWIM = chart_h * 0.15
+    bar_area_w = VW - label_w
+    spacing = bar_area_w / n
+    bar_w = spacing * 0.7
+
+    LANES = [
+        ("Run",  "var(--run)",  [h["run_km"]  for h in history]),
+        ("Bike", "var(--bike)", [h["bike_min"] for h in history]),
+        ("Swim", "var(--swim)", [h["swim_m"]  for h in history]),
+    ]
 
     parts: list[str] = []
 
-    for i, h in enumerate(history):
-        cx = i * spacing + spacing / 2
-        x = cx - bar_w / 2
-        is_cur = i == n - 1
-        bar_op = "0.92" if is_cur else "0.65"
-        lbl_op = "0.9" if is_cur else "0.6"
-        label = dt.date.fromisoformat(h["week_of"]).strftime("%d/%m")
+    for li, (sport, color, vals) in enumerate(LANES):
+        peak = max(vals) or 1
+        lane_top = li * (lane_h + GAP)
+        lane_bot = lane_top + lane_h
 
-        rh = (h["run_km"] / peak_run) * H_RUN if h["run_km"] > 0 else 0
-        bh_seg = (h["bike_min"] / peak_bike) * H_BIKE if h["bike_min"] > 0 else 0
-        sh = (h["swim_m"] / peak_swim) * H_SWIM if h["swim_m"] > 0 else 0
-        total_h = rh + bh_seg + sh
+        label_y = lane_top + lane_h // 2 + 4
+        parts.append(f'<text x="{label_w - 5}" y="{label_y}" text-anchor="end" fill="{color}" font-size="10" opacity="0.75">{sport}</text>')
 
-        bot = chart_top + chart_h
-        if rh:
-            parts.append(f'<rect x="{x:.1f}" y="{bot - rh:.1f}" width="{bar_w:.1f}" height="{rh:.1f}" fill="var(--run)" opacity="{bar_op}" rx="2"/>')
-            bot -= rh
-        if bh_seg:
-            parts.append(f'<rect x="{x:.1f}" y="{bot - bh_seg:.1f}" width="{bar_w:.1f}" height="{bh_seg:.1f}" fill="var(--bike)" opacity="{bar_op}" rx="2"/>')
-            bot -= bh_seg
-        if sh:
-            parts.append(f'<rect x="{x:.1f}" y="{bot - sh:.1f}" width="{bar_w:.1f}" height="{sh:.1f}" fill="var(--swim)" opacity="{bar_op}" rx="2"/>')
+        for i, val in enumerate(vals):
+            is_cur = i == n - 1
+            bar_op = "0.92" if is_cur else "0.62"
+            cx = label_w + i * spacing + spacing / 2
+            x = cx - bar_w / 2
 
-        # Per-sport labels above bars (run=bottom, bike=middle, swim=top — matching stack order)
-        if h["run_km"] > 0:
-            parts.append(f'<text x="{cx:.1f}" y="{chart_top - 7:.1f}" text-anchor="middle" fill="var(--run)" font-size="9" opacity="{lbl_op}">{h["run_km"]:g}</text>')
-        if h["bike_min"] > 0:
-            parts.append(f'<text x="{cx:.1f}" y="{chart_top - 18:.1f}" text-anchor="middle" fill="var(--bike)" font-size="9" opacity="{lbl_op}">{_fmt_bike(h["bike_min"])}</text>')
-        if h["swim_m"] > 0:
-            parts.append(f'<text x="{cx:.1f}" y="{chart_top - 29:.1f}" text-anchor="middle" fill="var(--swim)" font-size="9" opacity="{lbl_op}">{_fmt_swim(h["swim_m"])}</text>')
+            if val > 0:
+                bh = max((val / peak) * (lane_h - 2), 2)
+                parts.append(f'<rect x="{x:.1f}" y="{lane_bot - bh:.1f}" width="{bar_w:.1f}" height="{bh:.1f}" fill="{color}" opacity="{bar_op}" rx="1.5"/>')
+            else:
+                parts.append(f'<rect x="{x:.1f}" y="{lane_bot - 1:.1f}" width="{bar_w:.1f}" height="1" fill="var(--border)" opacity="0.35"/>')
 
-        if total_h == 0:
-            parts.append(f'<rect x="{x:.1f}" y="{chart_top + chart_h:.1f}" width="{bar_w:.1f}" height="2" fill="var(--border)" rx="1"/>')
-
-        parts.append(f'<text x="{cx:.1f}" y="{VH:.1f}" text-anchor="middle" fill="var(--fg)" opacity="0.4" font-size="9.5">{label}</text>')
+            if li == N_LANES - 1:
+                label = dt.date.fromisoformat(history[i]["week_of"]).strftime("%d/%m")
+                parts.append(f'<text x="{cx:.1f}" y="{VH}" text-anchor="middle" fill="var(--fg)" opacity="0.55" font-size="9.5">{label}</text>')
 
     return (f'<svg viewBox="0 0 {VW} {VH}" width="100%" '
             f'style="display:block;overflow:visible;max-height:{VH}px" aria-hidden="true">'
@@ -434,10 +418,11 @@ def _status_strip(data: dict) -> str:
         f'</div>'
     )
 
+    pace_lines = "<br>".join(_e(p.strip()) for p in data["paces"].split(" · "))
     paces_html = (
         f'<div class="strip-item">'
         f'<div class="strip-lbl">Paces</div>'
-        f'<div class="strip-sub" style="margin-top:4px;line-height:1.9">{_e(data["paces"])}</div>'
+        f'<div class="strip-sub" style="margin-top:4px;line-height:1.85">{pace_lines}</div>'
         f'</div>'
     )
 

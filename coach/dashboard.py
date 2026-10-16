@@ -41,6 +41,31 @@ def _is_bike(sport: str) -> bool:
 
 # ── data helpers ──────────────────────────────────────────────────────────────
 
+_KIND_LABEL: dict[str, str | None] = {
+    "5k": "5 km road run",
+    "10k": "10 km road run",
+    "half": "Half marathon · 21 km",
+    "marathon": "Marathon · 42 km",
+    "road": None,        # use distance_km from config
+    "tri_sprint": "Sprint triathlon",
+    "tri_olympic": "Olympic triathlon",
+    "tri_half": "70.3",
+    "tri_full": "Ironman",
+    "tri": "Triathlon",
+    "bike": None,        # use distance_km from config
+}
+
+
+def _race_sub(race: dict) -> str:
+    """Short distance/type label for the race status card."""
+    kind = race.get("kind", "")
+    label = _KIND_LABEL.get(kind)
+    if label is None:
+        dist = race.get("distance_km")
+        label = f"{dist:g} km" if dist else kind.replace("_", " ")
+    return label
+
+
 def _race_countdown(cfg: dict, today: dt.date) -> dict | None:
     races = sorted(
         (r for r in cfg.get("races") or []
@@ -59,6 +84,8 @@ def _race_countdown(cfg: dict, today: dt.date) -> dict | None:
         "weeks": round(weeks, 1),
         "priority": r.get("priority", "A"),
         "kind": r["kind"],
+        "distance_km": r.get("distance_km"),
+        "distances": r.get("distances"),
     }
 
 
@@ -202,62 +229,73 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
 # ── SVG chart ─────────────────────────────────────────────────────────────────
 
 def _svg_history(history: list[dict]) -> str:
-    """Inline SVG bar chart for weekly running volume."""
+    """Stacked bar chart: run (green) + bike (orange) + swim (blue), each on its own scale."""
     if not history:
         return "<p style='color:var(--muted);font-size:.83rem'>No history yet.</p>"
-    peak = max(h["run_km"] for h in history) or 1
+
+    peak_run = max(h["run_km"] for h in history) or 1
+    peak_bike = max(h["bike_min"] for h in history) or 1
+    peak_swim = max(h["swim_m"] for h in history) or 1
+
     n = len(history)
-    VW, VH = 800, 120
+    VW, VH = 800, 132
     bar_w = VW / n * 0.62
     spacing = VW / n
-    chart_top = 16
+    chart_top = 18
     chart_bot = 20
     chart_h = VH - chart_top - chart_bot
 
-    parts: list[str] = []
+    H_RUN = chart_h * 0.60
+    H_BIKE = chart_h * 0.25
+    H_SWIM = chart_h * 0.15
+
+    parts: list[str] = [
+        '<circle cx="6" cy="9" r="4" fill="var(--run)" opacity="0.75"/>',
+        '<text x="13" y="12" fill="var(--muted)" font-size="9">run km</text>',
+        '<circle cx="62" cy="9" r="4" fill="var(--bike)" opacity="0.75"/>',
+        '<text x="69" y="12" fill="var(--muted)" font-size="9">bike</text>',
+        '<circle cx="96" cy="9" r="4" fill="var(--swim)" opacity="0.75"/>',
+        '<text x="103" y="12" fill="var(--muted)" font-size="9">swim</text>',
+    ]
+
     for i, h in enumerate(history):
         cx = i * spacing + spacing / 2
         x = cx - bar_w / 2
         is_cur = i == n - 1
-        pct = h["run_km"] / peak
-        bh = max(pct * chart_h, 2 if h["run_km"] > 0 else 0)
-        by = chart_top + chart_h - bh
-        opacity = "0.88" if is_cur else "0.42"
+        opacity = "0.9" if is_cur else "0.45"
         label = dt.date.fromisoformat(h["week_of"]).strftime("%d/%m")
 
-        if h["run_km"] > 0:
-            parts.append(
-                f'<rect x="{x:.1f}" y="{by:.1f}" width="{bar_w:.1f}" height="{bh:.1f}" '
-                f'fill="var(--run)" opacity="{opacity}" rx="2"/>'
-            )
-            val_y = by - 3
-            parts.append(
-                f'<text x="{cx:.1f}" y="{val_y:.1f}" text-anchor="middle" '
-                f'fill="var(--fg)" font-size="10" opacity="{opacity}">{h["run_km"]:g}</text>'
-            )
+        rh = (h["run_km"] / peak_run) * H_RUN if h["run_km"] > 0 else 0
+        bh_seg = (h["bike_min"] / peak_bike) * H_BIKE if h["bike_min"] > 0 else 0
+        sh = (h["swim_m"] / peak_swim) * H_SWIM if h["swim_m"] > 0 else 0
+        total_h = rh + bh_seg + sh
+
+        bot = chart_top + chart_h
+        if rh:
+            parts.append(f'<rect x="{x:.1f}" y="{bot - rh:.1f}" width="{bar_w:.1f}" height="{rh:.1f}" fill="var(--run)" opacity="{opacity}" rx="2"/>')
+            bot -= rh
+        if bh_seg:
+            parts.append(f'<rect x="{x:.1f}" y="{bot - bh_seg:.1f}" width="{bar_w:.1f}" height="{bh_seg:.1f}" fill="var(--bike)" opacity="{opacity}" rx="2"/>')
+            bot -= bh_seg
+        if sh:
+            parts.append(f'<rect x="{x:.1f}" y="{bot - sh:.1f}" width="{bar_w:.1f}" height="{sh:.1f}" fill="var(--swim)" opacity="{opacity}" rx="2"/>')
+
+        if total_h > 0:
+            val_y = chart_top + chart_h - total_h - 3
+            if h["run_km"] > 0:
+                parts.append(f'<text x="{cx:.1f}" y="{val_y:.1f}" text-anchor="middle" fill="var(--fg)" font-size="10" opacity="{opacity}">{h["run_km"]:g}</text>')
         else:
-            parts.append(
-                f'<rect x="{x:.1f}" y="{chart_top + chart_h:.1f}" width="{bar_w:.1f}" height="2" '
-                f'fill="var(--border)" rx="1"/>'
-            )
+            parts.append(f'<rect x="{x:.1f}" y="{chart_top + chart_h:.1f}" width="{bar_w:.1f}" height="2" fill="var(--border)" rx="1"/>')
 
-        parts.append(
-            f'<text x="{cx:.1f}" y="{VH:.1f}" text-anchor="middle" '
-            f'fill="var(--muted)" font-size="9.5">{label}</text>'
-        )
+        parts.append(f'<text x="{cx:.1f}" y="{VH:.1f}" text-anchor="middle" fill="var(--muted)" font-size="9.5">{label}</text>')
 
-    # Accent outline around current week
     cur_cx = (n - 1) * spacing + spacing / 2
-    cur_x = cur_cx - bar_w / 2 - 2
-    parts.append(
-        f'<rect x="{cur_x:.1f}" y="{chart_top - 4}" width="{bar_w + 4:.1f}" '
-        f'height="{chart_h + 8}" fill="none" stroke="var(--accent)" '
-        f'stroke-width="1.5" rx="4" opacity="0.45"/>'
-    )
+    parts.append(f'<rect x="{cur_cx - bar_w / 2 - 2:.1f}" y="{chart_top - 4}" width="{bar_w + 4:.1f}" height="{chart_h + 8}" fill="none" stroke="var(--accent)" stroke-width="1.5" rx="4" opacity="0.45"/>')
 
     return (f'<svg viewBox="0 0 {VW} {VH}" width="100%" '
-            f'style="display:block;overflow:visible;max-height:130px" aria-hidden="true">'
+            f'style="display:block;overflow:visible;max-height:132px" aria-hidden="true">'
             + "".join(parts) + "</svg>")
+
 
 
 # ── HTML helpers ──────────────────────────────────────────────────────────────
@@ -304,10 +342,13 @@ def _day_card(d: dict, compact: bool = False) -> str:
     elif d["is_past"] and not d["planned"]:
         done_html = '<div class="rest-row">Rest</div>'
 
-    # Coach reasoning — full text, visible inline
+    # Coach reasoning — strip footer timestamp, preserve newlines
     reason_html = ""
     if d.get("description") and not compact:
-        reason_html = f'<div class="day-reason">{_e(d["description"].strip())}</div>'
+        import re as _re
+        desc = _re.sub(r'\s*(?:Checked \d+:\d+\.|Planned the evening before\.)\s*$', '', d["description"].strip())
+        desc_html = "<br>".join(_e(line) for line in desc.splitlines()) if "\n" in desc else _e(desc)
+        reason_html = f'<div class="day-reason">{desc_html}</div>'
 
     if compact:
         return (
@@ -362,6 +403,7 @@ def _status_strip(data: dict) -> str:
             f'<div class="strip-lbl">Next race</div>'
             f'<div class="strip-val" style="color:var(--warn)">{race["days"]}&nbsp;days</div>'
             f'<div class="strip-sub">{_e(race["name"])}</div>'
+            f'<div class="strip-sub" style="opacity:.6">{_e(_race_sub(race))}</div>'
             f'</div>'
         )
     else:

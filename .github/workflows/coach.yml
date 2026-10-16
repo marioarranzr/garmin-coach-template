@@ -18,11 +18,7 @@ on:
   workflow_dispatch:        # "Run workflow" button (also from the GitHub mobile app)
     inputs:
       dry_run:
-        description: "Analyze only, don't upload to Garmin"
-        type: boolean
-        default: false
-      scheduled:
-        description: "Act like a scheduled run (for an outside scheduler such as cron-job.org)"
+        description: "Analyse only — don't upload to Garmin"
         type: boolean
         default: false
 
@@ -85,7 +81,7 @@ jobs:
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             python -m coach run --auto --dry-run       # analyze only
-          elif [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.scheduled }}" = "true" ]; then
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
             python -m coach run --scheduled            # morning check or evening plan, by your local time
           else
             python -m coach run --auto                 # manual run: today, or tomorrow after the evening plan time
@@ -102,7 +98,9 @@ jobs:
             exit 0
           fi
           python -m coach export-dashboard --output output
-          cd output && zip /tmp/dashboard.zip index.html
+          # _headers tells Netlify to serve index.html as text/html (zip deploy doesn't auto-detect)
+          printf '/index.html\n  Content-Type: text/html; charset=utf-8\n' > output/_headers
+          cd output && zip /tmp/dashboard.zip index.html _headers
           curl -sf -X POST \
             -H "Content-Type: application/zip" \
             -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \

@@ -12,6 +12,8 @@ athlete:
   pool_length_m: 25
   # Shortest ride worth planning (minutes): anything shorter becomes this long.
   min_ride_minutes: 30
+  # true: never a run the day after a run (2 km+), unless a note asks for one
+  no_runs_on_consecutive_days: false
   # Interval sessions: how far you run easy to the track / to a flat path (km).
   # That run is the warm-up and the way back the cool-down. Leave empty for a
   # 15' warm-up and 10' cool-down wherever you are.

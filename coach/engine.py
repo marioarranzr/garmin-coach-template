@@ -250,6 +250,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     led = W.ledger(past, d, tpl, dist, bdist, quality_ok=not ret and phase.name != "transition",
                    quality_days=quality_days)
     for_today, week_notes, week_why = W.apply(planned, led, phase, dist)
+    for_today, more, b2b_why = W.no_back_to_back_runs(for_today, d, acts, cfg)
+    week_notes, week_why = week_notes + more, week_why or b2b_why
 
     # a long run done early counts as the week's long run, moved to that day
     moved = {}
@@ -347,6 +349,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
             final, why = coach["sessions"], coach["why"] or why
             notes += [f"Safety limit: {x}." for x in coach.get("limited", [])]
     final = ride_rules(final, cfg, phase, notes)
+    final, more, b2b_why = W.no_back_to_back_runs(final, d, acts, cfg)     # also after the AI coach
+    notes += more
+    why = why or b2b_why
     coach["notes_today"] = notes_today
     coach["history_count"] = len(history) if coach.get("used") else 0
     used_ids = set(coach.get("notes_used") or []) | set(sched.get("notes_used") or [])

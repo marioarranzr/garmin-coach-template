@@ -4,12 +4,10 @@ Run `python -m coach dashboard` (after `python -m coach login`). Opens
 http://localhost:8765 in your browser. Reads live from Garmin, Todoist and
 Strava on every load; nothing is uploaded.
 
-Five tabs:
-  Status    — race countdown, phase, weekly target, 12-week volume
-  Why       — training logic: phases, progression, key sessions
-  Decisions — coach's day-by-day reasoning from Garmin + Todoist
-  Training  — all recent activities, filterable by sport
-  Upcoming  — this week and next, with full coach reasoning per day
+Three tabs:
+  Week   — status strip, this week (full descriptions), next week
+  Log    — 12-week volume chart, sport progress, activities table
+  Why    — training logic, phase, volume, 14-day decisions
 """
 from __future__ import annotations
 
@@ -31,6 +29,14 @@ from .planner import (compute_week_target, history_start, learn_long_day,
 
 log = logging.getLogger(__name__)
 PORT = 8765
+
+# Sport types that count as cycling (Garmin + Strava/MyWhoosh variants)
+_BIKE_SPORTS = {"bike", "cycling", "virtual_ride", "indoor_cycling", "e_bike_ride"}
+
+
+def _is_bike(sport: str) -> bool:
+    s = sport.lower()
+    return s in _BIKE_SPORTS or "cycling" in s or s.startswith("bike")
 
 
 # ── data helpers ──────────────────────────────────────────────────────────────
@@ -67,7 +73,7 @@ def _weekly_history(acts: list[dict], today: dt.date, weeks: int = 12) -> list[d
         out.append({
             "week_of": start.isoformat(),
             "run_km": round(sum(a["distance_km"] or 0 for a in wa if a["sport"] == "run"), 1),
-            "bike_min": round(sum(a.get("duration_min") or 0 for a in wa if a["sport"] == "bike"), 0),
+            "bike_min": round(sum(a.get("duration_min") or 0 for a in wa if _is_bike(a["sport"])), 0),
             "swim_m": round(sum((a.get("swum_m") or (a["distance_km"] or 0) * 1000)
                                 for a in wa if a["sport"] == "swim")),
         })
@@ -124,7 +130,7 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
     this_week = _day_rows(cal, acts, mon, 7, today, full_text=True)
     upcoming = _day_rows(cal, acts, mon + dt.timedelta(days=7), 7, today, drafts=True)
 
-    # Full activity list for the Training tab
+    # Full activity list for the Log tab
     activities = []
     for a in acts:
         if (a.get("distance_km") or 0) > 0 or (a.get("duration_min") or 0) > 0:
@@ -138,7 +144,7 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
             })
     activities.sort(key=lambda x: x["date"], reverse=True)
 
-    # Decisions log: last 14 days with coach reasoning from Garmin descriptions
+    # Decisions log: last 14 days with coach reasoning
     decisions = []
     for i in range(14):
         day = today - dt.timedelta(days=i)
@@ -159,13 +165,13 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
                      for a in day_acts],
         })
 
-    # Current week aggregates for progress bars
+    # Current week aggregates — include all bike-type sports
     mon_iso = mon.isoformat()
     tmrw_iso = (today + dt.timedelta(days=1)).isoformat()
     cw = [a for a in acts if mon_iso <= a["date"] < tmrw_iso]
     week_current = {
         "run_km": round(sum(a.get("distance_km") or 0 for a in cw if a["sport"] == "run"), 1),
-        "bike_min": round(sum(a.get("duration_min") or 0 for a in cw if a["sport"] == "bike"), 0),
+        "bike_min": round(sum(a.get("duration_min") or 0 for a in cw if _is_bike(a["sport"])), 0),
         "swim_m": round(sum((a.get("swum_m") or (a.get("distance_km") or 0) * 1000)
                              for a in cw if a["sport"] == "swim")),
     }
@@ -265,52 +271,72 @@ def _dot(sport: str) -> str:
     return f'<span class="dot dot-{_e(cls)}" aria-hidden="true"></span>'
 
 
-def _day_card(d: dict) -> str:
-    cls = "day-today" if d["is_today"] else ("day-past" if d["is_past"] else "")
-    badge = " <span class='today-badge'>today</span>" if d["is_today"] else ""
-    date_str = dt.date.fromisoformat(d["date"]).strftime("%a %d %b")
+def _day_card(d: dict, compact: bool = False) -> str:
+    """Day card: full-width with inline reasoning (compact=True for next-week grid)."""
+    day = dt.date.fromisoformat(d["date"])
+    day_name = day.strftime("%a")
+    day_date = day.strftime("%-d %b") if hasattr(day, "strftime") else day.strftime("%d %b")
+    try:
+        day_date = day.strftime("%-d %b")  # "13 Oct" without leading zero
+    except ValueError:
+        day_date = day.strftime("%d %b").lstrip("0")
+
     planned = " + ".join(_e(p) for p in d["planned"]) or "Rest"
-    done_html = "".join(f'<div class="done-row">&#10003; {_e(x)}</div>' for x in d["done"])
-    desc_html = ""
-    if d.get("description"):
-        desc_html = (
-            '<details class="desc-toggle">'
-            '<summary>Why / details</summary>'
-            f'<pre class="desc-pre">{_e(d["description"])}</pre>'
-            '</details>'
-        )
-    return (
-        f'<div class="day-card {cls}">'
-        f'<div class="day-meta">{_e(date_str)}{badge}</div>'
-        f'<div class="day-session">{planned}</div>'
-        f'{done_html}{desc_html}</div>'
-    )
 
+    if d["is_today"]:
+        row_cls = "day-today"
+        badge = '<span class="today-badge">today</span>'
+    elif d["is_past"]:
+        row_cls = "day-past"
+        badge = ""
+    else:
+        row_cls = ""
+        badge = ""
 
-def _decision_card(d: dict) -> str:
-    cls = "dec-today" if d["is_today"] else ""
-    planned = " + ".join(_e(p) for p in d["planned"])
+    if compact:
+        row_cls += " day-compact"
+
+    # Done activities
     done_html = ""
     if d["done"]:
-        items = "".join(f'<span class="done-item">{_e(x)}</span>' for x in d["done"])
-        done_html = f'<div class="dec-done">&#10003; {items}</div>'
-    elif d["is_past"]:
-        done_html = '<div class="dec-rest">&#8212;</div>'
-    desc_html = ""
-    if d.get("description"):
-        desc_html = (
-            '<details class="desc-toggle">'
-            '<summary>Coach reasoning</summary>'
-            f'<pre class="desc-pre">{_e(d["description"])}</pre>'
-            '</details>'
+        items = " &nbsp;·&nbsp; ".join(_e(x) for x in d["done"])
+        done_html = f'<div class="done-row">&#10003;&nbsp;{items}</div>'
+    elif d["is_past"] and not d["planned"]:
+        done_html = '<div class="rest-row">Rest</div>'
+
+    # Coach reasoning — visible inline
+    reason_html = ""
+    if d.get("description") and not compact:
+        desc = d["description"].strip()
+        short = desc[:350]
+        if len(desc) > 350:
+            # truncate at last sentence boundary
+            cut = short.rfind(". ")
+            short = (short[:cut + 1] if cut > 100 else short) + "…"
+        reason_html = f'<div class="day-reason">{_e(short)}</div>'
+
+    if compact:
+        return (
+            f'<div class="day-card {row_cls}">'
+            f'<div class="day-meta"><span class="day-name">{_e(day_name)}</span>'
+            f' <span class="day-date">{_e(day_date)}</span>{badge}</div>'
+            f'<div class="day-session">{planned}</div>'
+            f'{done_html}</div>'
         )
+
     return (
-        f'<div class="dec-card {cls}">'
-        f'<div class="dec-hd">'
-        f'<span class="dec-date">{_e(d["weekday"])}</span>'
-        f'<span class="dec-plan">{planned}</span>'
+        f'<div class="day-row {row_cls}">'
+        f'<div class="day-label">'
+        f'<div class="day-name">{_e(day_name)}</div>'
+        f'<div class="day-date">{_e(day_date)}</div>'
+        f'{badge}'
         f'</div>'
-        f'{done_html}{desc_html}</div>'
+        f'<div class="day-body">'
+        f'<div class="day-session">{planned}</div>'
+        f'{done_html}'
+        f'{reason_html}'
+        f'</div>'
+        f'</div>'
     )
 
 
@@ -331,110 +357,107 @@ def _act_row(a: dict) -> str:
     )
 
 
-def _stat_cards(data: dict) -> str:
+def _status_strip(data: dict) -> str:
     race = data.get("race")
     wt = data["week_target"]
     phase = data["phase"]
 
     if race:
-        race_card = (
-            f'<div class="stat-card">'
-            f'<div class="lbl">Next race</div>'
-            f'<div class="big" style="color:var(--warn)">{race["days"]}</div>'
-            f'<div class="sub">{_e(race["name"])}</div>'
-            f'<div class="sub">{race["weeks"]:g}&nbsp;weeks away</div>'
+        race_html = (
+            f'<div class="strip-item">'
+            f'<div class="strip-lbl">Next race</div>'
+            f'<div class="strip-val" style="color:var(--warn)">{race["days"]}&nbsp;days</div>'
+            f'<div class="strip-sub">{_e(race["name"])}</div>'
             f'</div>'
         )
     else:
-        race_card = (
-            '<div class="stat-card"><div class="lbl">Next race</div>'
-            '<div class="big" style="color:var(--muted)">&#8212;</div>'
-            '<div class="sub">None configured</div></div>'
+        race_html = (
+            '<div class="strip-item">'
+            '<div class="strip-lbl">Next race</div>'
+            '<div class="strip-val" style="color:var(--muted)">&#8212;</div>'
+            '</div>'
         )
 
-    phase_name_fmt = phase["name"].replace("_", " ").title()
-    phase_card = (
-        f'<div class="stat-card">'
-        f'<div class="lbl">Phase</div>'
-        f'<div class="big" style="font-size:1.1rem;line-height:1.35">{_e(phase_name_fmt)}</div>'
-        f'<div class="sub">{_e(phase["describe"][:80])}</div>'
+    phase_name = phase["name"].replace("_", " ").title()
+    phase_html = (
+        f'<div class="strip-item">'
+        f'<div class="strip-lbl">Phase</div>'
+        f'<div class="strip-val">{_e(phase_name)}</div>'
+        f'<div class="strip-sub">{_e(phase["focus"] or "")}</div>'
         f'</div>'
     )
 
     chronic = wt.get("chronic_km") or 0
     last = wt.get("last_week_km") or 0
-    target_card = (
-        f'<div class="stat-card">'
-        f'<div class="lbl">Weekly target</div>'
-        f'<div class="big">{wt["target_km"]:g}'
-        f'<span style="font-size:.9rem;font-weight:500;color:var(--muted)"> km</span></div>'
-        f'<div class="sub">avg&nbsp;{chronic:g}&nbsp;km &middot; last&nbsp;{last:g}&nbsp;km</div>'
+    target_html = (
+        f'<div class="strip-item">'
+        f'<div class="strip-lbl">Weekly target</div>'
+        f'<div class="strip-val">{wt["target_km"]:g}&nbsp;km</div>'
+        f'<div class="strip-sub">avg&nbsp;{chronic:g}&nbsp;·&nbsp;last&nbsp;{last:g}&nbsp;km</div>'
         f'</div>'
     )
 
-    pace_card = (
-        f'<div class="stat-card">'
-        f'<div class="lbl">Training paces</div>'
-        f'<div class="sub" style="margin-top:8px;line-height:1.8">{_e(data["paces"])}</div>'
+    paces_html = (
+        f'<div class="strip-item">'
+        f'<div class="strip-lbl">Paces</div>'
+        f'<div class="strip-sub" style="margin-top:4px;line-height:1.9">{_e(data["paces"])}</div>'
         f'</div>'
     )
 
-    return race_card + phase_card + target_card + pace_card
+    return race_html + phase_html + target_html + paces_html
 
 
 def _week_progress(data: dict) -> str:
     wt = data["week_target"]
     wc = data.get("week_current", {})
-    cards: list[str] = []
+    parts: list[str] = []
 
+    # Running
     run_done = wc.get("run_km", 0) or 0
     run_target = wt["target_km"] or 1
     pct = min(100, round(100 * run_done / run_target))
-    cards.append(
-        f'<div class="wk-prog-card">'
-        f'<div class="sport-lbl run">Running</div>'
-        f'<div class="prog">'
-        f'<div class="prog-labels"><span>{run_done:g}&nbsp;km</span><span>{run_target:g}&nbsp;km target</span></div>'
+    parts.append(
+        f'<div class="prog-item">'
+        f'<div class="prog-sport run">Running</div>'
+        f'<div class="prog-labels"><span>{run_done:g}&nbsp;km</span>'
+        f'<span>{run_target:g}&nbsp;km target</span></div>'
         f'<div class="prog-track"><div class="prog-fill" style="width:{pct}%;background:var(--run)"></div></div>'
-        f'</div>'
-        f'<div class="wpc-nums">{pct}% of target</div>'
         f'</div>'
     )
 
+    # Cycling (all bike-type sports)
     bike_min = wc.get("bike_min", 0) or 0
     bike_h = wt.get("bike_hours")
     if bike_h or bike_min > 0:
         bike_target_min = (bike_h or 0) * 60
         bpct = min(100, round(100 * bike_min / bike_target_min)) if bike_target_min else 0
-        if bike_target_min:
-            bike_str = f'{bike_min:.0f}&#x2032; of {bike_target_min:.0f}&#x2032; target ({bpct}%)'
-        else:
-            bike_str = f'{bike_min:.0f}&#x2032; this week'
+        bike_done_str = f'{bike_min:.0f}&#x2032;'
+        bike_tgt_str = f'{bike_target_min:.0f}&#x2032; target' if bike_target_min else ""
         prog_fill = (f'<div class="prog-track"><div class="prog-fill" '
-                     f'style="width:{bpct}%;background:var(--bike)"></div></div>')
-        cards.append(
-            f'<div class="wk-prog-card">'
-            f'<div class="sport-lbl bike">Cycling</div>'
-            f'<div class="prog">'
-            f'<div class="prog-labels"><span>{bike_min:.0f}&#x2032;</span>'
-            f'{"<span>" + f"{bike_target_min:.0f}&#x2032; target</span>" if bike_target_min else "<span></span>"}'
-            f'</div>{prog_fill}</div>'
-            f'<div class="wpc-nums">{bike_str}</div>'
+                     f'style="width:{bpct}%;background:var(--bike)"></div></div>'
+                     if bike_target_min else "")
+        parts.append(
+            f'<div class="prog-item">'
+            f'<div class="prog-sport bike">Cycling</div>'
+            f'<div class="prog-labels"><span>{bike_done_str}</span>'
+            f'<span>{bike_tgt_str}</span></div>'
+            f'{prog_fill}'
             f'</div>'
         )
 
+    # Swimming
     swim_m = wc.get("swim_m", 0) or 0
     if swim_m > 0:
-        cards.append(
-            f'<div class="wk-prog-card">'
-            f'<div class="sport-lbl swim">Swimming</div>'
-            f'<div class="wpc-nums" style="margin-top:8px">{swim_m:.0f}&nbsp;m this week</div>'
+        parts.append(
+            f'<div class="prog-item">'
+            f'<div class="prog-sport swim">Swimming</div>'
+            f'<div class="prog-labels"><span>{swim_m:.0f}&nbsp;m</span><span></span></div>'
             f'</div>'
         )
 
-    if not cards:
-        return "<p style='color:var(--muted);font-size:.83rem'>No activities yet this week.</p>"
-    return "\n".join(cards)
+    if not parts:
+        return "<p class='empty-note'>No activities yet this week.</p>"
+    return "\n".join(parts)
 
 
 def _why_html(data: dict) -> str:
@@ -510,6 +533,33 @@ def _why_html(data: dict) -> str:
     return "\n".join(cards)
 
 
+def _decision_card(d: dict) -> str:
+    cls = "dec-today" if d["is_today"] else ""
+    planned = " + ".join(_e(p) for p in d["planned"])
+    done_html = ""
+    if d["done"]:
+        items = "".join(f'<span class="done-item">{_e(x)}</span>' for x in d["done"])
+        done_html = f'<div class="dec-done">&#10003; {items}</div>'
+    elif d["is_past"]:
+        done_html = '<div class="dec-rest">&#8212;</div>'
+    desc_html = ""
+    if d.get("description"):
+        desc_html = (
+            '<details class="desc-toggle">'
+            '<summary>Coach reasoning</summary>'
+            f'<pre class="desc-pre">{_e(d["description"])}</pre>'
+            '</details>'
+        )
+    return (
+        f'<div class="dec-card {cls}">'
+        f'<div class="dec-hd">'
+        f'<span class="dec-date">{_e(d["weekday"])}</span>'
+        f'<span class="dec-plan">{planned}</span>'
+        f'</div>'
+        f'{done_html}{desc_html}</div>'
+    )
+
+
 # ── PAGE template (uses __PLACEHOLDER__ substitution to avoid CSS-brace issues) ──
 
 _PAGE = (
@@ -517,7 +567,11 @@ _PAGE = (
     '<html lang="en">\n'
     '<head>\n'
     '<meta charset="utf-8">\n'
-    '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
+    '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n'
+    '<meta name="theme-color" content="#070d14">\n'
+    '<meta name="apple-mobile-web-app-capable" content="yes">\n'
+    '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n'
+    '<meta name="apple-mobile-web-app-title" content="Coach">\n'
     '<title>Garmin Coach</title>\n'
     '<style>\n'
     ':root {\n'
@@ -544,14 +598,14 @@ _PAGE = (
     '  font-size: 14px; line-height: 1.55; min-height: 100%;\n'
     '}\n'
     '.app {\n'
-    '  max-width: 980px; margin: 0 auto;\n'
+    '  max-width: 860px; margin: 0 auto;\n'
     '  padding-left: max(16px, env(safe-area-inset-left,0px));\n'
     '  padding-right: max(16px, env(safe-area-inset-right,0px));\n'
     '  padding-block: 0 64px;\n'
     '}\n'
     '.hdr {\n'
-    '  display: flex; align-items: center; gap: 10px;\n'
-    '  padding-block: 15px 11px; border-bottom: 1px solid var(--border);\n'
+    '  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;\n'
+    '  padding-block: 14px 11px; border-bottom: 1px solid var(--border);\n'
     '}\n'
     '.hdr-title { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; }\n'
     '.hdr-pill {\n'
@@ -569,111 +623,114 @@ _PAGE = (
     '  cursor: pointer; transition: background .15s;\n'
     '}\n'
     '.btn:hover { background: var(--s2); }\n'
+    '.strip {\n'
+    '  display: grid; grid-template-columns: repeat(auto-fill,minmax(160px,1fr));\n'
+    '  gap: 10px; padding: 14px 0 0;\n'
+    '}\n'
+    '.strip-item {\n'
+    '  background: var(--s1); border: 1px solid var(--border);\n'
+    '  border-radius: 10px; padding: 11px 14px;\n'
+    '}\n'
+    '.strip-lbl {\n'
+    '  color: var(--muted); font-size: .66rem; font-weight: 600;\n'
+    '  text-transform: uppercase; letter-spacing: .07em; margin-bottom: 4px;\n'
+    '}\n'
+    '.strip-val { font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; font-variant-numeric: tabular-nums; }\n'
+    '.strip-sub { color: var(--muted); font-size: .75rem; margin-top: 3px; }\n'
     '.tabs {\n'
-    '  display: flex; gap: 2px; padding-block: 10px;\n'
+    '  display: flex; gap: 2px; padding-block: 14px 0;\n'
     '  border-bottom: 1px solid var(--border); margin-bottom: 20px;\n'
     '  overflow-x: auto; scrollbar-width: none;\n'
     '}\n'
     '.tabs::-webkit-scrollbar { display: none; }\n'
     '.tab {\n'
     '  background: none; border: none; color: var(--muted); cursor: pointer;\n'
-    '  font-size: .82rem; font-weight: 500; padding: 5px 13px; border-radius: 6px;\n'
+    '  font-size: .82rem; font-weight: 500; padding: 6px 14px; border-radius: 6px;\n'
     '  transition: all .15s; white-space: nowrap;\n'
     '}\n'
     '.tab:hover { color: var(--fg); background: var(--s1); }\n'
     '.tab.active { color: var(--fg); background: var(--s2); }\n'
     '.section { display: none; }\n'
     '.section.active { display: block; }\n'
-    '.stat-grid {\n'
-    '  display: grid; grid-template-columns: repeat(auto-fill,minmax(175px,1fr));\n'
-    '  gap: 10px; margin-bottom: 20px;\n'
-    '}\n'
-    '.stat-card {\n'
-    '  background: var(--s1); border: 1px solid var(--border);\n'
-    '  border-radius: 10px; padding: 13px 15px;\n'
-    '}\n'
-    '.lbl {\n'
-    '  color: var(--muted); font-size: .67rem; font-weight: 600;\n'
-    '  text-transform: uppercase; letter-spacing: .07em; margin-bottom: 5px;\n'
-    '}\n'
-    '.big {\n'
-    '  font-size: 1.65rem; font-weight: 700; letter-spacing: -.03em;\n'
-    '  line-height: 1.1; font-variant-numeric: tabular-nums;\n'
-    '}\n'
-    '.sub { color: var(--muted); font-size: .77rem; margin-top: 4px; }\n'
-    '.prog { margin-top: 8px; }\n'
-    '.prog-labels {\n'
-    '  display: flex; justify-content: space-between; font-size: .72rem;\n'
-    '  color: var(--muted); margin-bottom: 4px; font-variant-numeric: tabular-nums;\n'
-    '}\n'
-    '.prog-track { background: var(--s2); border-radius: 99px; height: 5px; overflow: hidden; }\n'
-    '.prog-fill { height: 100%; border-radius: 99px; transition: width .4s ease; }\n'
     '.sh {\n'
     '  font-size: .71rem; font-weight: 600; text-transform: uppercase;\n'
     '  letter-spacing: .08em; color: var(--muted);\n'
-    '  margin: 24px 0 10px; padding-bottom: 6px;\n'
+    '  margin: 24px 0 12px; padding-bottom: 6px;\n'
     '  border-bottom: 1px solid var(--border);\n'
     '}\n'
-    '.wk-prog-grid {\n'
-    '  display: grid; grid-template-columns: repeat(auto-fill,minmax(200px,1fr));\n'
-    '  gap: 10px; margin-bottom: 20px;\n'
+    '.week-list { display: flex; flex-direction: column; }\n'
+    '.day-row {\n'
+    '  display: grid; grid-template-columns: 72px 1fr; gap: 14px;\n'
+    '  padding: 13px 0; border-bottom: 1px solid var(--border);\n'
     '}\n'
-    '.wk-prog-card {\n'
-    '  background: var(--s1); border: 1px solid var(--border);\n'
-    '  border-radius: 10px; padding: 12px 14px;\n'
+    '.day-row.day-past { opacity: .72; }\n'
+    '.day-row.day-today {\n'
+    '  background: color-mix(in srgb,var(--accent) 7%,transparent);\n'
+    '  border-radius: 8px; padding: 13px 10px; margin: 0 -10px;\n'
+    '  border-bottom-color: transparent;\n'
     '}\n'
-    '.sport-lbl {\n'
-    '  font-size: .71rem; font-weight: 600; text-transform: uppercase;\n'
-    '  letter-spacing: .06em; margin-bottom: 8px;\n'
+    '.day-label { display: flex; flex-direction: column; gap: 2px; padding-top: 1px; }\n'
+    '.day-name { font-weight: 600; font-size: .92rem; }\n'
+    '.day-date { color: var(--muted); font-size: .73rem; }\n'
+    '.today-badge {\n'
+    '  background: color-mix(in srgb,var(--accent) 18%,transparent);\n'
+    '  color: var(--accent); border-radius: 99px; padding: 1px 6px;\n'
+    '  font-size: .62rem; font-weight: 600; text-transform: uppercase;\n'
+    '  letter-spacing: .05em; margin-top: 3px; display: inline-block;\n'
     '}\n'
-    '.sport-lbl.run  { color: var(--run); }\n'
-    '.sport-lbl.bike { color: var(--bike); }\n'
-    '.sport-lbl.swim { color: var(--swim); }\n'
-    '.wpc-nums { color: var(--muted); font-size: .8rem; margin-top: 5px; font-variant-numeric: tabular-nums; }\n'
-    '.hist-chart {\n'
-    '  background: var(--s1); border: 1px solid var(--border);\n'
-    '  border-radius: 10px; padding: 14px 16px; margin-bottom: 20px;\n'
+    '.day-body { min-width: 0; }\n'
+    '.day-session { font-weight: 500; font-size: .93rem; line-height: 1.35; margin-bottom: 4px; }\n'
+    '.done-row { color: var(--ok); font-size: .78rem; margin-bottom: 4px; }\n'
+    '.rest-row { color: var(--dim); font-size: .78rem; margin-bottom: 4px; }\n'
+    '.day-reason {\n'
+    '  color: var(--muted); font-size: .78rem; line-height: 1.6;\n'
+    '  margin-top: 2px;\n'
     '}\n'
     '.wk-grid {\n'
-    '  display: grid; grid-template-columns: repeat(auto-fill,minmax(194px,1fr));\n'
-    '  gap: 10px; margin-bottom: 20px;\n'
+    '  display: grid; grid-template-columns: repeat(auto-fill,minmax(112px,1fr));\n'
+    '  gap: 8px; margin-bottom: 20px;\n'
     '}\n'
     '.day-card {\n'
     '  background: var(--s1); border: 1px solid var(--border);\n'
-    '  border-radius: 10px; padding: 10px 12px; font-size: .81rem;\n'
+    '  border-radius: 10px; padding: 10px 12px; font-size: .8rem;\n'
     '}\n'
     '.day-card.day-today { border-color: var(--accent); }\n'
     '.day-card.day-past  { opacity: .7; }\n'
     '.day-meta {\n'
-    '  color: var(--muted); font-size: .71rem; margin-bottom: 4px;\n'
-    '  display: flex; align-items: center; gap: 6px;\n'
+    '  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;\n'
+    '  margin-bottom: 5px;\n'
     '}\n'
-    '.today-badge {\n'
-    '  background: color-mix(in srgb,var(--accent) 18%,transparent);\n'
-    '  color: var(--accent); border-radius: 99px; padding: 1px 6px;\n'
-    '  font-size: .64rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;\n'
+    '.day-meta .day-name { font-weight: 600; font-size: .85rem; }\n'
+    '.day-meta .day-date { color: var(--muted); font-size: .7rem; }\n'
+    '.day-meta .today-badge { font-size: .58rem; }\n'
+    '.day-session { font-weight: 500; line-height: 1.35; font-size: .8rem; }\n'
+    '.day-card .done-row { font-size: .73rem; margin-top: 4px; }\n'
+    '.prog-grid {\n'
+    '  display: grid; grid-template-columns: repeat(auto-fill,minmax(200px,1fr));\n'
+    '  gap: 10px; margin-bottom: 20px;\n'
     '}\n'
-    '.day-session { font-weight: 500; line-height: 1.35; }\n'
-    '.done-row { color: var(--ok); font-size: .76rem; margin-top: 3px; }\n'
-    '.desc-toggle { margin-top: 6px; }\n'
-    '.desc-toggle summary { color: var(--muted); font-size: .72rem; cursor: pointer; user-select: none; }\n'
-    '.desc-toggle summary:hover { color: var(--fg); }\n'
-    '.desc-pre {\n'
-    '  white-space: pre-wrap; font-size: .72rem; font-family: inherit; color: var(--fg);\n'
-    '  background: var(--s2); border: 1px solid var(--border); border-radius: 6px;\n'
-    '  padding: 8px 10px; margin-top: 6px; line-height: 1.5;\n'
-    '}\n'
-    '.dec-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }\n'
-    '.dec-card {\n'
+    '.prog-item {\n'
     '  background: var(--s1); border: 1px solid var(--border);\n'
-    '  border-radius: 10px; padding: 11px 14px;\n'
+    '  border-radius: 10px; padding: 12px 14px;\n'
     '}\n'
-    '.dec-card.dec-today { border-color: var(--accent); }\n'
-    '.dec-hd { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }\n'
-    '.dec-date { color: var(--muted); font-size: .72rem; min-width: 78px; flex-shrink: 0; font-variant-numeric: tabular-nums; }\n'
-    '.dec-plan { font-weight: 500; font-size: .85rem; min-width: 0; }\n'
-    '.dec-done { font-size: .77rem; color: var(--ok); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 6px; }\n'
-    '.dec-rest { color: var(--dim); font-size: .77rem; margin-top: 3px; }\n'
+    '.prog-sport {\n'
+    '  font-size: .7rem; font-weight: 600; text-transform: uppercase;\n'
+    '  letter-spacing: .06em; margin-bottom: 7px;\n'
+    '}\n'
+    '.prog-sport.run  { color: var(--run); }\n'
+    '.prog-sport.bike { color: var(--bike); }\n'
+    '.prog-sport.swim { color: var(--swim); }\n'
+    '.prog-labels {\n'
+    '  display: flex; justify-content: space-between;\n'
+    '  font-size: .72rem; color: var(--muted); margin-bottom: 6px;\n'
+    '  font-variant-numeric: tabular-nums;\n'
+    '}\n'
+    '.prog-track { background: var(--s2); border-radius: 99px; height: 5px; overflow: hidden; }\n'
+    '.prog-fill { height: 100%; border-radius: 99px; transition: width .4s ease; }\n'
+    '.hist-chart {\n'
+    '  background: var(--s1); border: 1px solid var(--border);\n'
+    '  border-radius: 10px; padding: 14px 16px; margin-bottom: 20px;\n'
+    '}\n'
     '.act-filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }\n'
     '.filter-btn {\n'
     '  background: var(--s1); border: 1px solid var(--border); border-radius: 99px;\n'
@@ -719,14 +776,39 @@ _PAGE = (
     '.why-title { font-size: .97rem; font-weight: 600; margin-bottom: 5px; }\n'
     '.why-text { color: var(--muted); font-size: .82rem; line-height: 1.65; }\n'
     '.why-text strong { color: var(--fg); font-weight: 600; }\n'
+    '.dec-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }\n'
+    '.dec-card {\n'
+    '  background: var(--s1); border: 1px solid var(--border);\n'
+    '  border-radius: 10px; padding: 11px 14px;\n'
+    '}\n'
+    '.dec-card.dec-today { border-color: var(--accent); }\n'
+    '.dec-hd { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }\n'
+    '.dec-date { color: var(--muted); font-size: .72rem; min-width: 78px; flex-shrink: 0; font-variant-numeric: tabular-nums; }\n'
+    '.dec-plan { font-weight: 500; font-size: .85rem; min-width: 0; }\n'
+    '.dec-done { font-size: .77rem; color: var(--ok); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 6px; }\n'
+    '.dec-rest { color: var(--dim); font-size: .77rem; margin-top: 3px; }\n'
+    '.done-item { }\n'
+    '.desc-toggle { margin-top: 6px; }\n'
+    '.desc-toggle summary { color: var(--muted); font-size: .72rem; cursor: pointer; user-select: none; }\n'
+    '.desc-toggle summary:hover { color: var(--fg); }\n'
+    '.desc-pre {\n'
+    '  white-space: pre-wrap; font-size: .72rem; font-family: inherit; color: var(--fg);\n'
+    '  background: var(--s2); border: 1px solid var(--border); border-radius: 6px;\n'
+    '  padding: 8px 10px; margin-top: 6px; line-height: 1.5;\n'
+    '}\n'
+    '.empty-note { color: var(--muted); font-size: .83rem; }\n'
     '.ftr {\n'
     '  color: var(--dim); font-size: .71rem; margin-top: 40px;\n'
     '  padding-top: 12px; border-top: 1px solid var(--border);\n'
     '}\n'
     '@media (max-width: 500px) {\n'
-    '  .stat-grid { grid-template-columns: repeat(2,1fr); }\n'
+    '  .strip { grid-template-columns: repeat(2,1fr); }\n'
     '  .hdr-ts { display: none; }\n'
-    '  .big { font-size: 1.4rem; }\n'
+    '  .strip-val { font-size: 1.1rem; }\n'
+    '  .day-row { grid-template-columns: 56px 1fr; gap: 8px; }\n'
+    '  .wk-grid { grid-template-columns: repeat(auto-fill,minmax(90px,1fr)); gap: 6px; }\n'
+    '  .why-grid { grid-template-columns: 1fr; }\n'
+    '  .tab { padding: 8px 12px; font-size: .8rem; }\n'
     '}\n'
     '</style>\n'
     '</head>\n'
@@ -742,32 +824,28 @@ _PAGE = (
     '  </div>\n'
     '</header>\n'
     '\n'
+    '<div class="strip">__STATUS_STRIP__</div>\n'
+    '\n'
     '<nav class="tabs" role="tablist">\n'
-    '  <button class="tab active" data-tab="status"   onclick="showTab(this)">&#x1F4CA;&nbsp;Status</button>\n'
-    '  <button class="tab"        data-tab="why"       onclick="showTab(this)">&#x1F3AF;&nbsp;Why</button>\n'
-    '  <button class="tab"        data-tab="decisions" onclick="showTab(this)">&#x1F9E0;&nbsp;Decisions</button>\n'
-    '  <button class="tab"        data-tab="training"  onclick="showTab(this)">&#x1F3C3;&nbsp;Training</button>\n'
-    '  <button class="tab"        data-tab="upcoming"  onclick="showTab(this)">&#x1F4C5;&nbsp;Upcoming</button>\n'
+    '  <button class="tab active" data-tab="week"    onclick="showTab(this)">&#x1F4C5;&nbsp;Week</button>\n'
+    '  <button class="tab"        data-tab="log"     onclick="showTab(this)">&#x1F4CA;&nbsp;Log</button>\n'
+    '  <button class="tab"        data-tab="why"     onclick="showTab(this)">&#x1F3AF;&nbsp;Why</button>\n'
     '</nav>\n'
     '\n'
-    '<section id="status" class="section active">\n'
-    '  <div class="stat-grid">__STAT_CARDS__</div>\n'
+    '<!-- Tab: Week -->\n'
+    '<section id="week" class="section active">\n'
     '  <h2 class="sh">This week</h2>\n'
-    '  <div class="wk-prog-grid">__WEEK_PROGRESS__</div>\n'
-    '  <h2 class="sh">Volume &mdash; last 12 weeks</h2>\n'
+    '  <div class="week-list">__THIS_WEEK__</div>\n'
+    '  <h2 class="sh">Next week (draft)</h2>\n'
+    '  <div class="wk-grid">__NEXT_WEEK__</div>\n'
+    '</section>\n'
+    '\n'
+    '<!-- Tab: Log -->\n'
+    '<section id="log" class="section">\n'
+    '  <h2 class="sh">Volume &mdash; last 12 weeks (running)</h2>\n'
     '  <div class="hist-chart">__HISTORY__</div>\n'
-    '</section>\n'
-    '\n'
-    '<section id="why" class="section">\n'
-    '  <div class="why-grid">__WHY__</div>\n'
-    '</section>\n'
-    '\n'
-    '<section id="decisions" class="section">\n'
-    '  <h2 class="sh">Coach decisions &mdash; last 14 days</h2>\n'
-    '  <div class="dec-list">__DECISIONS__</div>\n'
-    '</section>\n'
-    '\n'
-    '<section id="training" class="section">\n'
+    '  <h2 class="sh">This week</h2>\n'
+    '  <div class="prog-grid">__WEEK_PROGRESS__</div>\n'
     '  <div class="act-filters">\n'
     '    <button class="filter-btn active" data-sport="all"      onclick="filterActs(this)">All</button>\n'
     '    <button class="filter-btn"        data-sport="run"      onclick="filterActs(this)">Running</button>\n'
@@ -786,11 +864,11 @@ _PAGE = (
     '  </div>\n'
     '</section>\n'
     '\n'
-    '<section id="upcoming" class="section">\n'
-    '  <h2 class="sh">This week</h2>\n'
-    '  <div class="wk-grid">__THIS_WEEK__</div>\n'
-    '  <h2 class="sh">Next week (drafts)</h2>\n'
-    '  <div class="wk-grid">__NEXT_WEEK__</div>\n'
+    '<!-- Tab: Why -->\n'
+    '<section id="why" class="section">\n'
+    '  <div class="why-grid">__WHY__</div>\n'
+    '  <h2 class="sh">Coach decisions &mdash; last 14 days</h2>\n'
+    '  <div class="dec-list">__DECISIONS__</div>\n'
     '</section>\n'
     '\n'
     '<footer class="ftr">\n'
@@ -811,7 +889,9 @@ _PAGE = (
     '  const sport = btn.dataset.sport;\n'
     '  document.querySelectorAll("tr.act-row").forEach(row => {\n'
     '    const rs = (row.dataset.sport || "").toLowerCase();\n'
-    '    row.style.display = (sport === "all" || rs === sport || rs.startsWith(sport)) ? "" : "none";\n'
+    '    const match = sport === "all" || rs === sport || rs.startsWith(sport)\n'
+    '      || (sport === "bike" && (rs.includes("cycling") || rs.includes("virtual") || rs.includes("indoor")));\n'
+    '    row.style.display = match ? "" : "none";\n'
     '  });\n'
     '}\n'
     '</script>\n'
@@ -823,22 +903,23 @@ _PAGE = (
 # ── render ────────────────────────────────────────────────────────────────────
 
 def render_html(data: dict) -> str:
-    next_week_html = "\n".join(_day_card(d) for d in data["upcoming"])
+    this_week_html = "\n".join(_day_card(d) for d in data["this_week"])
+    next_week_html = "\n".join(_day_card(d, compact=True) for d in data["upcoming"])
     if not next_week_html:
-        next_week_html = "<p style='color:var(--muted);font-size:.83rem'>Not drafted yet.</p>"
+        next_week_html = "<p class='empty-note'>Not drafted yet.</p>"
 
     return (
         _PAGE
         .replace("__PHASE__", _e(data["phase"]["name"].replace("_", " ").title()))
         .replace("__GENERATED_AT__", _e(data["generated_at"]))
-        .replace("__STAT_CARDS__", _stat_cards(data))
-        .replace("__WEEK_PROGRESS__", _week_progress(data))
+        .replace("__STATUS_STRIP__", _status_strip(data))
+        .replace("__THIS_WEEK__", this_week_html)
+        .replace("__NEXT_WEEK__", next_week_html)
         .replace("__HISTORY__", _svg_history(data["history"]))
+        .replace("__WEEK_PROGRESS__", _week_progress(data))
+        .replace("__ACT_ROWS__", "\n".join(_act_row(a) for a in data["activities"]))
         .replace("__WHY__", _why_html(data))
         .replace("__DECISIONS__", "\n".join(_decision_card(d) for d in data["decisions"]))
-        .replace("__ACT_ROWS__", "\n".join(_act_row(a) for a in data["activities"]))
-        .replace("__THIS_WEEK__", "\n".join(_day_card(d) for d in data["this_week"]))
-        .replace("__NEXT_WEEK__", next_week_html)
     )
 
 

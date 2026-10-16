@@ -57,12 +57,12 @@ def _race_countdown(cfg: dict, today: dt.date) -> dict | None:
 
 
 def _weekly_history(acts: list[dict], today: dt.date, weeks: int = 12) -> list[dict]:
-    """[{week_of, run_km, bike_min, swim_m}] for the last `weeks` Mon-Sun weeks."""
+    """[{week_of, run_km, bike_min, swim_m}] for the last `weeks` complete weeks + current."""
     out = []
     mon = monday_of(today)
-    for i in range(weeks, 0, -1):
+    for i in range(weeks, -1, -1):  # i=0 is the current (partial) week
         start = mon - dt.timedelta(weeks=i)
-        end = start + dt.timedelta(days=7)
+        end = start + dt.timedelta(days=7) if i > 0 else today + dt.timedelta(days=1)
         wa = [a for a in acts if start.isoformat() <= a["date"] < end.isoformat()]
         out.append({
             "week_of": start.isoformat(),
@@ -318,7 +318,7 @@ def _act_row(a: dict) -> str:
     sport = a["sport"].lower()
     dist = f'{a["distance_km"]:g}&nbsp;km' if a.get("distance_km") else "&#8212;"
     dur = f'{a["duration_min"]:.0f}&#x2032;' if a.get("duration_min") else "&#8212;"
-    te = str(a["aerobic_te"]) if a.get("aerobic_te") else "&#8212;"
+    te = f'{a["aerobic_te"]:.1f}' if a.get("aerobic_te") else "&#8212;"
     date_str = dt.date.fromisoformat(a["date"]).strftime("%d %b")
     return (
         f'<tr class="act-row" data-sport="{_e(sport)}">'
@@ -794,7 +794,7 @@ _PAGE = (
     '</section>\n'
     '\n'
     '<footer class="ftr">\n'
-    '  Garmin Coach dashboard &middot; runs only on your computer &middot; nothing is uploaded\n'
+    '  Garmin Coach &middot; updated a few times a day via GitHub Actions\n'
     '</footer>\n'
     '</div>\n'
     '\n'

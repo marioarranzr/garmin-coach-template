@@ -1727,7 +1727,7 @@ def test_dashboard_builds_and_renders_without_error():
     assert data["today"] == d.isoformat()
     assert data["race"] and data["race"]["days"] >= 0
     assert data["phase"]["name"]
-    assert len(data["this_week"]) == 7 and len(data["history"]) == 8
+    assert len(data["this_week"]) == 7 and len(data["history"]) == 13
     today_row = next(r for r in data["this_week"] if r["date"] == d.isoformat())
     assert today_row["is_today"] and today_row["planned"]
     html_out = D.render_html(data)

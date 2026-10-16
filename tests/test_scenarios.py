@@ -277,8 +277,8 @@ def test_setup_wizard_writes_a_working_config():
     d2 = (dt.date.today() + dt.timedelta(days=200)).isoformat()
     d3 = (dt.date.today() + dt.timedelta(days=250)).isoformat()
     answers = iter([
-        "1 2 3 4 5 6 7",                       # change every proposed setting
-        "3", "4", "sun", "mon", "5:30", "America/New_York", "06:30",
+        "1 2 3 4 5 6 7 9",                     # change the proposed settings
+        "3", "4", "sun", "mon", "5:30", "America/New_York", "06:30", "never",
         "",                                    # accept the reviewed settings
         "City half", "3", d1, "A",             # name → type → date → priority
         "Lake sprint", "6", d2, "",            # default priority A
@@ -296,6 +296,7 @@ def test_setup_wizard_writes_a_working_config():
     assert [r["kind"] for r in cfg["races"]] == ["half", "tri_sprint", "bike"]
     assert cfg["races"][2]["elevation_m"] == 2400 and cfg["races"][2]["priority"] == "B"
     assert cfg["athlete"]["easy_pace_min_per_km"] == 5.5 and cfg["athlete"]["pool_length_m"] == 50
+    assert cfg["athlete"]["no_runs_on_consecutive_days"] is True
     runs = [k for day in cfg["weekly_templates"]["run_focus"].values() for k in day if k.startswith("run_")]
     assert len(runs) == 4
     assert "cycling" in cfg["weekly_templates"]

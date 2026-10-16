@@ -9,6 +9,7 @@
     python -m coach week                  # preview of the next 7 days
     python -m coach export-tokens         # prepares the encrypted tokens for GitHub
     python -m coach strava                # optional: connect Strava (rides that never reach Garmin)
+    python -m coach dashboard              # local web page: training status, this week, why
     python -m coach update                # brings in the latest template code, keeps your settings
 """
 from __future__ import annotations
@@ -34,7 +35,7 @@ def load_cfg(path: str | None) -> dict:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="coach")
-    ap.add_argument("cmd", choices=["setup", "login", "run", "week", "semana", "export-tokens", "update", "strava"])
+    ap.add_argument("cmd", choices=["setup", "login", "run", "week", "semana", "export-tokens", "update", "strava", "dashboard"])
     ap.add_argument("--date", help="YYYY-MM-DD (default: today)")
     ap.add_argument("--dry-run", action="store_true", help="don't upload anything to Garmin")
     ap.add_argument("--wait-for-sleep", action="store_true",
@@ -44,6 +45,8 @@ def main(argv=None):
     ap.add_argument("--tomorrow", action="store_true", help="plan tomorrow (like the evening run)")
     ap.add_argument("--auto", action="store_true",
                     help="manual runs: tomorrow after the evening plan time, otherwise today")
+    ap.add_argument("--port", type=int, default=8765, help="dashboard: port for the local web server")
+    ap.add_argument("--no-browser", action="store_true", help="dashboard: don't open your browser")
     ap.add_argument("--config")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
@@ -59,6 +62,10 @@ def main(argv=None):
     if a.cmd == "strava":
         from .strava import setup as strava_setup
         raise SystemExit(strava_setup())
+    if a.cmd == "dashboard":
+        from .dashboard import serve as dashboard_serve
+        dashboard_serve(ROOT, port=a.port, open_browser=not a.no_browser)
+        return
     if a.cmd == "update":
         from .update import run as update
         raise SystemExit(update(ROOT))

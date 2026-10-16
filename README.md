@@ -636,6 +636,21 @@ one is kept encrypted in `data/strava_token.enc`, like the Garmin session.
 The report appears in the run summary. Check its **Coach** section if you
 added an AI key. From then on it runs on its own every morning.
 
+## Dashboard
+
+`python -m coach dashboard` starts a small web server on your own computer and
+opens `http://localhost:8765`. It shows the next race and how far away it is,
+the training phase, this week's running target against your 4-week average,
+your current paces, the last 8 weeks of running as a bar chart, and this week
+and next week day by day: what's planned, what you actually did (from Garmin
+and Strava), and — under "Why / details" — the full workout description the
+coach wrote, the same reasoning that otherwise only shows up on your watch or
+in a GitHub run summary.
+
+It reads your Garmin, Todoist and Strava data live each time the page loads
+and runs only on your computer; nothing it shows is uploaded anywhere. Needs
+`python -m coach login` first.
+
 ## Commands
 
 | Command | What it does |
@@ -651,6 +666,7 @@ added an AI key. From then on it runs on its own every morning.
 | `python -m coach run --date 2026-10-14` | Plans a specific day |
 | `python -m coach export-tokens` | Encrypts your session for GitHub and prints the key |
 | `python -m coach strava` | Optional: connects Strava, for rides that never reach Garmin |
+| `python -m coach dashboard` | Opens a local web page with your training status, this week's plan and why, and the trend |
 | `python -m coach update` | Brings in the latest template code, keeping your settings |
 
 Add `-v` to any command for detailed logs.

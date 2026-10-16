@@ -569,6 +569,40 @@ def _decision_card(d: dict) -> str:
     )
 
 
+def _week_content(data: dict) -> str:
+    """Combined week plan + context for the merged Week tab."""
+    this_week = data["this_week"]
+    today_d = next((d for d in this_week if d["is_today"]), None)
+    past = [d for d in this_week if d["is_past"]]
+    future_tw = [d for d in this_week if not d["is_today"] and not d["is_past"]]
+    next_week = data["upcoming"]
+
+    parts: list[str] = []
+
+    if today_d:
+        parts.append(_day_card(today_d))
+
+    upcoming = future_tw + next_week
+    if upcoming:
+        parts.append('<h2 class="sh">Upcoming</h2>')
+        parts.append('<div class="wk-grid">')
+        parts.extend(_day_card(d, compact=True) for d in upcoming)
+        parts.append('</div>')
+    elif not today_d:
+        parts.append("<p class='empty-note'>No plan drafted yet.</p>")
+
+    if past:
+        parts.append('<h2 class="sh">Earlier this week</h2>')
+        parts.append('<div class="wk-grid wk-past">')
+        parts.extend(_day_card(d, compact=True) for d in past)
+        parts.append('</div>')
+
+    parts.append('<h2 class="sh">Context</h2>')
+    parts.append(f'<div class="why-grid">{_why_html(data)}</div>')
+
+    return "\n".join(parts)
+
+
 # ── PAGE template (uses __PLACEHOLDER__ substitution to avoid CSS-brace issues) ──
 
 _PAGE = (
@@ -836,17 +870,13 @@ _PAGE = (
     '<div class="strip">__STATUS_STRIP__</div>\n'
     '\n'
     '<nav class="tabs" role="tablist">\n'
-    '  <button class="tab active" data-tab="week"    onclick="showTab(this)">&#x1F4C5;&nbsp;Week</button>\n'
-    '  <button class="tab"        data-tab="log"     onclick="showTab(this)">&#x1F4CA;&nbsp;Log</button>\n'
-    '  <button class="tab"        data-tab="why"     onclick="showTab(this)">&#x1F3AF;&nbsp;Why</button>\n'
+    '  <button class="tab active" data-tab="week" onclick="showTab(this)">&#x1F4C5;&nbsp;Week</button>\n'
+    '  <button class="tab"        data-tab="log"  onclick="showTab(this)">&#x1F4CA;&nbsp;Log</button>\n'
     '</nav>\n'
     '\n'
     '<!-- Tab: Week -->\n'
     '<section id="week" class="section active">\n'
-    '  <h2 class="sh">This week</h2>\n'
-    '  <div class="week-list">__THIS_WEEK__</div>\n'
-    '  <h2 class="sh">Next week (draft)</h2>\n'
-    '  <div class="wk-grid">__NEXT_WEEK__</div>\n'
+    '__WEEK_CONTENT__\n'
     '</section>\n'
     '\n'
     '<!-- Tab: Log -->\n'
@@ -871,13 +901,6 @@ _PAGE = (
     '      <tbody>__ACT_ROWS__</tbody>\n'
     '    </table>\n'
     '  </div>\n'
-    '</section>\n'
-    '\n'
-    '<!-- Tab: Why -->\n'
-    '<section id="why" class="section">\n'
-    '  <div class="why-grid">__WHY__</div>\n'
-    '  <h2 class="sh">Coach decisions &mdash; last 14 days</h2>\n'
-    '  <div class="dec-list">__DECISIONS__</div>\n'
     '</section>\n'
     '\n'
     '<footer class="ftr">\n'
@@ -912,23 +935,15 @@ _PAGE = (
 # ── render ────────────────────────────────────────────────────────────────────
 
 def render_html(data: dict) -> str:
-    this_week_html = "\n".join(_day_card(d) for d in data["this_week"])
-    next_week_html = "\n".join(_day_card(d, compact=True) for d in data["upcoming"])
-    if not next_week_html:
-        next_week_html = "<p class='empty-note'>Not drafted yet.</p>"
-
     return (
         _PAGE
         .replace("__PHASE__", _e(data["phase"]["name"].replace("_", " ").title()))
         .replace("__GENERATED_AT__", _e(data["generated_at"]))
         .replace("__STATUS_STRIP__", _status_strip(data))
-        .replace("__THIS_WEEK__", this_week_html)
-        .replace("__NEXT_WEEK__", next_week_html)
+        .replace("__WEEK_CONTENT__", _week_content(data))
         .replace("__HISTORY__", _svg_history(data["history"]))
         .replace("__WEEK_PROGRESS__", _week_progress(data))
         .replace("__ACT_ROWS__", "\n".join(_act_row(a) for a in data["activities"]))
-        .replace("__WHY__", _why_html(data))
-        .replace("__DECISIONS__", "\n".join(_decision_card(d) for d in data["decisions"]))
     )
 
 

@@ -1679,6 +1679,25 @@ def test_a_note_saying_i_can_run_moves_a_run_onto_that_day():
     assert days["thu"] == ["run_strides"] and days["fri"] == ["rest"]
 
 
+def test_a_run_moved_earlier_isnt_run_again():
+    """Friday's run moved to Thursday (rest day) by a note: on Friday the week has
+    had its runs (Tuesday, Thursday), so Friday stays without a run."""
+    from coach import week as W
+    from coach.planner import make_run
+    fri = dt.date(2026, 10, 16)
+    tpl = {"mon": ["swim_technique"], "tue": ["run_quality"], "wed": ["bike_quality"], "thu": ["rest"],
+           "fri": ["run_strides"], "sat": ["bike_long"], "sun": ["run_long"]}
+    acts = [{"date": "2026-10-13", "sport": "run", "distance_km": 8, "duration_min": 45, "aerobic_te": 3.9},
+            {"date": "2026-10-15", "sport": "run", "distance_km": 8.7, "duration_min": 48, "aerobic_te": 2.8}]
+    led = W.ledger(acts, fri, tpl, {"easy": 6, "long": 12}, None)
+    phase = plan_day(fri, CFG, 30)[0]
+    out, notes, why = W.apply([make_run("run_strides", 7.8, phase)], led, phase, {"easy": 6})
+    assert [s.kind for s in out] == ["rest"] and "already run 2×" in notes[0]
+    # an ordinary week (only Tuesday's run so far): Friday's run stays
+    led = W.ledger(acts[:1], fri, tpl, {"easy": 6, "long": 12}, None)
+    assert [s.kind for s in W.apply([make_run("run_strides", 7.8, phase)], led, phase, {"easy": 6})[0]] == ["run_strides"]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -1698,6 +1698,22 @@ def test_a_run_moved_earlier_isnt_run_again():
     assert [s.kind for s in W.apply([make_run("run_strides", 7.8, phase)], led, phase, {"easy": 6})[0]] == ["run_strides"]
 
 
+def test_no_runs_on_consecutive_days_unless_a_note_asks():
+    from coach import week as W
+    from coach.planner import make_run, make_bike
+    fri = dt.date(2026, 10, 16)
+    cfg = dict(CFG, athlete=dict(CFG["athlete"], no_runs_on_consecutive_days=True))
+    phase = plan_day(fri, CFG, 30)[0]
+    ran = [{"date": "2026-10-15", "sport": "run", "distance_km": 8.7, "duration_min": 48}]
+    plan = [make_run("run_strides", 7.8, phase), make_bike("bike_spin", phase, 30)]
+    out, notes, why = W.no_back_to_back_runs(plan, fri, ran, cfg)
+    assert [s.sport for s in out] == ["bike"] and "you ran yesterday" in notes[0] and why
+    assert W.no_back_to_back_runs(plan, fri, ran, CFG)[0] == plan                # rule off
+    noted = dict(cfg, _constraints={"moves": [("run", fri)]})                    # "I can run Friday"
+    assert W.no_back_to_back_runs(plan, fri, ran, noted)[0] == plan
+    assert W.no_back_to_back_runs([plan[0]], fri, ran, cfg)[0][0].kind == "rest"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

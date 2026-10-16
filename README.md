@@ -174,6 +174,11 @@ which days you run, ride, swim and rest:
 | Triathlon | `triathlon` | quality run + swim set, bike intervals, easy run + endurance swim, long ride + brick run, long run, technique swim |
 | Cycling event | `cycling` | two interval rides, a long ride, two short maintenance runs |
 
+**No runs two days in a row** if you set `athlete.no_runs_on_consecutive_days:
+true`: the day after a run (2 km or more) has no run, whatever the template,
+a moved session or the AI coach says. A note can still ask for one ("I can run
+tomorrow").
+
 A run's distance is the whole run as your watch records it: in an easy run
 with strides, the strides and the jogs between them (~2 km) are part of it, so
 "Easy run 6 km + 6 strides" is planned as ~7.8 km and isn't read as extra

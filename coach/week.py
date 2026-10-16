@@ -110,6 +110,25 @@ def apply(sessions: list[Session], led: dict, phase, dist: dict) -> tuple[list[S
     return out, notes, why
 
 
+def no_back_to_back_runs(sessions: list[Session], d: dt.date, acts: list[dict], cfg: dict
+                         ) -> tuple[list[Session], list[str], str]:
+    """With `athlete.no_runs_on_consecutive_days`, no run the day after a run (one of
+    2 km or more). Your note can still put a run there ("I can run tomorrow")."""
+    if not (cfg.get("athlete") or {}).get("no_runs_on_consecutive_days"):
+        return sessions, [], ""
+    if any(k.startswith("run") and day == d for k, day in (cfg.get("_constraints") or {}).get("moves") or []):
+        return sessions, [], ""                      # your note asked for a run that day
+    yday = (d - dt.timedelta(days=1)).isoformat()
+    ran = [a for a in acts if a["date"] == yday and a["sport"] == "run" and (a.get("distance_km") or 0) >= 2]
+    out = [s for s in sessions if s.sport != "run"]
+    if not ran or len(out) == len(sessions):
+        return sessions, [], ""
+    dropped = " + ".join(s.title for s in sessions if s.sport == "run")
+    note = (f"No run today ({dropped}): you ran yesterday ({ran[0]['distance_km']:g} km), "
+            "and you don't run two days in a row.")
+    return out or [make_rest()], [note], "No run today: you ran yesterday."
+
+
 def as_done(sessions: list[Session], day: dt.date) -> list[dict]:
     """Planned sessions as if done, to draft the following days."""
     return [{"date": day.isoformat(), "sport": s.sport, "name": s.title,
@@ -152,6 +171,8 @@ def drafts(d: dt.date, cfg: dict, acts: list[dict], today: list[Session], days: 
             led = ledger(done, day, tpl, dist, bdist, quality_ok=not wt.get("return_mode") and phase.name != "transition",
                          quality_days=quality_days)
             sess, notes, _ = apply(sess, led, phase, dist)
+            sess, more, _ = no_back_to_back_runs(sess, day, done, cfg)
+            notes += more
         out.append((day, phase, sess, notes))
         done += as_done(sess, day)
     return out

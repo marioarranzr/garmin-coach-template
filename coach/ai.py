@@ -66,6 +66,8 @@ days are easy anyway unless recovery says so).
 - "season.athlete": rides shorter than "min_ride_minutes" aren't worth it for this athlete (they \
 become that long or are dropped). Short rides in the activities (under 25') are commutes, not \
 training.
+- If "season.athlete" has "no_runs_on_consecutive_days", never put a run on the day after a run \
+(the rules enforce it anyway), unless the athlete's note asks for it.
 - Activities with "source": "strava" never reached Garmin (indoor rides in MyWhoosh or Zwift): \
 they're real training, with no Training Effect; judge their intensity from duration, heart rate \
 and power.
@@ -185,6 +187,7 @@ def season_context(d, cfg: dict) -> dict:
                     "run_days_per_week": sum(any(k.startswith("run_") for k in tpl.get(w, [])) for w in WEEKDAYS),
                     "min_long_run_km": cfg.get("min_long_run_km"),
                     "min_ride_minutes": ath.get("min_ride_minutes", 30),
+                    "no_runs_on_consecutive_days": bool(ath.get("no_runs_on_consecutive_days")),
                     "this_block_week": {w: tpl.get(w, []) for w in WEEKDAYS}},
     }
 

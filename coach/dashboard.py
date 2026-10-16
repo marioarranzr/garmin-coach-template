@@ -155,7 +155,7 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
 
     mon = monday_of(today)
     this_week = _day_rows(cal, acts, mon, 7, today, full_text=True)
-    upcoming = _day_rows(cal, acts, mon + dt.timedelta(days=7), 7, today, drafts=True)
+    upcoming = _day_rows(cal, acts, mon + dt.timedelta(days=7), 7, today, full_text=True)
 
     # Full activity list for the Log tab
     activities = []
@@ -578,8 +578,8 @@ def _week_content(data: dict) -> str:
         parts.append("<p class='empty-note'>No plan drafted yet.</p>")
 
     if next_week:
-        parts.append('<h2 class="sh">Next week <span class="sh-note">rough plan</span></h2>')
-        parts.append('<div class="wk-grid wk-draft">')
+        parts.append('<h2 class="sh">Next week</h2>')
+        parts.append('<div class="wk-grid">')
         parts.extend(_day_card(d, compact=True) for d in next_week)
         parts.append('</div>')
 

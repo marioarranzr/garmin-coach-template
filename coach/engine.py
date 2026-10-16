@@ -398,6 +398,13 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     # the plan shows what you were meant to train today, as planned (what you did is in Garmin)
     done_today_titles = [e["session"]["title"] for e in kept]
 
+    # ── plan the upcoming calendar week with AI reasoning (once, on Sunday evening or when missing) ──
+    week_plan_days: set[str] = set()
+    if evening and upload:
+        real_today = d - dt.timedelta(days=1)  # d is tomorrow; real_today is today
+        nw = plan_next_week(api, cfg, acts, real_today, final, ai_client=ai_client, prefs=prefs)
+        week_plan_days = {wd.isoformat() for wd, _, _, _ in nw}
+
     # ── the days ahead, as drafts in your Garmin calendar (replaced each morning) ──
     # always a week ahead from today: in the evening, tomorrow is real and the rest are drafts
     preview = int((cfg.get("garmin") or {}).get("preview_days", 7))
@@ -412,6 +419,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         for i in range(0, max(preview, 7) + 2):
             G.remove_uploaded(api, calendar.plan(d + dt.timedelta(days=i), draft=True))
         for day, ph, sess, wnotes in ahead:
+            if day.isoformat() in week_plan_days:
+                continue  # already uploaded as a regular plan by plan_next_week
             for s in sess:
                 if not s.steps:
                     continue
@@ -480,6 +489,63 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         rep_dir.mkdir(exist_ok=True)
         (rep_dir / f"{d.isoformat()}.md").write_text(report, encoding="utf-8")
     return {"status": "planned", "report": report, "final": final, "readiness": r, "notes": notes}
+
+
+def plan_next_week(api, cfg: dict, acts: list[dict], today: dt.date,
+                   done_this_week: list[Session], ai_client=None,
+                   prefs: list | None = None, upload: bool = True) -> list[tuple]:
+    """Plans Mon–Sun of the upcoming calendar week with AI reasoning.
+
+    Called on every evening run. Skips silently if the week already has any
+    regular (non-draft) workouts — so re-running on consecutive evenings is safe.
+    Returns a list of (day, phase, sessions, notes) for every day that was uploaded.
+    """
+    next_mon = monday_of(today) + dt.timedelta(days=7)
+    fresh_cal = Calendar(api, cfg)
+    if any(fresh_cal.plan(next_mon + dt.timedelta(days=i)) for i in range(7)):
+        return []
+
+    week_sessions = W.drafts(next_mon, cfg, acts, done_this_week, 7, set())
+    if not week_sessions:
+        return []
+
+    uploaded: list[tuple] = []
+    for day, phase, sessions, wnotes in week_sessions:
+        if not sessions or not any(s.steps for s in sessions):
+            continue  # rest day
+
+        wt = week_target(acts, day, cfg)
+        r = evening_readiness({})
+
+        if ai_client is not None or ai.enabled(cfg):
+            try:
+                context = ai.build_context(
+                    day, phase, wt, {}, r, {}, sessions, [],
+                    [], acts, [], "",
+                    season=ai.season_context(day, cfg),
+                    coming_days=[], planning="next week",
+                    preferences=prefs or [],
+                )
+                result = ai.decide(cfg, context, sessions, phase, week_index(day, cfg),
+                                   client=ai_client, prov=getattr(ai_client, "provider", None))
+                if result.get("used"):
+                    sessions = result["sessions"]
+            except Exception as e:  # noqa: BLE001
+                log.warning("AI could not refine next-week plan for %s: %s", day, e)
+
+        if upload:
+            for s in sessions:
+                if not s.steps:
+                    continue
+                body = _workout_description(s, r, list(wnotes))
+                try:
+                    G.upload_and_schedule(api, to_garmin(s, cfg, fit(body, "")), day.isoformat())
+                except Exception as e:  # noqa: BLE001
+                    log.error("Could not upload next-week plan for %s: %s", day, e)
+                    continue
+        uploaded.append((day, phase, sessions, wnotes))
+
+    return uploaded
 
 
 def sync_note(last_sync: str | None, now: dt.datetime) -> str:

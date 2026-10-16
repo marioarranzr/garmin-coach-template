@@ -91,6 +91,25 @@ jobs:
             python -m coach run --auto                 # manual run: today, or tomorrow after the evening plan time
           fi
 
+      - name: Export and deploy dashboard
+        if: steps.guard.outputs.run == 'true'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ] || [ -z "$NETLIFY_SITE_ID" ]; then
+            echo "Netlify secrets not configured — skipping dashboard deploy."
+            exit 0
+          fi
+          python -m coach export-dashboard --output output
+          cd output && zip /tmp/dashboard.zip index.html
+          curl -sf -X POST \
+            -H "Content-Type: application/zip" \
+            -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+            --data-binary @/tmp/dashboard.zip \
+            "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print('Dashboard:', d.get('deploy_ssl_url') or d.get('url','(deployed)'))"
+
       # The only files the coach commits: your Garmin session (and Strava's token,
       # if connected), encrypted, when they're refreshed. Everything else is read back from Garmin and Todoist.
       - name: Save the refreshed Garmin session

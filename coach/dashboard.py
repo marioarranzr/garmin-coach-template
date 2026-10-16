@@ -229,53 +229,31 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
 # ── SVG chart ─────────────────────────────────────────────────────────────────
 
 def _svg_history(history: list[dict]) -> str:
-    """Three-lane bar chart: one strip per sport (run/bike/swim), each on its own scale."""
+    """Running km bar chart, last 12 weeks."""
     if not history:
         return "<p style='color:var(--muted);font-size:.83rem'>No history yet.</p>"
 
     n = len(history)
-    VW, VH = 800, 158
+    VW, VH = 800, 110
     chart_bot = 18
-    label_w = 44
-    GAP = 5
-    N_LANES = 3
-    lane_h = (VH - chart_bot - GAP * (N_LANES - 1)) // N_LANES  # ~43 px
-
-    bar_area_w = VW - label_w
-    spacing = bar_area_w / n
+    chart_h = VH - chart_bot
+    peak = max(h["run_km"] for h in history) or 1
+    spacing = VW / n
     bar_w = spacing * 0.7
 
-    LANES = [
-        ("Run",  "var(--run)",  [h["run_km"]  for h in history]),
-        ("Bike", "var(--bike)", [h["bike_min"] for h in history]),
-        ("Swim", "var(--swim)", [h["swim_m"]  for h in history]),
-    ]
-
     parts: list[str] = []
-
-    for li, (sport, color, vals) in enumerate(LANES):
-        peak = max(vals) or 1
-        lane_top = li * (lane_h + GAP)
-        lane_bot = lane_top + lane_h
-
-        label_y = lane_top + lane_h // 2 + 4
-        parts.append(f'<text x="{label_w - 5}" y="{label_y}" text-anchor="end" fill="{color}" font-size="10" opacity="0.75">{sport}</text>')
-
-        for i, val in enumerate(vals):
-            is_cur = i == n - 1
-            bar_op = "0.92" if is_cur else "0.62"
-            cx = label_w + i * spacing + spacing / 2
-            x = cx - bar_w / 2
-
-            if val > 0:
-                bh = max((val / peak) * (lane_h - 2), 2)
-                parts.append(f'<rect x="{x:.1f}" y="{lane_bot - bh:.1f}" width="{bar_w:.1f}" height="{bh:.1f}" fill="{color}" opacity="{bar_op}" rx="1.5"/>')
-            else:
-                parts.append(f'<rect x="{x:.1f}" y="{lane_bot - 1:.1f}" width="{bar_w:.1f}" height="1" fill="var(--border)" opacity="0.35"/>')
-
-            if li == N_LANES - 1:
-                label = dt.date.fromisoformat(history[i]["week_of"]).strftime("%d/%m")
-                parts.append(f'<text x="{cx:.1f}" y="{VH}" text-anchor="middle" fill="var(--fg)" opacity="0.55" font-size="9.5">{label}</text>')
+    for i, h in enumerate(history):
+        is_cur = i == n - 1
+        bar_op = "0.92" if is_cur else "0.62"
+        cx = i * spacing + spacing / 2
+        x = cx - bar_w / 2
+        label = dt.date.fromisoformat(h["week_of"]).strftime("%d/%m")
+        if h["run_km"] > 0:
+            bh = max((h["run_km"] / peak) * (chart_h - 2), 2)
+            parts.append(f'<rect x="{x:.1f}" y="{chart_h - bh:.1f}" width="{bar_w:.1f}" height="{bh:.1f}" fill="var(--run)" opacity="{bar_op}" rx="2"/>')
+        else:
+            parts.append(f'<rect x="{x:.1f}" y="{chart_h - 1:.1f}" width="{bar_w:.1f}" height="1" fill="var(--border)" opacity="0.35"/>')
+        parts.append(f'<text x="{cx:.1f}" y="{VH}" text-anchor="middle" fill="var(--fg)" opacity="0.55" font-size="9.5">{label}</text>')
 
     return (f'<svg viewBox="0 0 {VW} {VH}" width="100%" '
             f'style="display:block;overflow:visible;max-height:{VH}px" aria-hidden="true">'
@@ -881,7 +859,7 @@ _PAGE = (
     '\n'
     '<!-- Tab: Log -->\n'
     '<section id="log" class="section">\n'
-    '  <h2 class="sh">Volume &mdash; last 12 weeks</h2>\n'
+    '  <h2 class="sh">Running volume &mdash; last 12 weeks</h2>\n'
     '  <div class="hist-chart">__HISTORY__</div>\n'
     '  <h2 class="sh">This week</h2>\n'
     '  <div class="prog-grid">__WEEK_PROGRESS__</div>\n'

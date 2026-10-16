@@ -1715,6 +1715,26 @@ def test_no_runs_on_consecutive_days_unless_a_note_asks():
     assert W.no_back_to_back_runs([plan[0]], fri, ran, cfg)[0][0].kind == "rest"
 
 
+def test_dashboard_builds_and_renders_without_error():
+    """The local dashboard's data and HTML render from a plain FakeGarmin day,
+    including a day that has an uploaded workout (full description shown)."""
+    from coach import dashboard as D
+    d = dt.date(2026, 10, 16)
+    with fresh():
+        api = FakeGarmin(d)
+        engine.run_day(api, CFG, d, now=dt.datetime(2026, 10, 16, 8))     # puts today's workout in the calendar
+        data = D.build_data(api, CFG, d)
+    assert data["today"] == d.isoformat()
+    assert data["race"] and data["race"]["days"] >= 0
+    assert data["phase"]["name"]
+    assert len(data["this_week"]) == 7 and len(data["history"]) == 8
+    today_row = next(r for r in data["this_week"] if r["date"] == d.isoformat())
+    assert today_row["is_today"] and today_row["planned"]
+    html_out = D.render_html(data)
+    assert "<html" in html_out and today_row["planned"][0] in html_out
+    assert data["race"]["name"] in html_out
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

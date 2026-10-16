@@ -1,20 +1,15 @@
-"""A local dashboard: a page on your own computer showing your training status,
-not just what the coach tells your watch.
+"""A local dashboard showing training status, reasoning and history.
 
-Run `python -m coach dashboard` (after `python -m coach login`). It starts a
-small web server on your computer and opens http://localhost:8765 in your
-browser. Nothing leaves your computer except the Garmin/Todoist/Strava calls
-the coach already makes; the page itself is never uploaded anywhere.
+Run `python -m coach dashboard` (after `python -m coach login`). Opens
+http://localhost:8765 in your browser. Reads live from Garmin, Todoist and
+Strava on every load; nothing is uploaded.
 
-It shows:
-- the next race, how far away, and the training phase that's building towards it;
-- the last weeks of running/riding/swimming, so you can see the trend;
-- this week's plan, day by day, with the actual workout description the coach
-  wrote (the "why", the readiness it used, any changes) — the same reasoning
-  that otherwise only shows up on the watch or in a GitHub run summary;
-- the days ahead, as drafts;
-- what you actually did on days that already have an activity, next to what
-  was planned, so you can see compliance at a glance.
+Five tabs:
+  Status    — race countdown, phase, weekly target, 12-week volume
+  Why       — training logic: phases, progression, key sessions
+  Decisions — coach's day-by-day reasoning from Garmin + Todoist
+  Training  — all recent activities, filterable by sport
+  Upcoming  — this week and next, with full coach reasoning per day
 """
 from __future__ import annotations
 
@@ -31,39 +26,50 @@ from . import garmin_api as G
 from . import paces as P
 from . import week as W
 from .calendar import Calendar
-from .planner import compute_week_target, history_start, learn_long_day, monday_of, phase_for, plan_day, week_parts
+from .planner import (compute_week_target, history_start, learn_long_day,
+                      monday_of, phase_for, plan_day, week_parts)
 
 log = logging.getLogger(__name__)
 PORT = 8765
 
 
+# ── data helpers ──────────────────────────────────────────────────────────────
+
 def _race_countdown(cfg: dict, today: dt.date) -> dict | None:
-    races = sorted((r for r in cfg.get("races") or [] if dt.date.fromisoformat(str(r["date"])) >= today),
-                   key=lambda r: str(r["date"]))
+    races = sorted(
+        (r for r in cfg.get("races") or []
+         if dt.date.fromisoformat(str(r["date"])) >= today),
+        key=lambda r: str(r["date"]),
+    )
     if not races:
         return None
     r = races[0]
     d = dt.date.fromisoformat(str(r["date"]))
     weeks = (d - today).days / 7
-    return {"name": r.get("name") or r["kind"].replace("_", " "), "date": d.isoformat(),
-            "days": (d - today).days, "weeks": round(weeks, 1), "priority": r.get("priority", "A"),
-            "kind": r["kind"]}
+    return {
+        "name": r.get("name") or r["kind"].replace("_", " "),
+        "date": d.isoformat(),
+        "days": (d - today).days,
+        "weeks": round(weeks, 1),
+        "priority": r.get("priority", "A"),
+        "kind": r["kind"],
+    }
 
 
-def _weekly_history(acts: list[dict], today: dt.date, weeks: int = 8) -> list[dict]:
-    """[{week_of, run_km, bike_min, swim_m}] for the last `weeks` Monday-to-Sunday weeks."""
+def _weekly_history(acts: list[dict], today: dt.date, weeks: int = 12) -> list[dict]:
+    """[{week_of, run_km, bike_min, swim_m}] for the last `weeks` Mon-Sun weeks."""
     out = []
     mon = monday_of(today)
     for i in range(weeks, 0, -1):
         start = mon - dt.timedelta(weeks=i)
         end = start + dt.timedelta(days=7)
-        week_acts = [a for a in acts if start.isoformat() <= a["date"] < end.isoformat()]
+        wa = [a for a in acts if start.isoformat() <= a["date"] < end.isoformat()]
         out.append({
             "week_of": start.isoformat(),
-            "run_km": round(sum(a["distance_km"] or 0 for a in week_acts if a["sport"] == "run"), 1),
-            "bike_min": round(sum(a.get("duration_min") or 0 for a in week_acts if a["sport"] == "bike"), 0),
+            "run_km": round(sum(a["distance_km"] or 0 for a in wa if a["sport"] == "run"), 1),
+            "bike_min": round(sum(a.get("duration_min") or 0 for a in wa if a["sport"] == "bike"), 0),
             "swim_m": round(sum((a.get("swum_m") or (a["distance_km"] or 0) * 1000)
-                                for a in week_acts if a["sport"] == "swim")),
+                                for a in wa if a["sport"] == "swim")),
         })
     return out
 
@@ -72,25 +78,28 @@ def _full_description(cal: Calendar, entry: dict) -> str:
     try:
         w = cal.api.get_workout_by_id(entry["workoutId"]) or {}
         return str(w.get("description") or "")
-    except Exception as e:  # noqa: BLE001 — the dashboard still works without it
+    except Exception as e:  # noqa: BLE001
         log.warning("Couldn't read workout %s: %s", entry.get("workoutId"), e)
         return ""
 
 
 def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today: dt.date,
-             drafts: bool = False, full_text: bool = False) -> list[dict]:
+              drafts: bool = False, full_text: bool = False) -> list[dict]:
     out = []
     for i in range(days):
         day = start + dt.timedelta(days=i)
         entries = cal.plan(day) or (cal.plan(day, draft=True) if drafts or day >= today else [])
         done = [a for a in acts if a["date"] == day.isoformat()]
         out.append({
-            "date": day.isoformat(), "weekday": day.strftime("%A"), "is_today": day == today,
+            "date": day.isoformat(),
+            "weekday": day.strftime("%A"),
+            "is_today": day == today,
             "is_past": day < today,
             "planned": [e["session"]["title"] for e in entries],
-            "description": _full_description(cal, entries[0]) if full_text and entries and entries[0].get("workoutId") else "",
+            "description": (_full_description(cal, entries[0])
+                            if full_text and entries and entries[0].get("workoutId") else ""),
             "done": [f"{a.get('name') or a['sport']} — {a['distance_km']:g} km, {a['duration_min']:.0f}'"
-                    for a in done],
+                     for a in done if (a.get("distance_km") or 0) > 0],
         })
     return out
 
@@ -113,138 +122,727 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
 
     mon = monday_of(today)
     this_week = _day_rows(cal, acts, mon, 7, today, full_text=True)
-    _, today_sess = plan_day(today, cfg, wt)
-    ahead = W.drafts(today, cfg, acts, today_sess, 10)
     upcoming = _day_rows(cal, acts, mon + dt.timedelta(days=7), 7, today, drafts=True)
+
+    # Full activity list for the Training tab
+    activities = []
+    for a in acts:
+        if (a.get("distance_km") or 0) > 0 or (a.get("duration_min") or 0) > 0:
+            activities.append({
+                "date": a["date"],
+                "sport": a["sport"],
+                "name": a.get("name") or a["sport"].replace("_", " ").title(),
+                "distance_km": a.get("distance_km"),
+                "duration_min": a.get("duration_min"),
+                "aerobic_te": a.get("aerobic_te"),
+            })
+    activities.sort(key=lambda x: x["date"], reverse=True)
+
+    # Decisions log: last 14 days with coach reasoning from Garmin descriptions
+    decisions = []
+    for i in range(14):
+        day = today - dt.timedelta(days=i)
+        entries = cal.plan(day) or cal.plan(day, draft=True) or []
+        day_acts = [a for a in acts if a["date"] == day.isoformat()
+                    and ((a.get("distance_km") or 0) > 0 or (a.get("duration_min") or 0) > 0)]
+        planned_titles = [e["session"]["title"] for e in entries] if entries else ["Rest"]
+        desc = (_full_description(cal, entries[0])
+                if entries and entries[0].get("workoutId") else "")
+        decisions.append({
+            "date": day.isoformat(),
+            "weekday": day.strftime("%a %d %b"),
+            "is_today": day == today,
+            "is_past": day < today,
+            "planned": planned_titles,
+            "description": desc,
+            "done": [f"{a.get('name') or a['sport']} · {a['distance_km']:g} km · {a['duration_min']:.0f}'"
+                     for a in day_acts],
+        })
+
+    # Current week aggregates for progress bars
+    mon_iso = mon.isoformat()
+    tmrw_iso = (today + dt.timedelta(days=1)).isoformat()
+    cw = [a for a in acts if mon_iso <= a["date"] < tmrw_iso]
+    week_current = {
+        "run_km": round(sum(a.get("distance_km") or 0 for a in cw if a["sport"] == "run"), 1),
+        "bike_min": round(sum(a.get("duration_min") or 0 for a in cw if a["sport"] == "bike"), 0),
+        "swim_m": round(sum((a.get("swum_m") or (a.get("distance_km") or 0) * 1000)
+                             for a in cw if a["sport"] == "swim")),
+    }
 
     return {
         "generated_at": dt.datetime.now().isoformat(timespec="minutes"),
         "today": today.isoformat(),
         "race": _race_countdown(cfg, today),
         "phase": {"name": phase.name, "describe": phase.describe(), "focus": phase.focus},
-        "week_target": {"target_km": wt["target_km"], "chronic_km": wt["chronic_km"],
-                        "last_week_km": wt.get("last_week_km"), "return_mode": wt.get("return_mode", False),
-                        "bike_hours": wt.get("bike_hours")},
+        "week_target": {
+            "target_km": wt["target_km"],
+            "chronic_km": wt["chronic_km"],
+            "last_week_km": wt.get("last_week_km"),
+            "return_mode": wt.get("return_mode", False),
+            "bike_hours": wt.get("bike_hours"),
+        },
         "week_so_far": W.summary(led),
+        "week_current": week_current,
         "paces": P.summary(),
-        "history": _weekly_history(acts, today, 8),
+        "history": _weekly_history(acts, today, 12),
         "this_week": this_week,
         "upcoming": upcoming,
+        "activities": activities,
+        "decisions": decisions,
     }
 
 
-# ── rendering ────────────────────────────────────────────────────────────────
-def _esc(s: str) -> str:
+# ── SVG chart ─────────────────────────────────────────────────────────────────
+
+def _svg_history(history: list[dict]) -> str:
+    """Inline SVG bar chart for weekly running volume."""
+    if not history:
+        return "<p style='color:var(--muted);font-size:.83rem'>No history yet.</p>"
+    peak = max(h["run_km"] for h in history) or 1
+    n = len(history)
+    VW, VH = 800, 120
+    bar_w = VW / n * 0.62
+    spacing = VW / n
+    chart_top = 16
+    chart_bot = 20
+    chart_h = VH - chart_top - chart_bot
+
+    parts: list[str] = []
+    for i, h in enumerate(history):
+        cx = i * spacing + spacing / 2
+        x = cx - bar_w / 2
+        is_cur = i == n - 1
+        pct = h["run_km"] / peak
+        bh = max(pct * chart_h, 2 if h["run_km"] > 0 else 0)
+        by = chart_top + chart_h - bh
+        opacity = "0.88" if is_cur else "0.42"
+        label = dt.date.fromisoformat(h["week_of"]).strftime("%d/%m")
+
+        if h["run_km"] > 0:
+            parts.append(
+                f'<rect x="{x:.1f}" y="{by:.1f}" width="{bar_w:.1f}" height="{bh:.1f}" '
+                f'fill="var(--run)" opacity="{opacity}" rx="2"/>'
+            )
+            val_y = by - 3
+            parts.append(
+                f'<text x="{cx:.1f}" y="{val_y:.1f}" text-anchor="middle" '
+                f'fill="var(--fg)" font-size="10" opacity="{opacity}">{h["run_km"]:g}</text>'
+            )
+        else:
+            parts.append(
+                f'<rect x="{x:.1f}" y="{chart_top + chart_h:.1f}" width="{bar_w:.1f}" height="2" '
+                f'fill="var(--border)" rx="1"/>'
+            )
+
+        parts.append(
+            f'<text x="{cx:.1f}" y="{VH:.1f}" text-anchor="middle" '
+            f'fill="var(--muted)" font-size="9.5">{label}</text>'
+        )
+
+    # Accent outline around current week
+    cur_cx = (n - 1) * spacing + spacing / 2
+    cur_x = cur_cx - bar_w / 2 - 2
+    parts.append(
+        f'<rect x="{cur_x:.1f}" y="{chart_top - 4}" width="{bar_w + 4:.1f}" '
+        f'height="{chart_h + 8}" fill="none" stroke="var(--accent)" '
+        f'stroke-width="1.5" rx="4" opacity="0.45"/>'
+    )
+
+    return (f'<svg viewBox="0 0 {VW} {VH}" width="100%" '
+            f'style="display:block;overflow:visible;max-height:130px" aria-hidden="true">'
+            + "".join(parts) + "</svg>")
+
+
+# ── HTML helpers ──────────────────────────────────────────────────────────────
+
+def _e(s: str) -> str:
     return html.escape(str(s))
 
 
-def _bars(history: list[dict]) -> str:
-    peak = max((h["run_km"] for h in history), default=1) or 1
-    rows = []
-    for h in history:
-        pct = round(100 * h["run_km"] / peak)
-        label = dt.date.fromisoformat(h["week_of"]).strftime("%d %b")
-        rows.append(f'<div class="bar-row"><span class="bar-label">{label}</span>'
-                    f'<div class="bar-track"><div class="bar-fill" style="width:{pct}%"></div></div>'
-                    f'<span class="bar-value">{h["run_km"]:g} km</span></div>')
-    return "\n".join(rows)
+def _dot(sport: str) -> str:
+    cls = sport.lower().replace(" ", "_")
+    return f'<span class="dot dot-{_e(cls)}" aria-hidden="true"></span>'
 
 
 def _day_card(d: dict) -> str:
-    cls = "today" if d["is_today"] else ("past" if d["is_past"] else "")
-    weekday = dt.date.fromisoformat(d["date"]).strftime("%a %d %b")
-    planned = " + ".join(_esc(p) for p in d["planned"]) or "Rest"
-    done = "".join(f'<div class="done">✓ {_esc(x)}</div>' for x in d["done"])
-    desc = (f'<details><summary>Why / details</summary><pre>{_esc(d["description"])}</pre></details>'
-           if d.get("description") else "")
-    return (f'<div class="day {cls}"><div class="day-head"><strong>{weekday}</strong>'
-           f'{" · today" if d["is_today"] else ""}</div>'
-           f'<div class="planned">{planned}</div>{done}{desc}</div>')
-
-
-PAGE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<title>Garmin Coach — training status</title>
-<style>
-  :root {{ color-scheme: light dark; }}
-  body {{ font: 15px/1.5 -apple-system, system-ui, sans-serif; max-width: 920px; margin: 0 auto;
-         padding: 24px 20px 60px; background: #0b0f14; color: #e6edf3; }}
-  h1 {{ font-size: 1.4rem; margin-bottom: 4px; }}
-  h2 {{ font-size: 1.05rem; margin: 32px 0 12px; border-bottom: 1px solid #263140; padding-bottom: 6px; }}
-  .sub {{ color: #8b98a5; margin-top: 0; }}
-  .cards {{ display: flex; gap: 14px; flex-wrap: wrap; margin: 16px 0; }}
-  .card {{ background: #121820; border: 1px solid #263140; border-radius: 10px; padding: 14px 16px; flex: 1;
-          min-width: 160px; }}
-  .card .big {{ font-size: 1.6rem; font-weight: 600; }}
-  .card .label {{ color: #8b98a5; font-size: 0.8rem; text-transform: uppercase; letter-spacing: .03em; }}
-  .phase-text {{ color: #c3cdd6; }}
-  .bar-row {{ display: flex; align-items: center; gap: 10px; margin: 4px 0; font-size: 0.85rem; }}
-  .bar-label {{ width: 60px; color: #8b98a5; }}
-  .bar-track {{ flex: 1; background: #1a2230; border-radius: 4px; height: 14px; overflow: hidden; }}
-  .bar-fill {{ background: #4e8cff; height: 100%; }}
-  .bar-value {{ width: 60px; text-align: right; color: #c3cdd6; }}
-  .week-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }}
-  .day {{ background: #121820; border: 1px solid #263140; border-radius: 8px; padding: 10px 12px; }}
-  .day.today {{ border-color: #4e8cff; }}
-  .day.past {{ opacity: 0.75; }}
-  .day-head {{ font-size: 0.85rem; color: #8b98a5; margin-bottom: 4px; }}
-  .planned {{ font-weight: 500; }}
-  .done {{ color: #5ec98f; font-size: 0.85rem; margin-top: 4px; }}
-  details {{ margin-top: 6px; font-size: 0.8rem; }}
-  summary {{ cursor: pointer; color: #8b98a5; }}
-  pre {{ white-space: pre-wrap; background: #0b0f14; border: 1px solid #263140; border-radius: 6px;
-        padding: 8px; margin-top: 6px; font-size: 0.78rem; }}
-  footer {{ color: #5c6773; font-size: 0.78rem; margin-top: 40px; }}
-</style></head>
-<body>
-<h1>Your training status</h1>
-<p class="sub">Generated {generated_at} · reads your Garmin, Todoist and Strava data live, each time this
-page loads.</p>
-
-<div class="cards">
-  {race_card}
-  <div class="card"><div class="label">Phase</div><div class="big">{phase_name}</div>
-    <div class="phase-text">{phase_describe}</div></div>
-  <div class="card"><div class="label">This week's target</div>
-    <div class="big">{target_km:g} km running</div>
-    <div class="phase-text">4-week average {chronic_km:g} km{return_note}</div></div>
-  <div class="card"><div class="label">Current paces</div><div class="phase-text">{paces}</div></div>
-</div>
-
-<h2>Last 8 weeks</h2>
-<div>{bars}</div>
-
-<h2>This week</h2>
-<div class="week-grid">{this_week}</div>
-
-<h2>Next week (drafts)</h2>
-<div class="week-grid">{upcoming}</div>
-
-<footer>Garmin Coach dashboard — runs only on your computer; nothing here is uploaded anywhere.</footer>
-</body></html>
-"""
-
-
-def render_html(data: dict) -> str:
-    race = data.get("race")
-    if race:
-        race_card = (f'<div class="card"><div class="label">Next race</div>'
-                    f'<div class="big">{_esc(race["name"])}</div>'
-                    f'<div class="phase-text">{race["days"]} days away ({race["weeks"]:g} weeks) '
-                    f'· priority {_esc(race["priority"])}</div></div>')
-    else:
-        race_card = '<div class="card"><div class="label">Next race</div><div class="phase-text">None set</div></div>'
-    wt = data["week_target"]
-    return_note = " — return-to-running mode" if wt.get("return_mode") else ""
-    return PAGE.format(
-        generated_at=_esc(data["generated_at"]), race_card=race_card,
-        phase_name=_esc(data["phase"]["name"]), phase_describe=_esc(data["phase"]["describe"]),
-        target_km=wt["target_km"], chronic_km=wt["chronic_km"], return_note=return_note,
-        paces=_esc(data["paces"]), bars=_bars(data["history"]) or "<p class='sub'>No history yet.</p>",
-        this_week="\n".join(_day_card(d) for d in data["this_week"]),
-        upcoming="\n".join(_day_card(d) for d in data["upcoming"]) or "<p class='sub'>Not drafted yet.</p>",
+    cls = "day-today" if d["is_today"] else ("day-past" if d["is_past"] else "")
+    badge = " <span class='today-badge'>today</span>" if d["is_today"] else ""
+    date_str = dt.date.fromisoformat(d["date"]).strftime("%a %d %b")
+    planned = " + ".join(_e(p) for p in d["planned"]) or "Rest"
+    done_html = "".join(f'<div class="done-row">&#10003; {_e(x)}</div>' for x in d["done"])
+    desc_html = ""
+    if d.get("description"):
+        desc_html = (
+            '<details class="desc-toggle">'
+            '<summary>Why / details</summary>'
+            f'<pre class="desc-pre">{_e(d["description"])}</pre>'
+            '</details>'
+        )
+    return (
+        f'<div class="day-card {cls}">'
+        f'<div class="day-meta">{_e(date_str)}{badge}</div>'
+        f'<div class="day-session">{planned}</div>'
+        f'{done_html}{desc_html}</div>'
     )
 
+
+def _decision_card(d: dict) -> str:
+    cls = "dec-today" if d["is_today"] else ""
+    planned = " + ".join(_e(p) for p in d["planned"])
+    done_html = ""
+    if d["done"]:
+        items = "".join(f'<span class="done-item">{_e(x)}</span>' for x in d["done"])
+        done_html = f'<div class="dec-done">&#10003; {items}</div>'
+    elif d["is_past"]:
+        done_html = '<div class="dec-rest">&#8212;</div>'
+    desc_html = ""
+    if d.get("description"):
+        desc_html = (
+            '<details class="desc-toggle">'
+            '<summary>Coach reasoning</summary>'
+            f'<pre class="desc-pre">{_e(d["description"])}</pre>'
+            '</details>'
+        )
+    return (
+        f'<div class="dec-card {cls}">'
+        f'<div class="dec-hd">'
+        f'<span class="dec-date">{_e(d["weekday"])}</span>'
+        f'<span class="dec-plan">{planned}</span>'
+        f'</div>'
+        f'{done_html}{desc_html}</div>'
+    )
+
+
+def _act_row(a: dict) -> str:
+    sport = a["sport"].lower()
+    dist = f'{a["distance_km"]:g}&nbsp;km' if a.get("distance_km") else "&#8212;"
+    dur = f'{a["duration_min"]:.0f}&#x2032;' if a.get("duration_min") else "&#8212;"
+    te = str(a["aerobic_te"]) if a.get("aerobic_te") else "&#8212;"
+    date_str = dt.date.fromisoformat(a["date"]).strftime("%d %b")
+    return (
+        f'<tr class="act-row" data-sport="{_e(sport)}">'
+        f'<td class="act-date">{_e(date_str)}</td>'
+        f'<td>{_dot(sport)}{_e(a["name"])}</td>'
+        f'<td class="num">{dist}</td>'
+        f'<td class="num">{dur}</td>'
+        f'<td class="num">{te}</td>'
+        f'</tr>'
+    )
+
+
+def _stat_cards(data: dict) -> str:
+    race = data.get("race")
+    wt = data["week_target"]
+    phase = data["phase"]
+
+    if race:
+        race_card = (
+            f'<div class="stat-card">'
+            f'<div class="lbl">Next race</div>'
+            f'<div class="big" style="color:var(--warn)">{race["days"]}</div>'
+            f'<div class="sub">{_e(race["name"])}</div>'
+            f'<div class="sub">{race["weeks"]:g}&nbsp;weeks away</div>'
+            f'</div>'
+        )
+    else:
+        race_card = (
+            '<div class="stat-card"><div class="lbl">Next race</div>'
+            '<div class="big" style="color:var(--muted)">&#8212;</div>'
+            '<div class="sub">None configured</div></div>'
+        )
+
+    phase_name_fmt = phase["name"].replace("_", " ").title()
+    phase_card = (
+        f'<div class="stat-card">'
+        f'<div class="lbl">Phase</div>'
+        f'<div class="big" style="font-size:1.1rem;line-height:1.35">{_e(phase_name_fmt)}</div>'
+        f'<div class="sub">{_e(phase["describe"][:80])}</div>'
+        f'</div>'
+    )
+
+    chronic = wt.get("chronic_km") or 0
+    last = wt.get("last_week_km") or 0
+    target_card = (
+        f'<div class="stat-card">'
+        f'<div class="lbl">Weekly target</div>'
+        f'<div class="big">{wt["target_km"]:g}'
+        f'<span style="font-size:.9rem;font-weight:500;color:var(--muted)"> km</span></div>'
+        f'<div class="sub">avg&nbsp;{chronic:g}&nbsp;km &middot; last&nbsp;{last:g}&nbsp;km</div>'
+        f'</div>'
+    )
+
+    pace_card = (
+        f'<div class="stat-card">'
+        f'<div class="lbl">Training paces</div>'
+        f'<div class="sub" style="margin-top:8px;line-height:1.8">{_e(data["paces"])}</div>'
+        f'</div>'
+    )
+
+    return race_card + phase_card + target_card + pace_card
+
+
+def _week_progress(data: dict) -> str:
+    wt = data["week_target"]
+    wc = data.get("week_current", {})
+    cards: list[str] = []
+
+    run_done = wc.get("run_km", 0) or 0
+    run_target = wt["target_km"] or 1
+    pct = min(100, round(100 * run_done / run_target))
+    cards.append(
+        f'<div class="wk-prog-card">'
+        f'<div class="sport-lbl run">Running</div>'
+        f'<div class="prog">'
+        f'<div class="prog-labels"><span>{run_done:g}&nbsp;km</span><span>{run_target:g}&nbsp;km target</span></div>'
+        f'<div class="prog-track"><div class="prog-fill" style="width:{pct}%;background:var(--run)"></div></div>'
+        f'</div>'
+        f'<div class="wpc-nums">{pct}% of target</div>'
+        f'</div>'
+    )
+
+    bike_min = wc.get("bike_min", 0) or 0
+    bike_h = wt.get("bike_hours")
+    if bike_h or bike_min > 0:
+        bike_target_min = (bike_h or 0) * 60
+        bpct = min(100, round(100 * bike_min / bike_target_min)) if bike_target_min else 0
+        if bike_target_min:
+            bike_str = f'{bike_min:.0f}&#x2032; of {bike_target_min:.0f}&#x2032; target ({bpct}%)'
+        else:
+            bike_str = f'{bike_min:.0f}&#x2032; this week'
+        prog_fill = (f'<div class="prog-track"><div class="prog-fill" '
+                     f'style="width:{bpct}%;background:var(--bike)"></div></div>')
+        cards.append(
+            f'<div class="wk-prog-card">'
+            f'<div class="sport-lbl bike">Cycling</div>'
+            f'<div class="prog">'
+            f'<div class="prog-labels"><span>{bike_min:.0f}&#x2032;</span>'
+            f'{"<span>" + f"{bike_target_min:.0f}&#x2032; target</span>" if bike_target_min else "<span></span>"}'
+            f'</div>{prog_fill}</div>'
+            f'<div class="wpc-nums">{bike_str}</div>'
+            f'</div>'
+        )
+
+    swim_m = wc.get("swim_m", 0) or 0
+    if swim_m > 0:
+        cards.append(
+            f'<div class="wk-prog-card">'
+            f'<div class="sport-lbl swim">Swimming</div>'
+            f'<div class="wpc-nums" style="margin-top:8px">{swim_m:.0f}&nbsp;m this week</div>'
+            f'</div>'
+        )
+
+    if not cards:
+        return "<p style='color:var(--muted);font-size:.83rem'>No activities yet this week.</p>"
+    return "\n".join(cards)
+
+
+def _why_html(data: dict) -> str:
+    phase = data["phase"]
+    race = data.get("race")
+    wt = data["week_target"]
+    cards: list[str] = []
+
+    phase_name_fmt = phase["name"].replace("_", " ").title()
+    cards.append(
+        f'<div class="why-card">'
+        f'<div class="why-lbl">Current phase</div>'
+        f'<div class="why-title">{_e(phase_name_fmt)}</div>'
+        f'<div class="why-text">{_e(phase["describe"])}</div>'
+        f'</div>'
+    )
+
+    if race:
+        date_fmt = dt.date.fromisoformat(race["date"]).strftime("%d %B %Y")
+        cards.append(
+            f'<div class="why-card">'
+            f'<div class="why-lbl">Goal race</div>'
+            f'<div class="why-title">{_e(race["name"])}</div>'
+            f'<div class="why-text">'
+            f'{race["days"]}&nbsp;days away ({race["weeks"]:g}&nbsp;wk)'
+            f' &middot; {_e(date_fmt)}'
+            f'</div></div>'
+        )
+
+    chronic = wt.get("chronic_km") or 0
+    target = wt["target_km"]
+    last = wt.get("last_week_km") or 0
+    ramp = round(target - chronic, 1) if chronic else 0
+    if ramp > 0.5:
+        ramp_note = f" (+{ramp:g}&nbsp;km from avg)"
+    elif ramp < -0.5:
+        ramp_note = f" ({abs(ramp):g}&nbsp;km below avg &mdash; recovery)"
+    else:
+        ramp_note = " (at average)"
+    lines = [
+        f'Target: <strong>{target}&nbsp;km</strong>{ramp_note}',
+        f'4-week average: {chronic}&nbsp;km',
+        f'Last week: {last}&nbsp;km',
+    ]
+    if wt.get("return_mode"):
+        lines.append("Return-to-running: volume builds ~20%/week from a 10&nbsp;km base, no hard sessions yet.")
+    cards.append(
+        f'<div class="why-card">'
+        f'<div class="why-lbl">Volume logic</div>'
+        f'<div class="why-text">{"<br>".join(lines)}</div>'
+        f'</div>'
+    )
+
+    paces = data.get("paces", "")
+    if paces:
+        cards.append(
+            f'<div class="why-card">'
+            f'<div class="why-lbl">Training paces</div>'
+            f'<div class="why-text">{_e(paces)}</div>'
+            f'</div>'
+        )
+
+    ws = data.get("week_so_far") or {}
+    if ws:
+        items = "; ".join(f'{k.replace("_", " ")}: {v}' for k, v in ws.items())
+        cards.append(
+            f'<div class="why-card">'
+            f'<div class="why-lbl">This week so far</div>'
+            f'<div class="why-text">{_e(items)}</div>'
+            f'</div>'
+        )
+
+    return "\n".join(cards)
+
+
+# ── PAGE template (uses __PLACEHOLDER__ substitution to avoid CSS-brace issues) ──
+
+_PAGE = (
+    '<!doctype html>\n'
+    '<html lang="en">\n'
+    '<head>\n'
+    '<meta charset="utf-8">\n'
+    '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
+    '<title>Garmin Coach</title>\n'
+    '<style>\n'
+    ':root {\n'
+    '  --bg:     #070d14;\n'
+    '  --s1:     #0d1820;\n'
+    '  --s2:     #132030;\n'
+    '  --border: #18293c;\n'
+    '  --fg:     #ddeaf8;\n'
+    '  --muted:  #4f6880;\n'
+    '  --dim:    #243344;\n'
+    '  --accent: #4d8ef0;\n'
+    '  --run:    #1cc47a;\n'
+    '  --bike:   #f09530;\n'
+    '  --swim:   #38b5e5;\n'
+    '  --str:    #9b72e8;\n'
+    '  --warn:   #f0a030;\n'
+    '  --ok:     #1cc47a;\n'
+    '  color-scheme: dark;\n'
+    '}\n'
+    '*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }\n'
+    'html,body {\n'
+    '  background: var(--bg); color: var(--fg);\n'
+    '  font-family: -apple-system,"SF Pro Text","Segoe UI",system-ui,sans-serif;\n'
+    '  font-size: 14px; line-height: 1.55; min-height: 100%;\n'
+    '}\n'
+    '.app {\n'
+    '  max-width: 980px; margin: 0 auto;\n'
+    '  padding-left: max(16px, env(safe-area-inset-left,0px));\n'
+    '  padding-right: max(16px, env(safe-area-inset-right,0px));\n'
+    '  padding-block: 0 64px;\n'
+    '}\n'
+    '.hdr {\n'
+    '  display: flex; align-items: center; gap: 10px;\n'
+    '  padding-block: 15px 11px; border-bottom: 1px solid var(--border);\n'
+    '}\n'
+    '.hdr-title { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; }\n'
+    '.hdr-pill {\n'
+    '  font-size: .67rem; font-weight: 600; text-transform: uppercase;\n'
+    '  letter-spacing: .06em; padding: 2px 8px; border-radius: 99px;\n'
+    '  background: color-mix(in srgb,var(--accent) 14%,transparent);\n'
+    '  color: var(--accent);\n'
+    '  border: 1px solid color-mix(in srgb,var(--accent) 28%,transparent);\n'
+    '}\n'
+    '.hdr-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; }\n'
+    '.hdr-ts { color: var(--muted); font-size: .74rem; }\n'
+    '.btn {\n'
+    '  background: var(--s1); border: 1px solid var(--border); color: var(--fg);\n'
+    '  border-radius: 6px; padding: 4px 10px; font-size: .77rem;\n'
+    '  cursor: pointer; transition: background .15s;\n'
+    '}\n'
+    '.btn:hover { background: var(--s2); }\n'
+    '.tabs {\n'
+    '  display: flex; gap: 2px; padding-block: 10px;\n'
+    '  border-bottom: 1px solid var(--border); margin-bottom: 20px;\n'
+    '  overflow-x: auto; scrollbar-width: none;\n'
+    '}\n'
+    '.tabs::-webkit-scrollbar { display: none; }\n'
+    '.tab {\n'
+    '  background: none; border: none; color: var(--muted); cursor: pointer;\n'
+    '  font-size: .82rem; font-weight: 500; padding: 5px 13px; border-radius: 6px;\n'
+    '  transition: all .15s; white-space: nowrap;\n'
+    '}\n'
+    '.tab:hover { color: var(--fg); background: var(--s1); }\n'
+    '.tab.active { color: var(--fg); background: var(--s2); }\n'
+    '.section { display: none; }\n'
+    '.section.active { display: block; }\n'
+    '.stat-grid {\n'
+    '  display: grid; grid-template-columns: repeat(auto-fill,minmax(175px,1fr));\n'
+    '  gap: 10px; margin-bottom: 20px;\n'
+    '}\n'
+    '.stat-card {\n'
+    '  background: var(--s1); border: 1px solid var(--border);\n'
+    '  border-radius: 10px; padding: 13px 15px;\n'
+    '}\n'
+    '.lbl {\n'
+    '  color: var(--muted); font-size: .67rem; font-weight: 600;\n'
+    '  text-transform: uppercase; letter-spacing: .07em; margin-bottom: 5px;\n'
+    '}\n'
+    '.big {\n'
+    '  font-size: 1.65rem; font-weight: 700; letter-spacing: -.03em;\n'
+    '  line-height: 1.1; font-variant-numeric: tabular-nums;\n'
+    '}\n'
+    '.sub { color: var(--muted); font-size: .77rem; margin-top: 4px; }\n'
+    '.prog { margin-top: 8px; }\n'
+    '.prog-labels {\n'
+    '  display: flex; justify-content: space-between; font-size: .72rem;\n'
+    '  color: var(--muted); margin-bottom: 4px; font-variant-numeric: tabular-nums;\n'
+    '}\n'
+    '.prog-track { background: var(--s2); border-radius: 99px; height: 5px; overflow: hidden; }\n'
+    '.prog-fill { height: 100%; border-radius: 99px; transition: width .4s ease; }\n'
+    '.sh {\n'
+    '  font-size: .71rem; font-weight: 600; text-transform: uppercase;\n'
+    '  letter-spacing: .08em; color: var(--muted);\n'
+    '  margin: 24px 0 10px; padding-bottom: 6px;\n'
+    '  border-bottom: 1px solid var(--border);\n'
+    '}\n'
+    '.wk-prog-grid {\n'
+    '  display: grid; grid-template-columns: repeat(auto-fill,minmax(200px,1fr));\n'
+    '  gap: 10px; margin-bottom: 20px;\n'
+    '}\n'
+    '.wk-prog-card {\n'
+    '  background: var(--s1); border: 1px solid var(--border);\n'
+    '  border-radius: 10px; padding: 12px 14px;\n'
+    '}\n'
+    '.sport-lbl {\n'
+    '  font-size: .71rem; font-weight: 600; text-transform: uppercase;\n'
+    '  letter-spacing: .06em; margin-bottom: 8px;\n'
+    '}\n'
+    '.sport-lbl.run  { color: var(--run); }\n'
+    '.sport-lbl.bike { color: var(--bike); }\n'
+    '.sport-lbl.swim { color: var(--swim); }\n'
+    '.wpc-nums { color: var(--muted); font-size: .8rem; margin-top: 5px; font-variant-numeric: tabular-nums; }\n'
+    '.hist-chart {\n'
+    '  background: var(--s1); border: 1px solid var(--border);\n'
+    '  border-radius: 10px; padding: 14px 16px; margin-bottom: 20px;\n'
+    '}\n'
+    '.wk-grid {\n'
+    '  display: grid; grid-template-columns: repeat(auto-fill,minmax(194px,1fr));\n'
+    '  gap: 10px; margin-bottom: 20px;\n'
+    '}\n'
+    '.day-card {\n'
+    '  background: var(--s1); border: 1px solid var(--border);\n'
+    '  border-radius: 10px; padding: 10px 12px; font-size: .81rem;\n'
+    '}\n'
+    '.day-card.day-today { border-color: var(--accent); }\n'
+    '.day-card.day-past  { opacity: .7; }\n'
+    '.day-meta {\n'
+    '  color: var(--muted); font-size: .71rem; margin-bottom: 4px;\n'
+    '  display: flex; align-items: center; gap: 6px;\n'
+    '}\n'
+    '.today-badge {\n'
+    '  background: color-mix(in srgb,var(--accent) 18%,transparent);\n'
+    '  color: var(--accent); border-radius: 99px; padding: 1px 6px;\n'
+    '  font-size: .64rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;\n'
+    '}\n'
+    '.day-session { font-weight: 500; line-height: 1.35; }\n'
+    '.done-row { color: var(--ok); font-size: .76rem; margin-top: 3px; }\n'
+    '.desc-toggle { margin-top: 6px; }\n'
+    '.desc-toggle summary { color: var(--muted); font-size: .72rem; cursor: pointer; user-select: none; }\n'
+    '.desc-toggle summary:hover { color: var(--fg); }\n'
+    '.desc-pre {\n'
+    '  white-space: pre-wrap; font-size: .72rem; font-family: inherit; color: var(--fg);\n'
+    '  background: var(--s2); border: 1px solid var(--border); border-radius: 6px;\n'
+    '  padding: 8px 10px; margin-top: 6px; line-height: 1.5;\n'
+    '}\n'
+    '.dec-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }\n'
+    '.dec-card {\n'
+    '  background: var(--s1); border: 1px solid var(--border);\n'
+    '  border-radius: 10px; padding: 11px 14px;\n'
+    '}\n'
+    '.dec-card.dec-today { border-color: var(--accent); }\n'
+    '.dec-hd { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }\n'
+    '.dec-date { color: var(--muted); font-size: .72rem; min-width: 78px; flex-shrink: 0; font-variant-numeric: tabular-nums; }\n'
+    '.dec-plan { font-weight: 500; font-size: .85rem; min-width: 0; }\n'
+    '.dec-done { font-size: .77rem; color: var(--ok); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 6px; }\n'
+    '.dec-rest { color: var(--dim); font-size: .77rem; margin-top: 3px; }\n'
+    '.act-filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }\n'
+    '.filter-btn {\n'
+    '  background: var(--s1); border: 1px solid var(--border); border-radius: 99px;\n'
+    '  color: var(--muted); font-size: .75rem; padding: 3px 10px;\n'
+    '  cursor: pointer; transition: all .15s;\n'
+    '}\n'
+    '.filter-btn:hover { color: var(--fg); }\n'
+    '.filter-btn.active                     { background: var(--s2); color: var(--fg); }\n'
+    '.filter-btn.active[data-sport=all]     { color: var(--accent); border-color: var(--accent); }\n'
+    '.filter-btn.active[data-sport=run]     { color: var(--run);    border-color: var(--run); }\n'
+    '.filter-btn.active[data-sport=bike]    { color: var(--bike);   border-color: var(--bike); }\n'
+    '.filter-btn.active[data-sport=swim]    { color: var(--swim);   border-color: var(--swim); }\n'
+    '.filter-btn.active[data-sport=strength]{ color: var(--str);    border-color: var(--str); }\n'
+    '.act-wrap { overflow-x: auto; }\n'
+    '.act-table { width: 100%; border-collapse: collapse; font-size: .81rem; }\n'
+    '.act-table th {\n'
+    '  color: var(--muted); font-weight: 500; font-size: .67rem; text-transform: uppercase;\n'
+    '  letter-spacing: .05em; padding: 0 10px 8px; text-align: left;\n'
+    '}\n'
+    '.act-table th.num,td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }\n'
+    '.act-table td { padding: 7px 10px; border-top: 1px solid var(--border); vertical-align: middle; }\n'
+    '.act-date { color: var(--muted); font-size: .75rem; white-space: nowrap; font-variant-numeric: tabular-nums; }\n'
+    '.dot {\n'
+    '  display: inline-block; width: 7px; height: 7px; border-radius: 50%;\n'
+    '  margin-right: 6px; flex-shrink: 0;\n'
+    '}\n'
+    '.dot-run    { background: var(--run); }\n'
+    '.dot-bike,.dot-cycling,.dot-virtual_ride,.dot-indoor_cycling { background: var(--bike); }\n'
+    '.dot-swim,.dot-swimming,.dot-open_water_swimming             { background: var(--swim); }\n'
+    '.dot-strength,.dot-strength_training                         { background: var(--str); }\n'
+    '.why-grid {\n'
+    '  display: grid; grid-template-columns: repeat(auto-fill,minmax(235px,1fr));\n'
+    '  gap: 12px; margin-bottom: 20px;\n'
+    '}\n'
+    '.why-card {\n'
+    '  background: var(--s1); border: 1px solid var(--border);\n'
+    '  border-radius: 10px; padding: 14px 16px;\n'
+    '}\n'
+    '.why-lbl {\n'
+    '  color: var(--muted); font-size: .67rem; font-weight: 600;\n'
+    '  text-transform: uppercase; letter-spacing: .07em; margin-bottom: 5px;\n'
+    '}\n'
+    '.why-title { font-size: .97rem; font-weight: 600; margin-bottom: 5px; }\n'
+    '.why-text { color: var(--muted); font-size: .82rem; line-height: 1.65; }\n'
+    '.why-text strong { color: var(--fg); font-weight: 600; }\n'
+    '.ftr {\n'
+    '  color: var(--dim); font-size: .71rem; margin-top: 40px;\n'
+    '  padding-top: 12px; border-top: 1px solid var(--border);\n'
+    '}\n'
+    '@media (max-width: 500px) {\n'
+    '  .stat-grid { grid-template-columns: repeat(2,1fr); }\n'
+    '  .hdr-ts { display: none; }\n'
+    '  .big { font-size: 1.4rem; }\n'
+    '}\n'
+    '</style>\n'
+    '</head>\n'
+    '<body>\n'
+    '<div class="app">\n'
+    '\n'
+    '<header class="hdr">\n'
+    '  <span class="hdr-title">Garmin Coach</span>\n'
+    '  <span class="hdr-pill">__PHASE__</span>\n'
+    '  <div class="hdr-meta">\n'
+    '    <span class="hdr-ts">__GENERATED_AT__</span>\n'
+    '    <button class="btn" onclick="location.reload()">&#8635;&nbsp;Refresh</button>\n'
+    '  </div>\n'
+    '</header>\n'
+    '\n'
+    '<nav class="tabs" role="tablist">\n'
+    '  <button class="tab active" data-tab="status"   onclick="showTab(this)">&#x1F4CA;&nbsp;Status</button>\n'
+    '  <button class="tab"        data-tab="why"       onclick="showTab(this)">&#x1F3AF;&nbsp;Why</button>\n'
+    '  <button class="tab"        data-tab="decisions" onclick="showTab(this)">&#x1F9E0;&nbsp;Decisions</button>\n'
+    '  <button class="tab"        data-tab="training"  onclick="showTab(this)">&#x1F3C3;&nbsp;Training</button>\n'
+    '  <button class="tab"        data-tab="upcoming"  onclick="showTab(this)">&#x1F4C5;&nbsp;Upcoming</button>\n'
+    '</nav>\n'
+    '\n'
+    '<section id="status" class="section active">\n'
+    '  <div class="stat-grid">__STAT_CARDS__</div>\n'
+    '  <h2 class="sh">This week</h2>\n'
+    '  <div class="wk-prog-grid">__WEEK_PROGRESS__</div>\n'
+    '  <h2 class="sh">Volume &mdash; last 12 weeks</h2>\n'
+    '  <div class="hist-chart">__HISTORY__</div>\n'
+    '</section>\n'
+    '\n'
+    '<section id="why" class="section">\n'
+    '  <div class="why-grid">__WHY__</div>\n'
+    '</section>\n'
+    '\n'
+    '<section id="decisions" class="section">\n'
+    '  <h2 class="sh">Coach decisions &mdash; last 14 days</h2>\n'
+    '  <div class="dec-list">__DECISIONS__</div>\n'
+    '</section>\n'
+    '\n'
+    '<section id="training" class="section">\n'
+    '  <div class="act-filters">\n'
+    '    <button class="filter-btn active" data-sport="all"      onclick="filterActs(this)">All</button>\n'
+    '    <button class="filter-btn"        data-sport="run"      onclick="filterActs(this)">Running</button>\n'
+    '    <button class="filter-btn"        data-sport="bike"     onclick="filterActs(this)">Cycling</button>\n'
+    '    <button class="filter-btn"        data-sport="swim"     onclick="filterActs(this)">Swimming</button>\n'
+    '    <button class="filter-btn"        data-sport="strength" onclick="filterActs(this)">Strength</button>\n'
+    '  </div>\n'
+    '  <div class="act-wrap">\n'
+    '    <table class="act-table">\n'
+    '      <thead><tr>\n'
+    '        <th>Date</th><th>Activity</th>\n'
+    '        <th class="num">Distance</th><th class="num">Duration</th><th class="num">TE</th>\n'
+    '      </tr></thead>\n'
+    '      <tbody>__ACT_ROWS__</tbody>\n'
+    '    </table>\n'
+    '  </div>\n'
+    '</section>\n'
+    '\n'
+    '<section id="upcoming" class="section">\n'
+    '  <h2 class="sh">This week</h2>\n'
+    '  <div class="wk-grid">__THIS_WEEK__</div>\n'
+    '  <h2 class="sh">Next week (drafts)</h2>\n'
+    '  <div class="wk-grid">__NEXT_WEEK__</div>\n'
+    '</section>\n'
+    '\n'
+    '<footer class="ftr">\n'
+    '  Garmin Coach dashboard &middot; runs only on your computer &middot; nothing is uploaded\n'
+    '</footer>\n'
+    '</div>\n'
+    '\n'
+    '<script>\n'
+    'function showTab(btn) {\n'
+    '  document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));\n'
+    '  document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));\n'
+    '  btn.classList.add("active");\n'
+    '  document.getElementById(btn.dataset.tab).classList.add("active");\n'
+    '}\n'
+    'function filterActs(btn) {\n'
+    '  document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));\n'
+    '  btn.classList.add("active");\n'
+    '  const sport = btn.dataset.sport;\n'
+    '  document.querySelectorAll("tr.act-row").forEach(row => {\n'
+    '    const rs = (row.dataset.sport || "").toLowerCase();\n'
+    '    row.style.display = (sport === "all" || rs === sport || rs.startsWith(sport)) ? "" : "none";\n'
+    '  });\n'
+    '}\n'
+    '</script>\n'
+    '</body>\n'
+    '</html>'
+)
+
+
+# ── render ────────────────────────────────────────────────────────────────────
+
+def render_html(data: dict) -> str:
+    next_week_html = "\n".join(_day_card(d) for d in data["upcoming"])
+    if not next_week_html:
+        next_week_html = "<p style='color:var(--muted);font-size:.83rem'>Not drafted yet.</p>"
+
+    return (
+        _PAGE
+        .replace("__PHASE__", _e(data["phase"]["name"].replace("_", " ").title()))
+        .replace("__GENERATED_AT__", _e(data["generated_at"]))
+        .replace("__STAT_CARDS__", _stat_cards(data))
+        .replace("__WEEK_PROGRESS__", _week_progress(data))
+        .replace("__HISTORY__", _svg_history(data["history"]))
+        .replace("__WHY__", _why_html(data))
+        .replace("__DECISIONS__", "\n".join(_decision_card(d) for d in data["decisions"]))
+        .replace("__ACT_ROWS__", "\n".join(_act_row(a) for a in data["activities"]))
+        .replace("__THIS_WEEK__", "\n".join(_day_card(d) for d in data["this_week"]))
+        .replace("__NEXT_WEEK__", next_week_html)
+    )
+
+
+# ── server ────────────────────────────────────────────────────────────────────
 
 def serve(root: Path, port: int = PORT, open_browser: bool = True) -> None:
     import yaml
@@ -254,23 +852,29 @@ def serve(root: Path, port: int = PORT, open_browser: bool = True) -> None:
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
+            path = self.path.split("?")[0]
             try:
                 data = build_data(api, cfg)
-                body = render_html(data).encode("utf-8")
+                if path == "/api/data":
+                    body = json.dumps(data, default=str, ensure_ascii=False).encode("utf-8")
+                    ctype = "application/json; charset=utf-8"
+                else:
+                    body = render_html(data).encode("utf-8")
+                    ctype = "text/html; charset=utf-8"
                 self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
             except Exception as e:  # noqa: BLE001
                 log.exception("Dashboard request failed")
-                msg = f"<pre>Couldn't build the dashboard: {html.escape(str(e))}</pre>".encode()
+                msg = f"<pre>Error: {html.escape(str(e))}</pre>".encode()
                 self.send_response(500)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(msg)
 
-        def log_message(self, fmt, *args):  # noqa: A002 — quiet
+        def log_message(self, fmt, *args):  # noqa: A002
             pass
 
     server = http.server.HTTPServer(("127.0.0.1", port), Handler)

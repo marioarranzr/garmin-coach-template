@@ -52,6 +52,38 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
   as left/right steps or alternating sets, Y-T-W as three exercises.
 - Rest days: no Garmin workout (marked in Todoist).
 
+## Dashboard
+- `coach/dashboard.py` — `python -m coach dashboard` serves http://localhost:8765.
+- Five tabs: Status (race countdown, phase, week progress, 12-week chart), Why
+  (training logic), Decisions (14-day coach reasoning log), Training (filterable
+  activity list), Upcoming (this week + next week with full descriptions).
+- `/api/data` returns the raw JSON for debugging.
+- Design tokens and schema: `docs/DESIGN_BRIEF.md`, `docs/BACKEND_SCHEMA.md`.
+
+## Working style
+Every change follows these steps:
+1. Implement.
+2. Run `python tests/test_scenarios.py` (no pytest).
+3. Push to the template (`git push template main`).
+4. Merge into the private repo (`git fetch template && git merge template/main`).
+   Check for conflicts: `git diff --name-only --diff-filter=U` and grep for `<<<<`.
+   Keep Mario's `config.yaml`.
+5. Push (`git push origin main`).
+6. Confirm CI is green.
+7. Where relevant, trigger a real run (`gh api .../dispatches`).
+- Mario gives feedback from real watch/Todoist use. Fixes say what changed, why,
+  and when it takes effect — no technical narration.
+
+## Planning docs (in `docs/`)
+- `PRD.md` — product requirements for the dashboard
+- `TRD.md` — technical decisions and stack
+- `APP_FLOW.md` — navigation and user journey
+- `DESIGN_BRIEF.md` — colour palette, typography, components
+- `BACKEND_SCHEMA.md` — `build_data()` output schema
+- `IMPL_PLAN.md` — build sequence
+
 ## Open ideas
 - Withings scale (weight, muscle, fat %) via the Withings API, also written to Garmin
   body composition. Not built yet.
+- HRV / sleep trend chart in the dashboard Status tab.
+- Long-run progression chart in the Training tab.

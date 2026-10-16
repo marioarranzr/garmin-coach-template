@@ -256,6 +256,8 @@ athlete:
   pool_length_m: {answers['pool']}
   # Shortest ride worth planning (minutes): anything shorter becomes this long.
   min_ride_minutes: {answers.get('min_ride', 30)}
+  # true: never a run the day after a run (2 km+), unless a note asks for one
+  no_runs_on_consecutive_days: {'true' if answers.get('no_b2b') else 'false'}
   # Interval sessions: how far you run easy to the track / to a flat path (km).
   # That run is the warm-up and the way back the cool-down. Leave empty for a
   # 15' warm-up and 10' cool-down wherever you are.
@@ -592,6 +594,7 @@ def existing_setup(cfg: dict, workflow: str) -> dict:
                       key=lambda x: x.utcoffset())
             utc = dt.datetime(2026, std.month, 15, int(c.group(2)), int(c.group(1)), tzinfo=dt.timezone.utc)
             out["wake"] = utc.astimezone(dt.timezone(std.utcoffset())).strftime("%H:%M")
+    out["b2b_runs"] = "never" if ath.get("no_runs_on_consecutive_days") else "allowed"
     g0 = cfg.get("garmin") or {}
     if g0.get("morning_check"):
         out["wake"] = str(g0["morning_check"])
@@ -633,6 +636,7 @@ def _settings_lines(st: dict) -> list[tuple[str, str]]:
         ("Time zone", st["tz"]),
         ("Morning check at", st["wake"]),
         ("Evening plan at", st["evening"]),
+        ("Runs on consecutive days", st.get("b2b_runs", "allowed")),
     ]
 
 
@@ -663,6 +667,10 @@ def _edit_setting(i: int, st: dict, ask) -> None:
         st["evening"] = _ask("Evening plan for the next day (HH:MM)", st["evening"],
                              lambda v: None if re.fullmatch(r"(1[2-9]|2[0-3]):[0-5]\d", v) else
                              "Use HH:MM, in the afternoon or evening", ask)
+    elif i == 9:
+        st["b2b_runs"] = _ask("Runs on consecutive days: allowed, or never (a note can still ask for one)",
+                              st.get("b2b_runs", "allowed"),
+                              lambda v: None if v in ("allowed", "never") else "Type allowed or never", ask)
 
 
 def _review_settings(st: dict, title: str, ask, hints: dict | None = None) -> None:
@@ -673,7 +681,8 @@ def _review_settings(st: dict, title: str, ask, hints: dict | None = None) -> No
             hint = f"   (Garmin data suggests {hints[n]})" if n in hints and hints[n] != value else ""
             print(f"  {n}. {label:<20} {value}{hint}")
         raw = ask("\nPress Enter to use these, or type the numbers to change (e.g. 3 4): ").strip()
-        picks = [int(x) for x in re.findall(r"\d+", raw) if 1 <= int(x) <= 7]
+        n_lines = len(_settings_lines(st))
+        picks = [int(x) for x in re.findall(r"\d+", raw) if 1 <= int(x) <= n_lines]
         if not raw:
             # sanity fixes before accepting
             if st["rest_day"] == st["long_day"]:
@@ -684,7 +693,7 @@ def _review_settings(st: dict, title: str, ask, hints: dict | None = None) -> No
             st["run_days"] = min(max(st["run_days"], lo), hi)
             return
         if not picks:
-            print("  Type numbers from 1 to 7, or just press Enter.")
+            print(f"  Type numbers from 1 to {n_lines}, or just press Enter.")
             continue
         for i in sorted(set(picks)):
             _edit_setting(i, st, ask)
@@ -765,6 +774,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
             print(f"(Couldn't read your current config.yaml: {e}. Starting from scratch.)\n")
     st = dict(garmin)
     st.update({k: current[k] for k in garmin if k in current})
+    st["b2b_runs"] = current.get("b2b_runs", "allowed")
     if st["rest_day"] == st["long_day"]:
         st["rest_day"] = "mon" if st["long_day"] != "mon" else "fri"
     if any(k in current for k in garmin):
@@ -781,7 +791,7 @@ def run(root: Path, ask=input, suggestions: dict | None = None) -> Path:
                "min_long_run_km": extras.get("min_long_run_km", 0),
                "until": extras.get("until", "10:00"), "prefix": extras.get("prefix", "Coach"),
                "preview_days": extras.get("preview_days", 7),
-               "min_ride": extras.get("min_ride", 30),
+               "min_ride": extras.get("min_ride", 30), "no_b2b": st.get("b2b_runs") == "never",
                "track_km": extras.get("track_km"), "path_km": extras.get("path_km"),
                **{k: extras[k] for k in ("ai_enabled", "ai_provider", "openai_model", "anthropic_model",
                                          "todoist_enabled", "todoist_project",

@@ -667,6 +667,7 @@ workflow file, and keys in GitHub secrets.
 | `athlete.pool_length_m` | 25 | Pool length for swim workouts on the watch |
 | `athlete.track_warmup_km` / `athlete.path_warmup_km` | — | How far you run easy to the track / to a flat path: interval sessions use that run as the warm-up and the way back as the cool-down (track: short reps; path: tempo and longer blocks) |
 | `athlete.min_ride_minutes` | 30 | Shortest ride worth planning: shorter ones become this long. Recorded rides under 25' are commutes, never training |
+| `athlete.no_runs_on_consecutive_days` | false | `true`: never a run the day after a run (2 km+); a note can still ask for one. Also in `python -m coach setup` |
 | `plan_start` | next Monday | Monday from which the 4-week load/deload cycles count |
 | `races` | — | `name`, `date`, `kind` (`5k`, `10k`, `half`, `marathon`, `road`, `tri_sprint`, `tri_olympic`, `tri_half`, `tri_full`, `tri`, `bike`), `distance_km` (road and bike), `elevation_m` (bike), `distances` (`tri`: swim-bike-run km, e.g. `1.5-40-10`), `priority` (`A` or `B`) |
 | `peak_weekly_run_km` | 32-62 | Maximum weekly running km per goal type (`short`, `half`, `tri`, `bike`) |

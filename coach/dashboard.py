@@ -250,7 +250,7 @@ def _svg_history(history: list[dict]) -> str:
         label = dt.date.fromisoformat(h["week_of"]).strftime("%d/%m")
         if h["run_km"] > 0:
             bh = max((h["run_km"] / peak) * (chart_h - 2), 2)
-            parts.append(f'<rect x="{x:.1f}" y="{chart_h - bh:.1f}" width="{bar_w:.1f}" height="{bh:.1f}" fill="var(--run)" opacity="{bar_op}" rx="2"/>')
+            parts.append(f'<rect x="{x:.1f}" y="{chart_h - bh:.1f}" width="{bar_w:.1f}" height="{bh:.1f}" fill="var(--run)" opacity="{bar_op}" rx="2"><title>{h["run_km"]:g} km · {label}</title></rect>')
         else:
             parts.append(f'<rect x="{x:.1f}" y="{chart_h - 1:.1f}" width="{bar_w:.1f}" height="1" fill="var(--border)" opacity="0.35"/>')
         parts.append(f'<text x="{cx:.1f}" y="{VH}" text-anchor="middle" fill="var(--fg)" opacity="0.55" font-size="9.5">{label}</text>')
@@ -307,11 +307,19 @@ def _day_card(d: dict, compact: bool = False) -> str:
 
     # Coach reasoning — strip footer timestamp, preserve newlines
     reason_html = ""
-    if d.get("description") and not compact:
+    if d.get("description"):
         import re as _re
         desc = _re.sub(r'\s*(?:Checked \d+:\d+\.|Planned the evening before\.)\s*$', '', d["description"].strip())
-        desc_html = "<br>".join(_e(line) for line in desc.splitlines()) if "\n" in desc else _e(desc)
-        reason_html = f'<div class="day-reason">{desc_html}</div>'
+        if compact:
+            reason_html = (
+                '<details class="desc-toggle">'
+                '<summary>Why</summary>'
+                f'<div class="day-reason">{_e(desc)}</div>'
+                '</details>'
+            )
+        else:
+            desc_html = "<br>".join(_e(line) for line in desc.splitlines()) if "\n" in desc else _e(desc)
+            reason_html = f'<div class="day-reason">{desc_html}</div>'
 
     if compact:
         return (
@@ -319,7 +327,8 @@ def _day_card(d: dict, compact: bool = False) -> str:
             f'<div class="day-meta"><span class="day-name">{_e(day_name)}</span>'
             f' <span class="day-date">{_e(day_date)}</span>{badge}</div>'
             f'<div class="day-session">{planned}</div>'
-            f'{done_html}</div>'
+            f'{done_html}'
+            f'{reason_html}</div>'
         )
 
     return (

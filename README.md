@@ -19,8 +19,34 @@ structured steps, heart-rate zones and one sentence explaining why.
 - **Runs for free on GitHub Actions** in your own private repository: no
   server, no app.
 
+## What you need
+
+### Required
+
+| | |
+|---|---|
+| Garmin account | recovery data and calendar workouts |
+| GitHub account (private repo) | runs the daily workflow for free |
+| Python 3.12+ | one-time login and setup, on your computer |
+| `GARMIN_TOKENS_KEY` secret | created during setup — the only required GitHub secret |
+
+That's it. After setup the workflow runs every morning and evening on its own.
+
+### Optional integrations
+
+Add any of these later; the coach works without all of them.
+
+| Integration | What it adds | GitHub secret(s) needed |
+|---|---|---|
+| **AI coach** (OpenAI or Anthropic) | Makes the final training call and writes the one-line why on your watch | `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` |
+| **Todoist** | Reads notes you write ("legs heavy", "can't train Sunday"), keeps a training diary, shows the week's plan | `TODOIST_API_TOKEN` |
+| **ntfy** | Push notification to your phone and watch with tomorrow's plan | `NTFY_TOPIC` |
+| **Strava** | Counts rides that only reach Strava (MyWhoosh, Zwift) | `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`, `STRAVA_REFRESH_TOKEN` |
+| **Netlify dashboard** | A private web page with your training status, updated after each daily run | `NETLIFY_AUTH_TOKEN`, `NETLIFY_SITE_ID` |
+
 ## Contents
 
+- [What you need](#what-you-need)
 - [How a day works](#how-a-day-works)
 - [How it plans](#how-it-plans)
 - [How it adjusts each day](#how-it-adjusts-each-day)
@@ -630,7 +656,23 @@ Garmin's own numbers (its training load and readiness) still won't include
 them; only the coach's. Strava replaces its token now and then, so the latest
 one is kept encrypted in `data/strava_token.enc`, like the Garmin session.
 
-### 6. Test it
+### 6. Optional: Netlify dashboard
+
+A web page at your own URL showing your training status, this week's plan with coaching
+reasoning, the 12-week trend and all your activities — deployed automatically after each
+daily run.
+
+1. Create a free account at [netlify.com](https://netlify.com) and create a new
+   **empty** site (not from a template; skip the deploy step).
+2. Copy the site's **Site ID** from Site configuration → General.
+3. Go to User settings → Personal access tokens and create a token.
+4. Add both as GitHub secrets: `NETLIFY_AUTH_TOKEN` and `NETLIFY_SITE_ID`.
+
+The next daily run deploys the page. Open it from Actions → Daily workout → the latest run
+summary, or from the Netlify dashboard. Add it to your phone's home screen as a web clip
+(Safari → Share → Add to Home Screen) for one-tap access.
+
+### 7. Test it
 
 **Actions → Daily workout → Run workflow**, tick *Analyze only*, and run it.
 The report appears in the run summary. Check its **Coach** section if you

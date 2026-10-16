@@ -304,16 +304,10 @@ def _day_card(d: dict, compact: bool = False) -> str:
     elif d["is_past"] and not d["planned"]:
         done_html = '<div class="rest-row">Rest</div>'
 
-    # Coach reasoning — visible inline
+    # Coach reasoning — full text, visible inline
     reason_html = ""
     if d.get("description") and not compact:
-        desc = d["description"].strip()
-        short = desc[:350]
-        if len(desc) > 350:
-            # truncate at last sentence boundary
-            cut = short.rfind(". ")
-            short = (short[:cut + 1] if cut > 100 else short) + "…"
-        reason_html = f'<div class="day-reason">{_e(short)}</div>'
+        reason_html = f'<div class="day-reason">{_e(d["description"].strip())}</div>'
 
     if compact:
         return (

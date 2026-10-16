@@ -569,14 +569,19 @@ def _week_content(data: dict) -> str:
     if today_d:
         parts.append(_day_card(today_d))
 
-    upcoming = future_tw + next_week
-    if upcoming:
+    if future_tw:
         parts.append('<h2 class="sh">Upcoming</h2>')
         parts.append('<div class="wk-grid">')
-        parts.extend(_day_card(d, compact=True) for d in upcoming)
+        parts.extend(_day_card(d, compact=True) for d in future_tw)
         parts.append('</div>')
     elif not today_d:
         parts.append("<p class='empty-note'>No plan drafted yet.</p>")
+
+    if next_week:
+        parts.append('<h2 class="sh">Next week <span class="sh-note">rough plan</span></h2>')
+        parts.append('<div class="wk-grid wk-draft">')
+        parts.extend(_day_card(d, compact=True) for d in next_week)
+        parts.append('</div>')
 
     if past:
         parts.append('<h2 class="sh">Earlier this week</h2>')
@@ -688,6 +693,11 @@ _PAGE = (
     '  margin: 24px 0 12px; padding-bottom: 6px;\n'
     '  border-bottom: 1px solid var(--border);\n'
     '}\n'
+    '.sh-note {\n'
+    '  font-size: .65rem; font-weight: 400; text-transform: none;\n'
+    '  letter-spacing: 0; opacity: 0.6; margin-left: 6px;\n'
+    '}\n'
+    '.wk-draft .day-card { opacity: 0.8; }\n'
     '.week-list { display: flex; flex-direction: column; }\n'
     '.day-row {\n'
     '  display: grid; grid-template-columns: 72px 1fr; gap: 14px;\n'

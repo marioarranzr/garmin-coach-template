@@ -237,11 +237,17 @@ def _svg_history(history: list[dict]) -> str:
     peak_bike = max(h["bike_min"] for h in history) or 1
     peak_swim = max(h["swim_m"] for h in history) or 1
 
+    def _fmt_bike(mins: float) -> str:
+        return f"{int(mins)}'" if mins < 120 else f"{mins / 60:.1g}h"
+
+    def _fmt_swim(m: float) -> str:
+        return f"{m / 1000:.1g}k" if m >= 1000 else f"{m:.0f}m"
+
     n = len(history)
-    VW, VH = 800, 132
+    VW, VH = 800, 155
     bar_w = VW / n * 0.62
     spacing = VW / n
-    chart_top = 18
+    chart_top = 42
     chart_bot = 20
     chart_h = VH - chart_top - chart_bot
 
@@ -249,20 +255,14 @@ def _svg_history(history: list[dict]) -> str:
     H_BIKE = chart_h * 0.25
     H_SWIM = chart_h * 0.15
 
-    parts: list[str] = [
-        '<circle cx="6" cy="9" r="4" fill="var(--run)" opacity="0.75"/>',
-        '<text x="13" y="12" fill="var(--muted)" font-size="9">run km</text>',
-        '<circle cx="62" cy="9" r="4" fill="var(--bike)" opacity="0.75"/>',
-        '<text x="69" y="12" fill="var(--muted)" font-size="9">bike</text>',
-        '<circle cx="96" cy="9" r="4" fill="var(--swim)" opacity="0.75"/>',
-        '<text x="103" y="12" fill="var(--muted)" font-size="9">swim</text>',
-    ]
+    parts: list[str] = []
 
     for i, h in enumerate(history):
         cx = i * spacing + spacing / 2
         x = cx - bar_w / 2
         is_cur = i == n - 1
-        opacity = "0.9" if is_cur else "0.45"
+        bar_op = "0.92" if is_cur else "0.65"
+        lbl_op = "0.9" if is_cur else "0.6"
         label = dt.date.fromisoformat(h["week_of"]).strftime("%d/%m")
 
         rh = (h["run_km"] / peak_run) * H_RUN if h["run_km"] > 0 else 0
@@ -272,28 +272,29 @@ def _svg_history(history: list[dict]) -> str:
 
         bot = chart_top + chart_h
         if rh:
-            parts.append(f'<rect x="{x:.1f}" y="{bot - rh:.1f}" width="{bar_w:.1f}" height="{rh:.1f}" fill="var(--run)" opacity="{opacity}" rx="2"/>')
+            parts.append(f'<rect x="{x:.1f}" y="{bot - rh:.1f}" width="{bar_w:.1f}" height="{rh:.1f}" fill="var(--run)" opacity="{bar_op}" rx="2"/>')
             bot -= rh
         if bh_seg:
-            parts.append(f'<rect x="{x:.1f}" y="{bot - bh_seg:.1f}" width="{bar_w:.1f}" height="{bh_seg:.1f}" fill="var(--bike)" opacity="{opacity}" rx="2"/>')
+            parts.append(f'<rect x="{x:.1f}" y="{bot - bh_seg:.1f}" width="{bar_w:.1f}" height="{bh_seg:.1f}" fill="var(--bike)" opacity="{bar_op}" rx="2"/>')
             bot -= bh_seg
         if sh:
-            parts.append(f'<rect x="{x:.1f}" y="{bot - sh:.1f}" width="{bar_w:.1f}" height="{sh:.1f}" fill="var(--swim)" opacity="{opacity}" rx="2"/>')
+            parts.append(f'<rect x="{x:.1f}" y="{bot - sh:.1f}" width="{bar_w:.1f}" height="{sh:.1f}" fill="var(--swim)" opacity="{bar_op}" rx="2"/>')
 
-        if total_h > 0:
-            val_y = chart_top + chart_h - total_h - 3
-            if h["run_km"] > 0:
-                parts.append(f'<text x="{cx:.1f}" y="{val_y:.1f}" text-anchor="middle" fill="var(--fg)" font-size="10" opacity="{opacity}">{h["run_km"]:g}</text>')
-        else:
+        # Per-sport labels above bars (run=bottom, bike=middle, swim=top — matching stack order)
+        if h["run_km"] > 0:
+            parts.append(f'<text x="{cx:.1f}" y="{chart_top - 7:.1f}" text-anchor="middle" fill="var(--run)" font-size="9" opacity="{lbl_op}">{h["run_km"]:g}</text>')
+        if h["bike_min"] > 0:
+            parts.append(f'<text x="{cx:.1f}" y="{chart_top - 18:.1f}" text-anchor="middle" fill="var(--bike)" font-size="9" opacity="{lbl_op}">{_fmt_bike(h["bike_min"])}</text>')
+        if h["swim_m"] > 0:
+            parts.append(f'<text x="{cx:.1f}" y="{chart_top - 29:.1f}" text-anchor="middle" fill="var(--swim)" font-size="9" opacity="{lbl_op}">{_fmt_swim(h["swim_m"])}</text>')
+
+        if total_h == 0:
             parts.append(f'<rect x="{x:.1f}" y="{chart_top + chart_h:.1f}" width="{bar_w:.1f}" height="2" fill="var(--border)" rx="1"/>')
 
-        parts.append(f'<text x="{cx:.1f}" y="{VH:.1f}" text-anchor="middle" fill="var(--muted)" font-size="9.5">{label}</text>')
-
-    cur_cx = (n - 1) * spacing + spacing / 2
-    parts.append(f'<rect x="{cur_cx - bar_w / 2 - 2:.1f}" y="{chart_top - 4}" width="{bar_w + 4:.1f}" height="{chart_h + 8}" fill="none" stroke="var(--accent)" stroke-width="1.5" rx="4" opacity="0.45"/>')
+        parts.append(f'<text x="{cx:.1f}" y="{VH:.1f}" text-anchor="middle" fill="var(--fg)" opacity="0.4" font-size="9.5">{label}</text>')
 
     return (f'<svg viewBox="0 0 {VW} {VH}" width="100%" '
-            f'style="display:block;overflow:visible;max-height:132px" aria-hidden="true">'
+            f'style="display:block;overflow:visible;max-height:{VH}px" aria-hidden="true">'
             + "".join(parts) + "</svg>")
 
 
@@ -502,26 +503,12 @@ def _why_html(data: dict) -> str:
     wt = data["week_target"]
     cards: list[str] = []
 
-    phase_name_fmt = phase["name"].replace("_", " ").title()
     cards.append(
         f'<div class="why-card">'
-        f'<div class="why-lbl">Current phase</div>'
-        f'<div class="why-title">{_e(phase_name_fmt)}</div>'
+        f'<div class="why-lbl">Training focus</div>'
         f'<div class="why-text">{_e(phase["describe"])}</div>'
         f'</div>'
     )
-
-    if race:
-        date_fmt = dt.date.fromisoformat(race["date"]).strftime("%d %B %Y")
-        cards.append(
-            f'<div class="why-card">'
-            f'<div class="why-lbl">Goal race</div>'
-            f'<div class="why-title">{_e(race["name"])}</div>'
-            f'<div class="why-text">'
-            f'{race["days"]}&nbsp;days away ({race["weeks"]:g}&nbsp;wk)'
-            f' &middot; {_e(date_fmt)}'
-            f'</div></div>'
-        )
 
     chronic = wt.get("chronic_km") or 0
     target = wt["target_km"]
@@ -549,10 +536,11 @@ def _why_html(data: dict) -> str:
 
     paces = data.get("paces", "")
     if paces:
+        pace_lines = "<br>".join(_e(p.strip()) for p in paces.split(" · "))
         cards.append(
             f'<div class="why-card">'
             f'<div class="why-lbl">Training paces</div>'
-            f'<div class="why-text">{_e(paces)}</div>'
+            f'<div class="why-text" style="line-height:1.7">{pace_lines}</div>'
             f'</div>'
         )
 
@@ -878,7 +866,7 @@ _PAGE = (
     '\n'
     '<!-- Tab: Log -->\n'
     '<section id="log" class="section">\n'
-    '  <h2 class="sh">Volume &mdash; last 12 weeks (running)</h2>\n'
+    '  <h2 class="sh">Volume &mdash; last 12 weeks</h2>\n'
     '  <div class="hist-chart">__HISTORY__</div>\n'
     '  <h2 class="sh">This week</h2>\n'
     '  <div class="prog-grid">__WEEK_PROGRESS__</div>\n'
@@ -893,7 +881,7 @@ _PAGE = (
     '    <table class="act-table">\n'
     '      <thead><tr>\n'
     '        <th>Date</th><th>Activity</th>\n'
-    '        <th class="num">Distance</th><th class="num">Duration</th><th class="num">TE</th>\n'
+    '        <th class="num">Distance</th><th class="num">Duration</th><th class="num" title="Training Effect (aerobic load, 0–5)">Eff.</th>\n'
     '      </tr></thead>\n'
     '      <tbody>__ACT_ROWS__</tbody>\n'
     '    </table>\n'

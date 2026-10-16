@@ -402,7 +402,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     week_plan_days: set[str] = set()
     if evening and upload:
         real_today = d - dt.timedelta(days=1)  # d is tomorrow; real_today is today
-        nw = plan_next_week(api, cfg, acts, real_today, final, ai_client=ai_client, prefs=prefs)
+        nw = plan_next_week(api, cfg, acts, real_today, final, ai_client=ai_client, prefs=prefs, upload=upload)
         week_plan_days = {wd.isoformat() for wd, _, _, _ in nw}
 
     # ── the days ahead, as drafts in your Garmin calendar (replaced each morning) ──

@@ -217,7 +217,7 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
         },
         "week_so_far": W.summary(led),
         "week_current": week_current,
-        "paces": P.summary(),
+        "paces": P.current(),
         "history": _weekly_history(acts, today, 12),
         "this_week": this_week,
         "upcoming": upcoming,
@@ -305,11 +305,18 @@ def _day_card(d: dict, compact: bool = False) -> str:
     elif d["is_past"] and not d["planned"]:
         done_html = '<div class="rest-row">Rest</div>'
 
-    # Coach reasoning — strip footer timestamp, preserve newlines
+    # Coach reasoning — strip footer timestamp, move draft notice to end
     reason_html = ""
     if d.get("description"):
         import re as _re
         desc = _re.sub(r'\s*(?:Checked \d+:\d+\.|Planned the evening before\.)\s*$', '', d["description"].strip())
+        # Move "Draft: …" sentence from the top to the bottom so the workout comes first
+        draft_suffix = ""
+        draft_m = _re.match(r'^(Draft:[^\n]+)\n+(.*)', desc, _re.DOTALL)
+        if draft_m:
+            draft_suffix = "\n\n" + draft_m.group(1)
+            desc = draft_m.group(2).strip()
+        desc = desc + draft_suffix
         if compact:
             reason_html = (
                 '<details class="desc-toggle">'
@@ -364,6 +371,32 @@ def _act_row(a: dict) -> str:
     )
 
 
+_FOCUS_LABELS = {
+    "short": "short-distance goal (≤ 10 km)",
+    "half": "half-marathon goal",
+    "marathon": "marathon goal",
+}
+
+
+def _fmt_paces_html(p: dict | str) -> str:
+    """Render paces dict as HTML lines with units, skipping marathon pace."""
+    if not p or isinstance(p, str):
+        return _e(p or "")
+    rows = [
+        ("5K", "5k", ""),
+        ("10K", "10k", ""),
+        ("Threshold", "thr", "&nbsp;<span style='opacity:.65;font-size:.85em'>(Zone 4 / tempo, ~1 h effort)</span>"),
+        ("Half marathon", "hm", ""),
+    ]
+    lines = []
+    for label, key, note in rows:
+        val = p.get(key)
+        if val:
+            lines.append(f"<span class='pace-lbl'>{label}</span>&nbsp;&nbsp;"
+                         f"<strong>{_e(P.fmt(val))}</strong>&nbsp;<span style='opacity:.6'>/km</span>{note}")
+    return "<br>".join(lines)
+
+
 def _status_strip(data: dict) -> str:
     race = data.get("race")
     wt = data["week_target"]
@@ -387,29 +420,37 @@ def _status_strip(data: dict) -> str:
         )
 
     phase_name = phase["name"].replace("_", " ").title()
+    focus_label = _FOCUS_LABELS.get(phase.get("focus") or "", phase.get("focus") or "")
     phase_html = (
         f'<div class="strip-item">'
         f'<div class="strip-lbl">Phase</div>'
         f'<div class="strip-val">{_e(phase_name)}</div>'
-        f'<div class="strip-sub">{_e(phase["focus"] or "")}</div>'
+        f'<div class="strip-sub">{_e(focus_label)}</div>'
         f'</div>'
     )
 
     chronic = wt.get("chronic_km") or 0
     last = wt.get("last_week_km") or 0
+    target = wt["target_km"]
+    delta = round(target - last, 1) if last else 0
+    if delta > 0.5:
+        delta_html = f'&nbsp;<span style="color:var(--ok)">↑{delta:+g}&nbsp;km vs last week</span>'
+    elif delta < -0.5:
+        delta_html = f'&nbsp;<span style="color:var(--muted)">↓{abs(delta):g}&nbsp;km vs last week</span>'
+    else:
+        delta_html = ""
     target_html = (
         f'<div class="strip-item">'
         f'<div class="strip-lbl">Weekly target</div>'
-        f'<div class="strip-val">{wt["target_km"]:g}&nbsp;km</div>'
-        f'<div class="strip-sub">avg&nbsp;{chronic:g}&nbsp;·&nbsp;last&nbsp;{last:g}&nbsp;km</div>'
+        f'<div class="strip-val">{target:g}&nbsp;km{delta_html}</div>'
+        f'<div class="strip-sub">4-week avg&nbsp;{chronic:g}&nbsp;·&nbsp;last&nbsp;{last:g}&nbsp;km</div>'
         f'</div>'
     )
 
-    pace_lines = "<br>".join(_e(p.strip()) for p in data["paces"].split(" · "))
     paces_html = (
         f'<div class="strip-item">'
         f'<div class="strip-lbl">Paces</div>'
-        f'<div class="strip-sub" style="margin-top:4px;line-height:1.85">{pace_lines}</div>'
+        f'<div class="strip-sub" style="margin-top:4px;line-height:2">{_fmt_paces_html(data["paces"])}</div>'
         f'</div>'
     )
 
@@ -506,23 +547,24 @@ def _why_html(data: dict) -> str:
         f'</div>'
     )
 
-    paces = data.get("paces", "")
+    paces = data.get("paces")
     if paces:
-        pace_lines = "<br>".join(_e(p.strip()) for p in paces.split(" · "))
         cards.append(
             f'<div class="why-card">'
             f'<div class="why-lbl">Training paces</div>'
-            f'<div class="why-text" style="line-height:1.7">{pace_lines}</div>'
+            f'<div class="why-text" style="line-height:2">{_fmt_paces_html(paces)}</div>'
             f'</div>'
         )
 
+    _WS_LABELS = {"swims": "Swims", "long_run": "Long run", "hard_runs": "Quality runs", "long_ride": "Long ride"}
     ws = data.get("week_so_far") or {}
     if ws:
-        items = "; ".join(f'{k.replace("_", " ")}: {v}' for k, v in ws.items())
+        lines = [f'<div><span style="opacity:.6">{_WS_LABELS.get(k, k.replace("_"," ").title())}:</span>'
+                 f'&nbsp;{_e(str(v))}</div>' for k, v in ws.items()]
         cards.append(
             f'<div class="why-card">'
             f'<div class="why-lbl">This week so far</div>'
-            f'<div class="why-text">{_e(items)}</div>'
+            f'<div class="why-text">{"".join(lines)}</div>'
             f'</div>'
         )
 

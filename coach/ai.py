@@ -200,7 +200,7 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
                   preferences: list[str] | None = None) -> dict:
     keep_w = ("sleep_hours", "sleep_score", "hrv_last_night", "hrv_weekly_avg", "hrv_status", "hrv_baseline_low",
               "hrv_baseline_high", "body_battery_wake", "rhr", "rhr_7d", "stress_yesterday", "training_readiness",
-              "training_status", "acwr", "steps_today", "after_training", "last_sync")
+              "training_status", "steps_today", "after_training", "last_sync")
     recent = [{k: a.get(k) for k in ("date", "sport", "name", "distance_km", "duration_min", "avg_hr",
                                      "aerobic_te", "anaerobic_te", "swum_m", "longest_m", "stops", "rest_s",
                                      "intervals", "avg_power", "source") if a.get(k) is not None}
@@ -220,6 +220,7 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
         "garmin_today": {k: wellness.get(k) for k in keep_w},
         "rule_readiness": {"score": r["score"], "level": r["level"], "reasons": r["reasons"]},
         "last_4_days_load": ctx.get("recent_load"),
+        "running_acute_chronic_ratio": ctx.get("acwr_own"),
         "consecutive_training_days": ctx.get("consecutive_days"),
         "this_week_key_sessions": ctx.get("this_week"),
         "training_paces_per_km": ctx.get("paces"),

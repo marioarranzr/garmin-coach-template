@@ -302,20 +302,13 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         "swim_capacity": {k: v for k, v in swim_capacity(acts, d).items()},
         "paces": {k: P.fmt(pace_set[k]) for k in ("5k", "10k", "thr", "hm", "mp")} | {"source": pace_set["source"]},
     }
-    # Readiness: in the evening the current Body Battery and Training Readiness
-    # are after today's training and don't reflect how Mario will feel tomorrow
-    # morning. Only use them in the morning check (when we're planning today).
-    bb_now, tr_now = wellness.get("body_battery_now"), wellness.get("training_readiness_now")
-    current = dict(wellness, after_training=bool(ctx["today_acts"]))
-    if not evening:
-        if bb_now is not None:
-            current["bb_is_now"] = wellness.get("body_battery_wake") is not None and bb_now != wellness["body_battery_wake"]
-            current["body_battery_wake"] = bb_now
-        if tr_now is not None:
-            current["tr_is_now"] = wellness.get("training_readiness") is not None and tr_now != wellness["training_readiness"]
-            current["training_readiness"] = tr_now
-    wellness = current
-    r = evening_readiness(ctx) if evening else compute(wellness, ctx)
+    # Readiness is a morning measure: how recovered you woke up. Later checks in
+    # the day use the same waking values (Body Battery and Training Readiness on
+    # waking, last 4 days without today), so the score doesn't fall just because
+    # the day has gone on or you've already trained.
+    wellness = dict(wellness, after_training=bool(ctx["today_acts"]))
+    morning_ctx = dict(ctx, recent_load=recent_load(past, [], d))
+    r = evening_readiness(ctx) if evening else compute(wellness, morning_ctx)
     final, notes = adjust(for_today, r, ctx, phase, tomorrow)
     notes = week_notes + notes
     kind, sport = key_session(phase)

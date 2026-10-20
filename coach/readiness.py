@@ -72,8 +72,7 @@ def compute(w: dict, ctx: dict) -> dict:
         label = "Body Battery now" if w.get("bb_is_now") else "Body Battery"
         comps[label] = (bb, _lin(bb, 20, 10, 85, 100), 0.15)
         if bb < 45:
-            reasons.append(f"Low Body Battery right now ({bb}), after today's training." if w.get("after_training")
-                           else f"Low Body Battery right now ({bb})." if w.get("bb_is_now")
+            reasons.append(f"Low Body Battery right now ({bb})." if w.get("bb_is_now")
                            else f"Low Body Battery on waking ({bb}).")
 
     # 5) Resting heart rate vs 7-day average
@@ -100,14 +99,16 @@ def compute(w: dict, ctx: dict) -> dict:
         reasons.append("No Garmin recovery data today: assuming a normal day (has the watch synced?).")
 
     # ── load and compliance modifiers ──
-    acwr = w.get("acwr") or ctx.get("acwr_own")
+    # Running load only (Garmin's own ratio mixes every sport, so cross-training
+    # would read as a running-injury risk).
+    acwr = ctx.get("acwr_own")
     if acwr:
         if acwr > 1.5:
             score -= 15
-            reasons.append(f"Very high acute/chronic load ratio ({acwr:.2f}): injury risk.")
+            reasons.append(f"Running load has jumped (ratio {acwr:.2f} vs your last 4 weeks): injury risk.")
         elif acwr > 1.3:
             score -= 7
-            reasons.append(f"High acute/chronic load ratio ({acwr:.2f}).")
+            reasons.append(f"Running load is up on your last 4 weeks (ratio {acwr:.2f}).")
 
     c = ctx.get("compliance") or {}
     if c.get("excess_km", 0) >= 2:

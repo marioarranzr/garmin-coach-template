@@ -558,24 +558,37 @@ def test_moderate_ride_today_is_counted():
     assert "(scores " in res["report"] and "→" not in res["report"].split("## Yesterday")[0]
 
 
-def test_after_training_uses_current_body_battery_and_readiness():
-    """Woke at Body Battery 88, rode in the morning, now 40 and Training Readiness down to 35."""
+def test_readiness_is_the_morning_one_all_day():
+    """Woke at Body Battery 88 / Training Readiness 82. Later the watch shows 40 / 35
+    (a ride, or just the day going on): readiness still uses the waking values."""
     sunday = dt.date(2026, 10, 18)
+    with fresh() as tmp:
+        morning = engine.run_day(FakeGarmin(sunday), CFG, sunday)
+    assert "- Body Battery: 88" in morning["report"] and "- Training Readiness: 82" in morning["report"]
     ride = act(sunday.isoformat(), "road_biking", 30, 58, aero=2.3)
     with fresh() as tmp:
-        res = engine.run_day(FakeGarmin(sunday, today_acts=[ride], bb_now=40, tr_now=35), CFG, sunday)
-    rep = res["report"]
-    assert "Body Battery now: 40" in rep and "Training Readiness now: 35" in rep
-    assert res["readiness"]["level"] != "green"
-    assert "Body Battery" in rep.splitlines()[2] or "Training Readiness" in rep.splitlines()[2]
-    # first thing in the morning the latest values are the waking ones
+        later = engine.run_day(FakeGarmin(sunday, today_acts=[ride], bb_now=40, tr_now=35), CFG, sunday)
+    assert "now: 40" not in later["report"] and "now: 35" not in later["report"]
+    assert "- Body Battery: 88" in later["report"]
+    assert later["readiness"]["score"] == morning["readiness"]["score"]
     with fresh() as tmp:
-        res = engine.run_day(FakeGarmin(sunday), CFG, sunday)
-    assert "- Body Battery: 88" in res["report"] and "- Training Readiness: 82" in res["report"]
-    # later in the day without training: still the latest values
-    with fresh() as tmp:
-        res = engine.run_day(FakeGarmin(sunday, bb_now=60, tr_now=70), CFG, sunday)
-    assert "- Body Battery now: 60" in res["report"] and "- Training Readiness now: 70" in res["report"]
+        tired = engine.run_day(FakeGarmin(sunday, bb_now=20, tr_now=30), CFG, sunday)
+    assert tired["readiness"]["score"] == morning["readiness"]["score"]
+
+
+def test_load_ratio_counts_running_only():
+    """Lots of riding on top of a steady every-other-day run pattern isn't an injury risk."""
+    from coach.readiness import own_acwr, compute
+    d = dt.date(2026, 10, 20)
+    def a(days_ago, sport, mins):
+        return {"date": (d - dt.timedelta(days=days_ago)).isoformat(), "sport": sport,
+                "duration_min": mins, "load": mins * 1.2}
+    acts = [a(i, "run", 40) for i in range(1, 29, 2)]      # a 40' run every other day for 4 weeks
+    acts += [a(i, "bike", 90) for i in range(1, 7)]        # a big week on the bike
+    ratio = own_acwr(acts, d)
+    assert ratio is not None and ratio < 1.3, ratio
+    r = compute({"acwr": 1.72}, {"acwr_own": ratio})       # Garmin's all-sport ratio is ignored
+    assert not any("injury" in x for x in r["reasons"]), r["reasons"]
 
 
 def test_report_shows_watch_sync_and_warns_when_stale():

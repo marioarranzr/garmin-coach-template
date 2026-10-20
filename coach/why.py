@@ -39,9 +39,9 @@ def recovery_causes(w: dict, r: dict, ctx: dict) -> list[str]:
     if flags.get("heavy_block"):
         out.insert(0, f"you've trained {load.get('hours', 0):g} h in the last 4 days "
                       f"(about {load.get('ratio', 0):g}× your usual)")
-    acwr = w.get("acwr") or ctx.get("acwr_own")
+    acwr = ctx.get("acwr_own")      # running only
     if acwr and acwr > 1.3:
-        out.append("your training load has jumped recently")
+        out.append("your running load has jumped recently")
     comp = ctx.get("compliance") or {}
     if comp.get("excess_km", 0) >= 2:
         out.append(f"you ran {comp['excess_km']:g} km more than planned yesterday")

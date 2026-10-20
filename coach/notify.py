@@ -28,7 +28,8 @@ def message(final, why: str, coach_note: str, r: dict, label: str = "Today", ahe
     lines.append("It's in your Garmin calendar; the morning check adjusts it to your sleep." if r["score"] is None
                  else f"Readiness {r['score']}/100. The workout is in your Garmin calendar.")
     if ahead:
-        lines.append("Next: " + "; ".join(f"{day:%a} " + " + ".join(s.title for s in sess) for day, _, sess, _ in ahead))
+        # the coming days, one per line (no "Next:", no semicolons): easy to scan on a watch
+        lines.append("\n".join(f"{day:%a}: " + " + ".join(s.title for s in sess) for day, _, sess, _ in ahead))
     return title[:120], "\n\n".join(lines)
 
 

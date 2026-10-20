@@ -1303,8 +1303,11 @@ def test_evening_notification_lists_the_week():
     finally:
         os.environ.pop("NTFY_TOPIC")
     assert sent[0]["title"].startswith("Tomorrow: ")
-    nxt = sent[0]["message"].split("Next: ")[1]
-    assert nxt.count(";") == 5                                     # the 6 days after tomorrow
+    msg = sent[0]["message"]
+    assert "Next:" not in msg and ";" not in msg.split("\n\n")[-1]
+    days = msg.split("\n\n")[-1].splitlines()                    # the 6 days after tomorrow, one per line
+    assert len(days) == 6 and all(d[:3] in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun") and d[3] == ":"
+                                  for d in days), days
 
 
 def test_doubles_and_race_specific_long_runs():

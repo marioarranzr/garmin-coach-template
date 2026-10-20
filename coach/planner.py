@@ -790,6 +790,26 @@ def apply_constraints(tpl: dict, mon: dt.date, c: dict, today: dt.date | None = 
     def has(wd, kind):
         return any(k == kind or (kind == "swim" and k.startswith("swim_")) for k in days[wd])
 
+    # day_plan: the athlete named the sports for a day → that day is exactly those.
+    # A sport already there keeps its specific kind (a long run stays a long run);
+    # anything they didn't name (a ride, strength…) is dropped.
+    _sport_default = {"run": "run_easy", "bike": "bike_easy", "swim": "swim_technique",
+                      "strength": "strength"}
+    for entry in c.get("day_plan") or []:
+        t = idx(entry.get("date"))
+        if t is None:
+            continue
+        wd = WEEKDAYS[t]
+        new_kinds: list[str] = []
+        for sport in entry.get("sports") or []:
+            if sport == "rest":
+                continue
+            kept = next((k for k in days[wd] if k.split("_")[0] == sport), None)
+            k = kept or _sport_default.get(sport)
+            if k and k not in new_kinds:
+                new_kinds.append(k)
+        days[wd] = new_kinds or ["rest"]
+
     for kind, date in c.get("moves") or []:
         t = idx(date)
         if kind == "run" and t is not None:

@@ -69,10 +69,23 @@ def scheduled(api, cfg: dict, now: dt.datetime, upload: bool = True, **kw) -> di
     if now.time() >= evening_plan(cfg):
         tomorrow = now.date() + dt.timedelta(days=1)
         done = coach_plan_for(api, cfg, tomorrow, kw.get("notes_api"))
-        if done:
+        # a note written after tomorrow was planned ("tomorrow I want to swim and run") means plan it again
+        fresh_notes = new_notes_since_evening_plan(cfg, now, done, tomorrow, kw.get("notes_api")) if done else []
+        if done and not fresh_notes:
             return {"status": "done", "report": f"Tomorrow is already planned ({', '.join(e['name'] for e in done)}).\n"}
         return run_day(api, cfg, tomorrow, upload=upload, now=now, evening=True, **kw)
     return run_day(api, cfg, now.date(), upload=upload, now=now, wait_for_sleep=True, **kw)
+
+
+def new_notes_since_evening_plan(cfg: dict, now: dt.datetime, plan: list[dict], day: dt.date,
+                                 notes_api=None) -> list[dict]:
+    """Open notes written after `day` was planned the evening before (their time is in the
+    workout's footer). A plan without a readable time counts as up to date."""
+    times = [e["meta"]["eve_at"] for e in plan if e["meta"].get("eve_at")]
+    if not times:
+        return []
+    since = f"{(day - dt.timedelta(days=1)).isoformat()}T{max(times)}"
+    return [n for n in recent_notes(cfg, now, api=notes_api) if not n["done"] and n["created"] >= since]
 
 
 def last_check(cfg: dict, d: dt.date, today_cal: list[dict], notes_api=None) -> tuple[str | None, int | None]:
@@ -224,7 +237,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                 if save_preferences(cfg, new_prefs, prefs_id, api=notes_api):
                     sched["prefs_saved"] = [x for x in new_prefs if x not in prefs]
                 prefs = new_prefs
-            if sched.get("unavailable") or sched.get("moves") or sched.get("no_swim_until"):
+            if (sched.get("unavailable") or sched.get("moves") or sched.get("no_swim_until")
+                    or sched.get("day_plan")):
                 cfg = dict(cfg, _constraints=sched, _today=d)
 
     wt = week_target(past, d, cfg)

@@ -1693,6 +1693,48 @@ def test_a_note_saying_i_can_run_moves_a_run_onto_that_day():
     assert days["thu"] == ["run_strides"] and days["fri"] == ["rest"]
 
 
+def test_a_note_naming_the_sports_of_a_day_makes_that_day_exactly_those():
+    """Tuesday evening, "tomorrow I want to swim and run": Wednesday had a ride and strength;
+    it becomes a swim and a run, nothing else."""
+    from coach.planner import apply_constraints
+    mon, tue, wed = dt.date(2026, 10, 19), dt.date(2026, 10, 20), dt.date(2026, 10, 21)
+    tpl = {"mon": ["swim_technique"], "tue": ["bike_spin"], "wed": ["bike_quality", "strength"],
+           "thu": ["rest"], "fri": ["rest"], "sat": ["bike_long"], "sun": ["run_long"]}
+    days = apply_constraints(tpl, mon, {"day_plan": [{"date": wed, "sports": ["swim", "run"]}]}, today=tue)
+    assert days["wed"] == ["swim_technique", "run_easy"]
+    assert days["sat"] == ["bike_long"] and days["sun"] == ["run_long"]         # the rest of the week is untouched
+    # a sport already planned keeps its specific kind
+    days = apply_constraints(tpl, mon, {"day_plan": [{"date": wed, "sports": ["bike"]}]}, today=tue)
+    assert days["wed"] == ["bike_quality"]
+    # a past day is never touched
+    days = apply_constraints(tpl, mon, {"day_plan": [{"date": mon, "sports": ["run"]}]}, today=tue)
+    assert days["mon"] == ["swim_technique"]
+    # and the day's sessions really are those
+    cfg = dict(CFG, _constraints={"day_plan": [{"date": wed, "sports": ["swim", "run"]}]}, _today=tue)
+    sports = sorted({x.sport for x in plan_day(wed, cfg, 30)[1]})
+    assert sports == ["run", "swim"], sports
+
+
+def test_a_note_written_after_the_evening_plan_replans_tomorrow():
+    from coach.calendar import read_description
+    tue, wed = dt.date(2026, 10, 20), dt.date(2026, 10, 21)
+    meta = read_description("Easy ride 40'\nPlanned the evening before (Tue 20:15); checked again in the morning.")
+    assert meta["eve"] == 1 and meta["eve_at"] == "20:15"
+    plan = [{"meta": meta, "name": "Easy ride 40'"}]
+    notes = [{"id": "1", "done": False, "created": "2026-10-20T20:10:00", "text": "before"},
+             {"id": "2", "done": False, "created": "2026-10-20T21:00:00", "text": "tomorrow swim and run"}]
+    now = dt.datetime(2026, 10, 20, 21, 5)
+    import coach.engine as E
+    orig = E.recent_notes
+    E.recent_notes = lambda cfg, now, api=None: notes
+    try:
+        fresh = E.new_notes_since_evening_plan(CFG, now, plan, wed)
+        assert [n["id"] for n in fresh] == ["2"]
+        assert E.new_notes_since_evening_plan(CFG, now, [{"meta": {"eve": 1}}], wed) == []   # no time: up to date
+    finally:
+        E.recent_notes = orig
+
+
 def test_a_run_moved_earlier_isnt_run_again():
     """Friday's run moved to Thursday (rest day) by a note: on Friday the week has
     had its runs (Tuesday, Thursday), so Friday stays without a run."""

@@ -74,6 +74,9 @@ def read_description(description: str | None) -> dict:
         meta["at"] = at[-1]              # checked that morning (or later that day)
     if EVENING in text:
         meta["eve"] = 1                  # planned the evening before, not checked yet
+        when = re.search(re.escape(EVENING) + r" \(\w{3} (\d\d:\d\d)\)", text)
+        if when:
+            meta["eve_at"] = when.group(1)   # when, the evening before (to spot notes written later)
     seen = re.findall(r"^Activities seen today: (\d+)\.$", text, flags=re.M)
     if seen:
         meta["seen"] = int(seen[-1])

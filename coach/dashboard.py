@@ -320,13 +320,8 @@ def _day_card(d: dict, compact: bool = False) -> str:
     reason_html = ""
     if d.get("description"):
         desc = _re.sub(r'\s*(?:Checked \d+:\d+\.|Planned the evening before\.)\s*$', '', d["description"].strip())
-        # Move "Draft: …" sentence from the top to the bottom so the workout comes first
-        draft_suffix = ""
-        draft_m = _re.match(r'^(Draft:[^\n]+)\n+(.*)', desc, _re.DOTALL)
-        if draft_m:
-            draft_suffix = "\n\n" + draft_m.group(1)
-            desc = draft_m.group(2).strip()
-        desc = desc + draft_suffix
+        # Strip the "Draft: the coach plans this day…" boilerplate line entirely
+        desc = _re.sub(r'^Draft:[^\n]+\n*', '', desc).strip()
         if compact:
             reason_html = (
                 '<details class="desc-toggle">'
@@ -814,20 +809,21 @@ _PAGE = (
     '.day-session { font-weight: 500; line-height: 1.35; font-size: .8rem; }\n'
     '.day-card .done-row { font-size: .73rem; margin-top: 4px; }\n'
     '.prog-grid {\n'
-    '  display: grid; grid-template-columns: repeat(auto-fill,minmax(200px,1fr));\n'
-    '  gap: 10px; margin-bottom: 20px;\n'
+    '  display: flex; flex-wrap: nowrap; gap: 10px; margin-bottom: 20px; overflow-x: auto;\n'
     '}\n'
+    '.prog-item { flex: 1 1 0; min-width: 130px; }\n'
     '.prog-item {\n'
     '  background: var(--s1); border: 1px solid var(--border);\n'
-    '  border-radius: 10px; padding: 12px 14px;\n'
+    '  border-radius: 10px; padding: 12px 14px; box-sizing: border-box;\n'
     '}\n'
     '.prog-sport {\n'
     '  font-size: .7rem; font-weight: 600; text-transform: uppercase;\n'
     '  letter-spacing: .06em; margin-bottom: 7px;\n'
     '}\n'
-    '.prog-sport.run  { color: var(--run); }\n'
-    '.prog-sport.bike { color: var(--bike); }\n'
-    '.prog-sport.swim { color: var(--swim); }\n'
+    '.prog-sport.run      { color: var(--run); }\n'
+    '.prog-sport.bike     { color: var(--bike); }\n'
+    '.prog-sport.swim     { color: var(--swim); }\n'
+    '.prog-sport.strength { color: var(--str); }\n'
     '.prog-labels {\n'
     '  display: flex; justify-content: space-between;\n'
     '  font-size: .72rem; color: var(--muted); margin-bottom: 6px;\n'

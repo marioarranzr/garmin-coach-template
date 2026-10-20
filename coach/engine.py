@@ -621,11 +621,9 @@ def _workout_description(s: Session, r: dict, notes: list[str], why: str = "", c
     the advice, the session, readiness with its main reasons, and the rules'
     changes (only when no AI coach made the final call)."""
     blocks = [why, coach_note, s.detail]
-    level = r["label"][2:].split(":")[0].strip()
-    head = (f"Readiness {r['score']}/100 · {level}" if r["score"] is not None
-            else "Readiness: checked in the morning with your sleep and recovery.")
-    lines = [head] + [f"• {x}" for x in r["reasons"][:3]]
-    blocks.append("\n".join(lines))
+    if r["score"] is not None:        # the evening plan has no sleep data yet: the morning check adds readiness
+        level = r["label"][2:].split(":")[0].strip()
+        blocks.append("\n".join([f"Readiness {r['score']}/100 · {level}"] + [f"• {x}" for x in r["reasons"][:3]]))
     if notes:
         blocks.append("\n".join(["Changes:"] + [f"• {n}" for n in notes[:3]]))
     return "\n\n".join(b.strip() for b in blocks if b and b.strip())

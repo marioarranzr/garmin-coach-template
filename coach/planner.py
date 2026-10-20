@@ -718,12 +718,13 @@ def _build_up_swim(kind: str, cap: int, rep: int, why: str) -> Session:
                    f"what you can swim now ({why}); it grows ~25 % as you do.", steps)
 
 
-def make_swim(kind: str, phase: Phase, short: bool = False) -> Session:
+def make_swim(kind: str, phase: Phase, short: bool = False, asked: bool = False) -> Session:
+    """`asked`: the athlete said they want to swim that day, so it isn't an optional extra."""
     s = _make_swim(kind, phase, short)
     cap = _swim_cap.get("cap_m")
     if cap and (s.distance_km or 0) * 1000 > cap:
         s = _build_up_swim(kind, int(cap), int(_swim_cap.get("rep_m", 50)), _swim_cap.get("why", ""))
-    return s if phase.focus == "tri" else optional_swim(s, phase)
+    return s if phase.focus == "tri" or asked else optional_swim(s, phase)
 
 
 def _make_swim(kind: str, phase: Phase, short: bool = False) -> Session:
@@ -758,7 +759,7 @@ def optional_swim(s: Session, phase: Phase) -> Session:
     """While the next goal isn't a triathlon, swims are optional extras: easy
     aerobic work that keeps your feel for the water, never a priority."""
     until = f" until {phase.race.name}" if phase.race else ""
-    return Session(s.kind, s.sport, f"Optional · {s.title}", "easy", s.distance_km, s.duration_min,
+    return Session(s.kind, s.sport, f"{s.title} (optional)", "easy", s.distance_km, s.duration_min,
                    f"Optional: running is the focus{until}. Swim if you feel like it; skipping it is fine. "
                    + s.detail, s.steps, False, True)
 
@@ -948,7 +949,9 @@ def plan_day(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = Fals
             else:
                 sessions.append(make_bike(kind, phase))
         elif kind.startswith("swim_"):
-            sessions.append(make_swim(kind, phase, short=phase.name == "transition"))
+            asked = any(e.get("date") == d and "swim" in e.get("sports", [])
+                        for e in (cfg.get("_constraints") or {}).get("day_plan") or [])
+            sessions.append(make_swim(kind, phase, short=phase.name == "transition", asked=asked))
         elif kind in ("strength", "strength_core"):
             if phase.name == "race_week" and phase.days_out is not None and phase.days_out <= 3:
                 continue                                  # nothing in the last days before a race

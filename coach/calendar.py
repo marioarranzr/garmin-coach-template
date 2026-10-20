@@ -107,8 +107,9 @@ _KINDS = [
 def session_from(title: str, meta: dict | None = None, km: float | None = None) -> dict:
     """A planned session (as a dict) from the workout's name and details."""
     meta = meta or {}
-    optional = title.startswith("Optional · ")
-    bare = title[len("Optional · "):] if optional else title
+    optional = title.startswith("Optional · ") or title.endswith(" (optional)")
+    bare = title[len("Optional · "):] if title.startswith("Optional · ") else title
+    bare = bare.removesuffix(" (optional)")
     kind, sport, intensity = next((v for pat, v in _KINDS if re.search(pat, bare)), ("other", "other", "easy"))
     if meta.get("k"):            # older workouts with the coach:{…} line
         kind, sport, intensity = meta["k"], meta.get("s", sport), meta.get("i", intensity)

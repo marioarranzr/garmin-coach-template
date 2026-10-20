@@ -125,21 +125,43 @@ def _full_description(cal: Calendar, entry: dict) -> str:
         return ""
 
 
+def _merge_descriptions(texts: list[str]) -> str:
+    """The descriptions of a day's sessions as one text: the paragraphs they share
+    (the why, the footer) appear once."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in texts:
+        for para in (t or "").strip().split("\n\n"):
+            key = para.strip()
+            if key and key not in seen:
+                seen.add(key)
+                out.append(key)
+    return "\n\n".join(out)
+
+
 def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today: dt.date,
-              drafts: bool = False, full_text: bool = False) -> list[dict]:
+              drafts: bool = False, full_text: bool = False, project=None,
+              horizon: dt.date | None = None) -> list[dict]:
+    """`project(day)` → session titles from the weekly template, used for days after
+    `horizon` (the coach only drafts the next few days; the rest isn't planned yet)."""
     out = []
     for i in range(days):
         day = start + dt.timedelta(days=i)
         entries = cal.plan(day) or (cal.plan(day, draft=True) if drafts or day >= today else [])
         done = [a for a in acts if a["date"] == day.isoformat()]
+        planned = [e["session"]["title"] for e in entries]
+        projected = False
+        if not entries and project and horizon and day > horizon:
+            planned, projected = project(day), True
         out.append({
             "date": day.isoformat(),
             "weekday": day.strftime("%A"),
             "is_today": day == today,
             "is_past": day < today,
-            "planned": [e["session"]["title"] for e in entries],
-            "description": (_full_description(cal, entries[0])
-                            if full_text and entries and entries[0].get("workoutId") else ""),
+            "projected": projected,
+            "planned": planned,
+            "description": (_merge_descriptions([_full_description(cal, e) for e in entries
+                                                 if e.get("workoutId")]) if full_text and entries else ""),
             "done": [f"{a.get('name') or a['sport']} — {a['distance_km']:g} km, {a['duration_min']:.0f}'"
                      for a in done if (a.get("distance_km") or 0) > 0],
         })
@@ -164,8 +186,18 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
                    quality_ok=not wt.get("return_mode") and phase.name != "transition")
 
     mon = monday_of(today)
-    this_week = _day_rows(cal, acts, mon, 7, today, full_text=True)
-    upcoming = _day_rows(cal, acts, mon + dt.timedelta(days=7), 7, today, full_text=True)
+
+    def project(day: dt.date) -> list[str]:
+        try:
+            return [x.title for x in plan_day(day, cfg, wt)[1]]
+        except Exception as e:  # noqa: BLE001 — a projection is a nicety
+            log.warning("Couldn't project %s: %s", day, e)
+            return []
+    preview = max(int((cfg.get("garmin") or {}).get("preview_days", 7)), 6)
+    horizon = today + dt.timedelta(days=preview)       # the coach drafts up to here
+    this_week = _day_rows(cal, acts, mon, 7, today, full_text=True, project=project, horizon=horizon)
+    upcoming = _day_rows(cal, acts, mon + dt.timedelta(days=7), 7, today, full_text=True,
+                         project=project, horizon=horizon)
 
     # Full activity list for the Log tab
     activities = []
@@ -283,6 +315,17 @@ def _dot(sport: str) -> str:
     return f'<span class="dot dot-{_e(cls)}" aria-hidden="true"></span>'
 
 
+_FOOTER_LINE = _re.compile(
+    r"^(?:Checked \d\d:\d\d\.|Activities seen today: \d+\.|Planned the evening before.*|Draft:.*)$")
+
+
+def _clean_desc(desc: str) -> str:
+    """A workout description for the dashboard: without the coach's own bookkeeping lines
+    (when it checked, how many activities it had seen, the 'Draft:' notice)."""
+    lines = [x for x in (desc or "").strip().splitlines() if not _FOOTER_LINE.match(x.strip())]
+    return _re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
 def _day_card(d: dict, compact: bool = False) -> str:
     """Day card: full-width with inline reasoning (compact=True for next-week grid)."""
     day = dt.date.fromisoformat(d["date"])
@@ -319,9 +362,7 @@ def _day_card(d: dict, compact: bool = False) -> str:
     # Coach reasoning — strip footer timestamp, move draft notice to end
     reason_html = ""
     if d.get("description"):
-        desc = _re.sub(r'\s*(?:Checked \d+:\d+\.|Planned the evening before\.)\s*$', '', d["description"].strip())
-        # Strip the "Draft: the coach plans this day…" boilerplate line entirely
-        desc = _re.sub(r'^Draft:[^\n]+\n*', '', desc).strip()
+        desc = _clean_desc(d["description"])
         if compact:
             reason_html = (
                 '<details class="desc-toggle">'
@@ -620,100 +661,92 @@ def _decision_card(d: dict) -> str:
 
 
 def _week_content(data: dict) -> str:
-    """Combined week plan + context for the merged Week tab.
+    """The Week tab.
 
-    Layout:
-      1. Today — large card with full description inline.
-      2. This week — Mon→Sun row; past days dimmed, today highlighted,
-         future days show full description inline (no accordion).
-      3. Next week — Mon→Sun row, compact (title only).
-      4. Context cards (why / paces / volume).
+      1. Today: a large card with the full description.
+      2. This week: one row per day, Monday to Sunday (past days dimmed, today
+         highlighted, the days to come with their full description).
+      3. Next week: Monday to Sunday in seven columns, titles only.
+      4. Context cards.
     """
     this_week = data["this_week"]
     today_d = next((d for d in this_week if d["is_today"]), None)
     next_week = data["upcoming"]
 
     parts: list[str] = []
-
-    # ── Today ────────────────────────────────────────────────────────────────
     if today_d:
-        parts.append(_day_card(today_d))  # full-width, description inline
+        parts.append(_day_card(today_d))
 
-    # ── This week (Mon→Sun, all 7 days) ─────────────────────────────────────
     parts.append('<h2 class="sh">This week</h2>')
-    parts.append('<div class="wk-week">')
-    for d in this_week:
-        parts.append(_week_day_card(d))
+    parts.append('<div class="week-list">')
+    parts.extend(_week_row(d) for d in this_week)
     parts.append('</div>')
 
-    # ── Next week ────────────────────────────────────────────────────────────
     if next_week:
         parts.append('<h2 class="sh">Next week</h2>')
         parts.append('<div class="wk-week wk-next">')
-        for d in next_week:
-            parts.append(_week_day_card(d, mini=True))
+        parts.extend(_week_day_card(d) for d in next_week)
         parts.append('</div>')
 
     parts.append('<h2 class="sh">Context</h2>')
     parts.append(f'<div class="why-grid">{_why_html(data)}</div>')
-
     return "\n".join(parts)
 
 
-def _week_day_card(d: dict, mini: bool = False) -> str:
-    """One cell in the Mon→Sun week row.
-
-    mini=False (this week): show title + done/rest + description inline for
-    future days.
-    mini=True (next week): show title only, compact.
-    """
-    day = dt.date.fromisoformat(d["date"])
-    day_name = day.strftime("%a")
-    try:
-        day_date = day.strftime("%-d %b")
-    except ValueError:
-        day_date = day.strftime("%d %b").lstrip("0")
-
-    planned = " + ".join(_e(p) for p in d["planned"]) or "Rest"
-
+def _day_parts(d: dict) -> tuple[str, str, str, str]:
+    """(css class, badge, planned titles, done line) shared by the week row and cell."""
     if d["is_today"]:
-        row_cls = "day-today"
-        badge = '<span class="today-badge">today</span>'
+        cls, badge = "day-today", '<span class="today-badge">today</span>'
     elif d["is_past"]:
-        row_cls = "day-past"
-        badge = ""
+        cls, badge = "day-past", ""
     else:
-        row_cls = ""
-        badge = ""
-
-    # Done / rest line
+        cls, badge = "", ""
+    planned = " + ".join(_e(p) for p in d["planned"]) or "Rest"
+    if d.get("projected"):
+        planned += ' <span class="proj-tag">projected</span>'
+        cls += " projected"
     done_html = ""
     if d["done"]:
         items = " &nbsp;·&nbsp; ".join(_e(x) for x in d["done"])
         done_html = f'<div class="done-row">&#10003;&nbsp;{items}</div>'
     elif d["is_past"] and not d["planned"]:
         done_html = '<div class="rest-row">Rest</div>'
+    return cls, badge, planned, done_html
 
-    # Description — inline for future days in this-week row; hidden for mini
+
+def _day_label(d: dict) -> tuple[str, str]:
+    day = dt.date.fromisoformat(d["date"])
+    return day.strftime("%a"), f"{day.day} {day.strftime('%b')}"
+
+
+def _week_row(d: dict) -> str:
+    """One day of this week as a row: date on the left, session and why on the right.
+    Today's description is in the card above, so its row stays short."""
+    cls, badge, planned, done_html = _day_parts(d)
+    name, date = _day_label(d)
     reason_html = ""
-    if not mini and not d["is_past"] and not d["is_today"] and d.get("description"):
-        desc = _re.sub(r'\s*(?:Checked \d+:\d+\.|Planned the evening before\.)\s*$',
-                       '', d["description"].strip())
-        desc = _re.sub(r'^Draft:[^\n]+\n*', '', desc).strip()
+    if not d["is_past"] and not d["is_today"] and d.get("description"):
+        desc = _clean_desc(d["description"])
         if desc:
-            desc_html = "<br>".join(_e(line) for line in desc.splitlines()) if "\n" in desc else _e(desc)
-            reason_html = f'<div class="day-reason">{desc_html}</div>'
-
+            reason_html = f'<div class="day-reason">{"<br>".join(_e(x) for x in desc.splitlines())}</div>'
     return (
-        f'<div class="wk-cell {row_cls}">'
-        f'<div class="wk-cell-hd">'
-        f'<span class="day-name">{_e(day_name)}</span>'
-        f' <span class="day-date">{_e(day_date)}</span>'
-        f'{badge}'
+        f'<div class="day-row {cls}">'
+        f'<div class="day-label"><div class="day-name">{_e(name)}</div>'
+        f'<div class="day-date">{_e(date)}</div>{badge}</div>'
+        f'<div class="day-body"><div class="day-session">{planned}</div>{done_html}{reason_html}</div>'
         f'</div>'
-        f'<div class="day-session">{planned}</div>'
-        f'{done_html}'
-        f'{reason_html}'
+    )
+
+
+def _week_day_card(d: dict) -> str:
+    """One column of next week: the day and its sessions, titles only."""
+    cls, badge, planned, done_html = _day_parts(d)
+    name, date = _day_label(d)
+    return (
+        f'<div class="wk-cell {cls}">'
+        f'<div class="wk-cell-hd"><span class="day-name">{_e(name)}</span>'
+        f' <span class="day-date">{_e(date)}</span>{badge}</div>'
+        f'<div class="day-session">{planned}</div>{done_html}'
         f'</div>'
     )
 
@@ -874,6 +907,10 @@ _PAGE = (
     '.wk-cell-hd .day-date { color: var(--muted); font-size: .7rem; }\n'
     '.wk-cell-hd .today-badge { font-size: .58rem; }\n'
     '.wk-next .wk-cell { opacity: .75; }\n'
+    '.proj-tag { color: var(--muted); font-size: .62rem; font-weight: 500; font-style: italic; margin-left: 4px; }\n'
+    '.wk-cell.projected .day-session { color: var(--muted); }\n'
+    '.day-row.projected .day-session { color: var(--muted); }\n'
+    '.day-reason { max-width: 78ch; }\n'
     '.day-card {\n'
     '  background: var(--s1); border: 1px solid var(--border);\n'
     '  border-radius: 10px; padding: 10px 12px; font-size: .8rem;\n'

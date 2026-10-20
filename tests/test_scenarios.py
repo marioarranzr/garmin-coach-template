@@ -179,7 +179,7 @@ def test_swims_are_optional_until_the_triathlon_block():
     api, res = _run(day, swims=False)
     swims = [s for s in res["final"] if s.sport == "swim"]
     assert swims and all(s.optional and not s.priority for s in swims)
-    assert swims[0].title.startswith("Optional · ") and "running is the focus" in swims[0].detail
+    assert swims[0].title.endswith(" (optional)") and "running is the focus" in swims[0].detail
     assert "priority" not in res["report"].lower()
     # skipping an optional swim isn't "missed"
     from coach.readiness import compliance
@@ -1123,7 +1123,8 @@ def test_evening_plans_tomorrow_and_the_morning_checks_it():
             assert sun_items and all(i["title"].startswith("Coach ·") for i in sun_items)
             assert not any("Long run" in i["title"] for i in sun_items)
             desc = api.cal["workouts"][sun_items[0]["workoutId"]]["description"]
-            assert "Planned the evening before (Sat 21:04)" in desc and "checked in the morning" in desc
+            assert "Planned the evening before (Sat 21:04)" in desc and "checked again in the morning" in desc
+            assert "Readiness" not in desc            # no sleep data yet: the morning check adds it
             assert sent and sent[-1].startswith("Tomorrow: ")
             # a second evening trigger an hour later does nothing
             assert engine.scheduled(FakeGarmin(sat), CFG, dt.datetime(2026, 10, 17, 22, 2))["status"] == "done"
@@ -1791,6 +1792,31 @@ def test_dashboard_builds_and_renders_without_error():
     html_out = D.render_html(data)
     assert "<html" in html_out and today_row["planned"][0] in html_out
     assert data["race"]["name"] in html_out
+
+
+def test_dashboard_week_rows_and_projected_days():
+    """This week is one row per day; days past the coach's drafts show the template's
+    plan as 'projected' instead of 'Rest'; sessions of a day share one description."""
+    from coach import dashboard as D
+    d = dt.date(2026, 10, 20)
+    with fresh():
+        api = FakeGarmin(d)
+        data = D.build_data(api, CFG, d)
+    assert all(r["projected"] is False for r in data["this_week"])           # drafts cover the next days
+    far = [r for r in data["upcoming"] if r["date"] > (d + dt.timedelta(days=7)).isoformat()]
+    assert far and all(r["projected"] for r in far)
+    assert any(r["planned"] and r["planned"] != ["Rest / mobility 20'"] for r in far)   # not all "Rest"
+    html_out = D.render_html(data)
+    assert html_out.count('class="day-row ') >= 7 and 'class="wk-week wk-next"' in html_out
+    assert "projected" in html_out
+    # the coach's bookkeeping lines and the shared paragraphs
+    raw = "Why.\n\nSwim detail.\n\nPhase line\nPlanned the evening before (Tue 21:05); checked again in the morning."
+    run = "Why.\n\nRun detail.\n\nPhase line\nPlanned the evening before (Tue 21:05); checked again in the morning."
+    merged = D._merge_descriptions([raw, run])
+    assert merged.count("Why.") == 1 and "Swim detail." in merged and "Run detail." in merged
+    clean = D._clean_desc(merged)
+    assert "Planned the evening" not in clean and "Phase line" in clean
+    assert D._clean_desc("Draft: the coach plans this day.\nX\nChecked 08:03.\nActivities seen today: 0.") == "X"
 
 
 def test_only_the_planned_day_has_a_real_workout_no_duplicates_ahead():

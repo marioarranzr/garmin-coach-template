@@ -240,7 +240,7 @@ pace range (±5 s/km) for each rep. The report and the workout description list
 your paces, e.g. "5K 4:25 · 10K 4:36 · threshold 4:43 · HM 4:50 /km".
 
 **Swims while running is the focus.** If your next goals are running races,
-swims are **optional** ("Optional · Technique swim 1500 m"): easy aerobic work
+swims are **optional** ("Technique swim 1500 m (optional)"): easy aerobic work
 that keeps your feel for the water. Skipping one isn't counted as missed and
 never makes a later swim a priority. Once a triathlon is your next race, swims
 are part of the plan again.

@@ -1807,7 +1807,13 @@ def test_dashboard_week_rows_and_projected_days():
     assert far and all(r["projected"] for r in far)
     assert any(r["planned"] and r["planned"] != ["Rest / mobility 20'"] for r in far)   # not all "Rest"
     html_out = D.render_html(data)
-    assert html_out.count('class="day-row ') >= 7 and 'class="wk-week wk-next"' in html_out
+    assert html_out.count('class="day-row ') == 7 and 'class="wk-week wk-next"' in html_out   # no separate today card
+    row = D._week_row({"date": "2026-10-20", "is_today": True, "is_past": False, "projected": False,
+                       "planned": ["Recovery spin 30'"], "done": [], "description": "Why today.\n\nHow."})
+    assert "day-today" in row and "today-badge" in row and "Why today." in row and "How." in row
+    past = D._week_row({"date": "2026-10-19", "is_today": False, "is_past": True, "projected": False,
+                        "planned": [], "done": [], "description": "Old text."})
+    assert "Old text." not in past                                        # past days stay short
     assert "projected" in html_out
     # the coach's bookkeeping lines and the shared paragraphs
     raw = "Why.\n\nSwim detail.\n\nPhase line\nPlanned the evening before (Tue 21:05); checked again in the morning."

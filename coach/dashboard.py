@@ -663,20 +663,15 @@ def _decision_card(d: dict) -> str:
 def _week_content(data: dict) -> str:
     """The Week tab.
 
-      1. Today: a large card with the full description.
-      2. This week: one row per day, Monday to Sunday (past days dimmed, today
-         highlighted, the days to come with their full description).
-      3. Next week: Monday to Sunday in seven columns, titles only.
-      4. Context cards.
+      1. This week: one row per day, Monday to Sunday (past days dimmed, today
+         highlighted, today and the days to come with their full description).
+      2. Next week: Monday to Sunday in seven columns, titles only.
+      3. Context cards.
     """
     this_week = data["this_week"]
-    today_d = next((d for d in this_week if d["is_today"]), None)
     next_week = data["upcoming"]
 
     parts: list[str] = []
-    if today_d:
-        parts.append(_day_card(today_d))
-
     parts.append('<h2 class="sh">This week</h2>')
     parts.append('<div class="week-list">')
     parts.extend(_week_row(d) for d in this_week)
@@ -720,12 +715,12 @@ def _day_label(d: dict) -> tuple[str, str]:
 
 
 def _week_row(d: dict) -> str:
-    """One day of this week as a row: date on the left, session and why on the right.
-    Today's description is in the card above, so its row stays short."""
+    """One day of this week as a row: date on the left, session and why on the right
+    (not for past days)."""
     cls, badge, planned, done_html = _day_parts(d)
     name, date = _day_label(d)
     reason_html = ""
-    if not d["is_past"] and not d["is_today"] and d.get("description"):
+    if not d["is_past"] and d.get("description"):
         desc = _clean_desc(d["description"])
         if desc:
             reason_html = f'<div class="day-reason">{"<br>".join(_e(x) for x in desc.splitlines())}</div>'

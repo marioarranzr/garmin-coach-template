@@ -60,6 +60,11 @@ GARMIN_EXERCISE = {
     "Hanging leg raise": ("LEG_RAISE", "HANGING_LEG_RAISE"),
     "Side plank": ("PLANK", "SIDE_PLANK"),
     "Box jump (50 cm), step down": ("PLYO", "BOX_JUMP"),
+    "Broad jump": ("PLYO", ""),
+    "Lateral bound": ("PLYO", "LATERAL_LEAP_AND_HOP"),
+    "Split squat jump": ("PLYO", "DUMBBELL_SPLIT_JUMP"),
+    "Pogo hop": ("PLYO", ""),
+    "Pull-up": ("PULL_UP", "PULL_UP"),
     "Hurdle hops": ("PLYO", ""),
     "Bent-over barbell row": ("ROW", "BENT_OVER_ROW_WITH_BARBELL"),
     "Press-up": ("PUSH_UP", "PUSH_UP"),
@@ -94,6 +99,11 @@ HOW = {
     "Hanging leg raise": "Hang from the bar, no swinging; lift knees (or straight legs) to hip height, lower slowly.",
     "Side plank": "On one forearm, elbow under the shoulder, body straight from head to feet, hips high.",
     "Box jump (50 cm), step down": "Quick dip and arm swing, jump onto the box, land softly in a half squat; step back down.",
+    "Broad jump": "Bend knees, swing arms back; explode forward as far as possible, land softly in a squat.",
+    "Lateral bound": "Push off one foot sideways; land softly on the other foot, absorb the landing, then bound back.",
+    "Split squat jump": "Start in a lunge, explode straight up, switch feet in the air; land in opposite lunge softly.",
+    "Pogo hop": "Ankles stiff, calves only; quick, springy two-footed hops on the spot — ground contact under 0.2 s.",
+    "Pull-up": "Full hang, shoulders packed; pull until chin clears the bar, lower slowly to a dead hang.",
     "Hurdle hops": "Hurdle hops: two-footed hops over a low object, quick and springy off the ground.",
     "Bent-over barbell row": "Hinge to ~45°, flat back; pull the bar to your lower ribs, squeeze shoulder blades, lower slowly.",
     "Press-up": "Hands under the shoulders, body straight; chest to just above the floor, push back up.",
@@ -157,17 +167,22 @@ def _strength_blocks(phase: Phase, wk: int) -> tuple[str, list[dict], str]:
     power = phase.name in ("build", "specific", "peak")
     rounds = 2 if phase.name in ("specific", "peak", "taper", "transition") else 3
     if power:
-        # power phase: heavier, fewer reps, plus jumps
+        # power phase: heavier, fewer reps, plyometrics and jumps
         blocks = [
-            _block(rounds, [ex("Front squat", 5, kg=squat + 2), ex("Box jump (50 cm), step down", 5)], 120),
-            _block(rounds, [ex("Single-leg RDL", 6, kg=db, each_side=True), ex("Hurdle hops", 10)], 90),
+            _block(rounds, [ex("Front squat", 5, kg=squat + 2), ex("Box jump (50 cm), step down", 5),
+                            ex("Broad jump", 5)], 120),
+            _block(rounds, [ex("Single-leg RDL", 6, kg=db, each_side=True),
+                            ex("Split squat jump", 6, each_side=True)], 90),
             _block(rounds, [ex("Bulgarian split squat (rear foot on box)", 6, kg=db, each_side=True),
+                            ex("Lateral bound", 6, each_side=True),
                             ex("Single-leg calf raise", 12, kg=db, each_side=True)], 75),
-            _block(2, [ex("Hanging leg raise", 10), ex("Side plank", secs=40, each_side=True)], 45),
+            _block(2, [ex("Pogo hop", 20), ex("Hanging leg raise", 10),
+                       ex("Side plank", secs=40, each_side=True)], 45),
         ]
         return "Strength · power", blocks, "Heavier, fewer reps, explosive up and controlled down; jumps fast off the ground."
     blocks = [
-        _block(rounds, [ex("Front squat", 8, kg=squat), ex("Step-up onto box (50 cm)", 8, kg=db, each_side=True)], 90),
+        _block(rounds, [ex("Front squat", 8, kg=squat), ex("Step-up onto box (50 cm)", 8, kg=db, each_side=True),
+                        ex("Pogo hop", 15)], 90),
         _block(rounds, [ex("Single-leg RDL with knee drive", 10, kg=db, each_side=True),
                         ex("Raised-leg hip thrust", 8, kg=thrust, each_side=True)], 75),
         _block(rounds, [ex("Bulgarian split squat (rear foot on box)", 8, kg=db, each_side=True),
@@ -181,8 +196,8 @@ def _core_blocks(phase: Phase, wk: int) -> tuple[str, list[dict], str]:
     db, row = _load("dumbbell", wk), _load("row", wk)
     rounds = 2 if phase.name in ("taper", "race_week", "transition") else 3
     blocks = [
-        _block(rounds, [ex("Bent-over barbell row", 10, kg=row), ex("Press-up", 10),
-                        ex("Single-arm snatch", 10, kg=db, each_side=True)], 60),
+        _block(rounds, [ex("Pull-up", 5), ex("Bent-over barbell row", 10, kg=row),
+                        ex("Press-up", 10), ex("Single-arm snatch", 10, kg=db, each_side=True)], 60),
         # Y, T and W one after the other (swimming shoulders), then dead bugs
         _block(rounds, [ex("Prone Y raise", 8), ex("Prone T raise", 8), ex("Prone W raise", 8),
                         ex("Dead bug", 10, each_side=True)], 45),

@@ -1464,7 +1464,7 @@ def test_strength_sessions_for_a_home_gym():
     S.set_loads({"strength": {"loads": {"front_squat": 32, "hip_thrust": 12, "dumbbell": 10}, "max_bar_kg": 48}})
     base = Phase("short", "base", "x", None, None, 1, False, 14)
     s = S.make_strength("strength", base, 0)
-    assert s.sport == "strength" and "Front squat · 8 reps @ 32 kg" in s.detail and 25 <= s.duration_min <= 50
+    assert s.sport == "strength" and "Front squat · 8 reps @ 32 kg" in s.detail and 25 <= s.duration_min <= 65
     assert "Front squat · 8 reps @ 36 kg" in S.make_strength("strength", base, 2).detail      # +2 kg a week
     assert "@ 32 kg" in S.make_strength("strength", base, 3).detail                           # deload week
     S.set_loads({"strength": {"loads": {"front_squat": 46}, "max_bar_kg": 48}})
@@ -1733,6 +1733,22 @@ def test_dashboard_builds_and_renders_without_error():
     html_out = D.render_html(data)
     assert "<html" in html_out and today_row["planned"][0] in html_out
     assert data["race"]["name"] in html_out
+
+
+def test_only_the_planned_day_has_a_real_workout_no_duplicates_ahead():
+    """A real workout left on a later day without the coach's footer (e.g. a week
+    planned in advance) is removed, so a day never shows a workout and its draft."""
+    from coach import garmin_api as G
+    from coach.workouts import to_garmin
+    from coach.planner import make_run
+    d = dt.date(2026, 10, 19)
+    with fresh():
+        api = FakeGarmin(d)
+        phase = plan_day(d, CFG, 30)[0]
+        G.upload_and_schedule(api, to_garmin(make_run("run_easy", 6, phase), CFG, "pre-planned"), "2026-10-22")
+        engine.run_day(api, CFG, d, now=dt.datetime(2026, 10, 19, 8))
+        on_thu = [i["title"] for i in api.cal["items"] if i["date"] == "2026-10-22"]
+    assert not any(t.startswith("Coach · ") for t in on_thu)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ import html
 import http.server
 import json
 import logging
+import re as _re
 import threading
 import webbrowser
 from pathlib import Path
@@ -89,6 +90,14 @@ def _race_countdown(cfg: dict, today: dt.date) -> dict | None:
     }
 
 
+_COACH_PREFIX = _re.compile(r'^Coach(?:\s+draft)?\s+·\s+', _re.IGNORECASE)
+
+
+def _clean_name(name: str) -> str:
+    """Strip 'Coach ·' / 'Coach draft ·' prefixes from activity names."""
+    return _COACH_PREFIX.sub("", name).strip()
+
+
 def _weekly_history(acts: list[dict], today: dt.date, weeks: int = 12) -> list[dict]:
     """[{week_of, run_km, bike_min, swim_m}] for the last `weeks` complete weeks + current."""
     out = []
@@ -140,8 +149,9 @@ def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today:
 def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
     today = today or dt.datetime.now().date()
     from . import strava as S
-    acts = G.fetch_activities(api, history_start(today), today)
-    acts = S.merge(acts, S.fetch(history_start(today), today))[0]
+    chart_start = monday_of(today) - dt.timedelta(weeks=12)
+    acts = G.fetch_activities(api, chart_start, today)
+    acts = S.merge(acts, S.fetch(chart_start, today))[0]
     learned = {s: day for s in ("run", "bike") if (day := learn_long_day(acts, today, s))}
     cfg = dict(cfg, _learned_days=learned)
     wt = compute_week_target(acts, today, cfg)
@@ -164,7 +174,7 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
             activities.append({
                 "date": a["date"],
                 "sport": a["sport"],
-                "name": a.get("name") or a["sport"].replace("_", " ").title(),
+                "name": _clean_name(a.get("name") or a["sport"].replace("_", " ").title()),
                 "distance_km": a.get("distance_km"),
                 "duration_min": a.get("duration_min"),
                 "aerobic_te": a.get("aerobic_te"),
@@ -201,6 +211,7 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
         "bike_min": round(sum(a.get("duration_min") or 0 for a in cw if _is_bike(a["sport"])), 0),
         "swim_m": round(sum((a.get("swum_m") or (a.get("distance_km") or 0) * 1000)
                              for a in cw if a["sport"] == "swim")),
+        "strength_count": sum(1 for a in cw if a["sport"] in ("strength_training", "strength")),
     }
 
     return {
@@ -308,7 +319,6 @@ def _day_card(d: dict, compact: bool = False) -> str:
     # Coach reasoning — strip footer timestamp, move draft notice to end
     reason_html = ""
     if d.get("description"):
-        import re as _re
         desc = _re.sub(r'\s*(?:Checked \d+:\d+\.|Planned the evening before\.)\s*$', '', d["description"].strip())
         # Move "Draft: …" sentence from the top to the bottom so the workout comes first
         draft_suffix = ""
@@ -495,15 +505,31 @@ def _week_progress(data: dict) -> str:
             f'</div>'
         )
 
-    # Swimming
+    # Swimming — always show if planned or done this week
     swim_m = wc.get("swim_m", 0) or 0
-    if swim_m > 0:
+    swim_planned = (data.get("week_so_far") or {}).get("swims")  # e.g. "1 of 2"
+    if swim_m > 0 or swim_planned:
         parts.append(
             f'<div class="prog-item">'
             f'<div class="prog-sport swim">Swimming</div>'
-            f'<div class="prog-labels"><span>{swim_m:.0f}&nbsp;m</span><span></span></div>'
+            f'<div class="prog-labels"><span>{swim_m:.0f}&nbsp;m</span>'
+            f'<span>{_e(swim_planned) if swim_planned else ""}</span></div>'
             f'</div>'
         )
+
+    # Strength — always show with target 2
+    strength_done = wc.get("strength_count", 0) or 0
+    strength_target = 2
+    spct = min(100, round(100 * strength_done / strength_target))
+    parts.append(
+        f'<div class="prog-item">'
+        f'<div class="prog-sport strength">Strength</div>'
+        f'<div class="prog-labels"><span>{strength_done}&nbsp;of&nbsp;{strength_target}</span>'
+        f'<span>{strength_target} target</span></div>'
+        f'<div class="prog-track"><div class="prog-fill" '
+        f'style="width:{spct}%;background:var(--str)"></div></div>'
+        f'</div>'
+    )
 
     if not parts:
         return "<p class='empty-note'>No activities yet this week.</p>"

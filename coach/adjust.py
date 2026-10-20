@@ -1,6 +1,7 @@
 """Adjusts the planned sessions to recovery and plan compliance."""
 from __future__ import annotations
 
+from dataclasses import replace as _dc_replace
 from .planner import Phase, Session, make_bike, make_rest, make_run, make_swim, run_t, _round_half
 
 
@@ -12,6 +13,15 @@ def adjust(planned: list[Session], r: dict, ctx: dict, phase: Phase, tomorrow: l
 
     if any(s.kind == "race" for s in planned):
         return planned, ["Race day: the plan stays as it is. Good luck!"]
+
+    # ── 0. Short sleep + low Body Battery → mark the key session optional ───
+    if r.get("flags", {}).get("session_optional"):
+        new = []
+        for s in planned:
+            if s.sport in ("run", "bike", "swim") and s.kind not in ("rest",):
+                s = _dc_replace(s, optional=True)
+            new.append(s)
+        planned = new
 
     # ── 1. Move a quality session you skipped (yesterday or earlier this week)? ──
     tomorrow_hard = any(s.kind in ("run_quality", "run_long") for s in tomorrow)

@@ -65,6 +65,8 @@ def compute(w: dict, ctx: dict) -> dict:
         flags["short_sleep"] = sh is not None and sh < 5.5
 
     # 4) Body Battery on waking
+
+    # 4) Body Battery on waking
     bb = w.get("body_battery_wake")
     if bb is not None:
         label = "Body Battery now" if w.get("bb_is_now") else "Body Battery"
@@ -135,6 +137,13 @@ def compute(w: dict, ctx: dict) -> dict:
         level = "amber"
         reasons.append("With this little sleep, quality work isn't a good idea.")
 
+    # soft rule: short sleep + low Body Battery (not yet red) → make the key session optional
+    bb = w.get("body_battery_wake") or 0
+    if (flags.get("short_sleep") or (ss is not None and ss < 55)) and bb > 0 and bb < 45 and level in ("amber", "green"):
+        flags["session_optional"] = True
+        reasons.append(f"Low Body Battery ({bb}) after a poor night: the session is optional — "
+                       "listen to your body and skip it if you feel off.")
+
     return {"score": score, "level": level, "label": LEVEL_TXT[level],
             "components": {k: {"value": v[0], "score": round(v[1])} for k, v in comps.items()},
             "reasons": reasons, "flags": flags}
@@ -166,7 +175,11 @@ def recent_load(past: list[dict], today: list[dict], d: dt.date) -> dict:
 
 
 def consecutive_days(activities: list[dict], d: dt.date) -> int:
-    days = {a["date"] for a in activities}
+    """Days in a row before d with endurance training (a run, ride or swim). A day
+    with only strength, mobility or a short commute doesn't count, and ends the streak:
+    it's not the same load as a hard run or ride."""
+    days = {a["date"] for a in activities
+            if a.get("sport") in ("run", "bike", "swim") and is_training(a) and (a.get("duration_min") or 0) >= 20}
     n, cur = 0, d - dt.timedelta(days=1)
     while cur.isoformat() in days:
         n += 1

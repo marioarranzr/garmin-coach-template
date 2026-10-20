@@ -151,11 +151,20 @@ def compute(w: dict, ctx: dict) -> dict:
 
 # ── context: compliance and own load ───────────────────────────────────────
 def own_acwr(activities: list[dict], d: dt.date) -> float | None:
+    """Acute/chronic load ratio for running only.
+
+    Using all-sport load inflates the ratio when a triathlete cross-trains:
+    a big ride week can push the number above 1.5 even though run stress is
+    perfectly normal.  The ACWR injury-risk literature is based on running
+    load, so we restrict it to running activities here.
+    """
     def load_between(a_days, b_days):
         lo = (d - dt.timedelta(days=a_days)).isoformat()
         hi = (d - dt.timedelta(days=b_days)).isoformat()
         tot = 0.0
         for a in activities:
+            if a.get("sport") != "run":
+                continue
             if lo <= a["date"] < hi:
                 tot += a["load"] if a.get("load") else a["duration_min"] * 1.0
         return tot

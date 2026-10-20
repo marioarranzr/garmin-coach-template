@@ -620,42 +620,102 @@ def _decision_card(d: dict) -> str:
 
 
 def _week_content(data: dict) -> str:
-    """Combined week plan + context for the merged Week tab."""
+    """Combined week plan + context for the merged Week tab.
+
+    Layout:
+      1. Today — large card with full description inline.
+      2. This week — Mon→Sun row; past days dimmed, today highlighted,
+         future days show full description inline (no accordion).
+      3. Next week — Mon→Sun row, compact (title only).
+      4. Context cards (why / paces / volume).
+    """
     this_week = data["this_week"]
     today_d = next((d for d in this_week if d["is_today"]), None)
-    past = [d for d in this_week if d["is_past"]]
-    future_tw = [d for d in this_week if not d["is_today"] and not d["is_past"]]
     next_week = data["upcoming"]
 
     parts: list[str] = []
 
+    # ── Today ────────────────────────────────────────────────────────────────
     if today_d:
-        parts.append(_day_card(today_d))
+        parts.append(_day_card(today_d))  # full-width, description inline
 
-    if future_tw:
-        parts.append('<h2 class="sh">Upcoming</h2>')
-        parts.append('<div class="wk-grid">')
-        parts.extend(_day_card(d, compact=True) for d in future_tw)
-        parts.append('</div>')
-    elif not today_d:
-        parts.append("<p class='empty-note'>No plan drafted yet.</p>")
+    # ── This week (Mon→Sun, all 7 days) ─────────────────────────────────────
+    parts.append('<h2 class="sh">This week</h2>')
+    parts.append('<div class="wk-week">')
+    for d in this_week:
+        parts.append(_week_day_card(d))
+    parts.append('</div>')
 
+    # ── Next week ────────────────────────────────────────────────────────────
     if next_week:
         parts.append('<h2 class="sh">Next week</h2>')
-        parts.append('<div class="wk-grid">')
-        parts.extend(_day_card(d, compact=True) for d in next_week)
-        parts.append('</div>')
-
-    if past:
-        parts.append('<h2 class="sh">Earlier this week</h2>')
-        parts.append('<div class="wk-grid wk-past">')
-        parts.extend(_day_card(d, compact=True) for d in past)
+        parts.append('<div class="wk-week wk-next">')
+        for d in next_week:
+            parts.append(_week_day_card(d, mini=True))
         parts.append('</div>')
 
     parts.append('<h2 class="sh">Context</h2>')
     parts.append(f'<div class="why-grid">{_why_html(data)}</div>')
 
     return "\n".join(parts)
+
+
+def _week_day_card(d: dict, mini: bool = False) -> str:
+    """One cell in the Mon→Sun week row.
+
+    mini=False (this week): show title + done/rest + description inline for
+    future days.
+    mini=True (next week): show title only, compact.
+    """
+    day = dt.date.fromisoformat(d["date"])
+    day_name = day.strftime("%a")
+    try:
+        day_date = day.strftime("%-d %b")
+    except ValueError:
+        day_date = day.strftime("%d %b").lstrip("0")
+
+    planned = " + ".join(_e(p) for p in d["planned"]) or "Rest"
+
+    if d["is_today"]:
+        row_cls = "day-today"
+        badge = '<span class="today-badge">today</span>'
+    elif d["is_past"]:
+        row_cls = "day-past"
+        badge = ""
+    else:
+        row_cls = ""
+        badge = ""
+
+    # Done / rest line
+    done_html = ""
+    if d["done"]:
+        items = " &nbsp;·&nbsp; ".join(_e(x) for x in d["done"])
+        done_html = f'<div class="done-row">&#10003;&nbsp;{items}</div>'
+    elif d["is_past"] and not d["planned"]:
+        done_html = '<div class="rest-row">Rest</div>'
+
+    # Description — inline for future days in this-week row; hidden for mini
+    reason_html = ""
+    if not mini and not d["is_past"] and not d["is_today"] and d.get("description"):
+        desc = _re.sub(r'\s*(?:Checked \d+:\d+\.|Planned the evening before\.)\s*$',
+                       '', d["description"].strip())
+        desc = _re.sub(r'^Draft:[^\n]+\n*', '', desc).strip()
+        if desc:
+            desc_html = "<br>".join(_e(line) for line in desc.splitlines()) if "\n" in desc else _e(desc)
+            reason_html = f'<div class="day-reason">{desc_html}</div>'
+
+    return (
+        f'<div class="wk-cell {row_cls}">'
+        f'<div class="wk-cell-hd">'
+        f'<span class="day-name">{_e(day_name)}</span>'
+        f' <span class="day-date">{_e(day_date)}</span>'
+        f'{badge}'
+        f'</div>'
+        f'<div class="day-session">{planned}</div>'
+        f'{done_html}'
+        f'{reason_html}'
+        f'</div>'
+    )
 
 
 # ── PAGE template (uses __PLACEHOLDER__ substitution to avoid CSS-brace issues) ──
@@ -696,7 +756,7 @@ _PAGE = (
     '  font-size: 14px; line-height: 1.55; min-height: 100%;\n'
     '}\n'
     '.app {\n'
-    '  max-width: 860px; margin: 0 auto;\n'
+    '  max-width: 1100px; margin: 0 auto;\n'
     '  padding-left: max(16px, env(safe-area-inset-left,0px));\n'
     '  padding-right: max(16px, env(safe-area-inset-right,0px));\n'
     '  padding-block: 0 64px;\n'
@@ -793,6 +853,27 @@ _PAGE = (
     '  display: grid; grid-template-columns: repeat(auto-fill,minmax(112px,1fr));\n'
     '  gap: 8px; margin-bottom: 20px;\n'
     '}\n'
+    '/* Mon→Sun week row */\n'
+    '.wk-week {\n'
+    '  display: grid;\n'
+    '  grid-template-columns: repeat(7, 1fr);\n'
+    '  gap: 8px; margin-bottom: 24px; overflow-x: auto;\n'
+    '}\n'
+    '.wk-cell {\n'
+    '  background: var(--s1); border: 1px solid var(--border);\n'
+    '  border-radius: 10px; padding: 10px 12px; font-size: .8rem;\n'
+    '  min-width: 100px;\n'
+    '}\n'
+    '.wk-cell.day-today  { border-color: var(--accent); }\n'
+    '.wk-cell.day-past   { opacity: .6; }\n'
+    '.wk-cell-hd {\n'
+    '  display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap;\n'
+    '  margin-bottom: 5px;\n'
+    '}\n'
+    '.wk-cell-hd .day-name { font-weight: 600; font-size: .88rem; }\n'
+    '.wk-cell-hd .day-date { color: var(--muted); font-size: .7rem; }\n'
+    '.wk-cell-hd .today-badge { font-size: .58rem; }\n'
+    '.wk-next .wk-cell { opacity: .75; }\n'
     '.day-card {\n'
     '  background: var(--s1); border: 1px solid var(--border);\n'
     '  border-radius: 10px; padding: 10px 12px; font-size: .8rem;\n'

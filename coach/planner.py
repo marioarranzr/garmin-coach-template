@@ -107,6 +107,13 @@ def at(meters, pace):          return run_d(meters, None, pace)        # e.g. at
 def for_(seconds, pace):       return run_t(seconds, None, pace)
 def jog(seconds, zone=1):      return {"type": "recovery", "end": "time", "value": seconds, "zone": zone}
 def rest(seconds):             return {"type": "rest", "end": "time", "value": seconds, "zone": None}
+def keep_going(zone, note):
+    """Open step that ends when you press LAP: after a distance step (which beeps at its distance and
+    moves on) you can run on, and the watch waits for you instead of stopping the run."""
+    return {"type": "interval", "end": "lap", "value": None, "zone": zone, "note": note}
+def gate(note="Press LAP when you're ready"):
+    """Waits for you to press LAP before the next part starts (no timer, no target)."""
+    return {"type": "rest", "end": "lap", "value": None, "zone": None, "note": note}
 def swim(meters, typ="interval", note=""):
     return {"type": typ, "end": "distance", "value": meters, "zone": None, "note": note}
 def repeat(n, steps):          return {"type": "repeat", "iterations": n, "steps": steps}
@@ -498,6 +505,13 @@ def _with_venue(name: str, steps: list[dict]) -> list[dict]:
     return out
 
 
+def _gate_after_warmup(steps: list[dict]) -> list[dict]:
+    """You decide when the work starts: after the warm-up the watch waits for LAP."""
+    if steps and steps[0]["type"] == "warmup" and len(steps) > 1:
+        return [steps[0], gate("Warm-up done: press LAP to start")] + steps[1:]
+    return steps
+
+
 QUALITY[("tri", "taper")] = QUALITY[("short", "taper")]
 QUALITY[("tri", "race_week")] = QUALITY[("short", "race_week")]
 
@@ -511,6 +525,8 @@ def steps_km(steps: list[dict]) -> float:
     for st in steps:
         if st["type"] == "repeat":
             tot += st["iterations"] * steps_km(st["steps"])
+        elif st["end"] == "lap":
+            continue                       # ends when you press LAP: not counted
         elif st["end"] == "distance":
             tot += st["value"] / 1000
         else:
@@ -535,6 +551,8 @@ def describe_steps(steps: list[dict]) -> str:
     def one(st):
         if st["type"] == "repeat":
             return f"{st['iterations']} × (" + ", ".join(one(x) for x in st["steps"]) + ")"
+        if st["end"] == "lap":
+            return st.get("note") or "Press LAP to continue"
         if st["type"] in ("warmup", "cooldown"):
             return f"{amount(st)} easy" + (f" ({st['note']})" if st.get("note") else "")
         if st["type"] == "recovery":
@@ -554,7 +572,7 @@ def make_run(kind: str, km: float, phase: Phase, wk: int = 0) -> Session:
         name, build, (lo, hi) = opts[wk % len(opts)]
         # as many reps as fit the week's quality distance (including the run to the track and back)
         n = min(range(lo, hi + 1), key=lambda k: abs(steps_km(_with_venue(name, build(k))) - km))
-        steps = _with_venue(name, build(n))
+        steps = _gate_after_warmup(_with_venue(name, build(n)))
         total = _round_half(steps_km(steps))
         return Session(kind, "run", f"Quality · {name}, {total:g} km", "hard", total, None,
                        describe_steps(steps) + "\nPaces are set from your current fitness: if a rep feels "
@@ -577,7 +595,7 @@ def make_run(kind: str, km: float, phase: Phase, wk: int = 0) -> Session:
             detail = f"Long run {km:g} km in Z2, conversational pace. Drink if it goes over 75'."
         return Session(kind, "run", f"Long run {km:g} km", "moderate", km, None, detail, steps)
     if kind == "run_strides":
-        strides = [jog(60), repeat(6, [run_t(20, None), jog(70)])]
+        strides = [jog(60), gate("Press LAP to start the strides"), repeat(6, [run_t(20, None), jog(70)])]
         # the strides are part of the run (the watch keeps recording), so `km` is the
         # whole run: the easy part is what's left after them (and they count as planned)
         extra = steps_km(strides)
@@ -586,8 +604,11 @@ def make_run(kind: str, km: float, phase: Phase, wk: int = 0) -> Session:
         easy = round((km - extra) * 2) / 2
         total = round(easy + extra, 1)
         return Session(kind, "run", f"Easy run {easy:g} km + 6 strides", "easy", total, None,
-                       f"{easy:g} km in Z2, 1' walk or easy jog, then 6 × 20\" strides (fast but relaxed) "
-                       f"with 70\" easy jog between: ~{total:g} km in all.", [run_d(easy * 1000, 2)] + strides)
+                       f"{easy:g} km in Z2: the watch beeps at {easy:g} km; run on if you like and press LAP when "
+                       f"you're done. Then 1' walk or easy jog, press LAP and do 6 × 20\" strides (fast but "
+                       f"relaxed) with 70\" easy jog between: ~{total:g} km in all.",
+                       [run_d(easy * 1000, 2), keep_going(2, f"{easy:g} km done: run on if you like, LAP to finish")]
+                       + strides)
     if kind == "run_brick":
         return Session(kind, "run", f"Brick run {km:g} km", "moderate", km, None,
                        "Straight off the bike: 1 km easy, the rest in Z3 at triathlon pace.",

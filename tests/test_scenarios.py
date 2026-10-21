@@ -1236,7 +1236,9 @@ def test_quality_runs_target_paces_from_your_fitness():
     P.set_current(p)
     s = make_run("run_quality", 8, Phase("short", "base", "x", None, None, 1, False, 14), 0)
     assert s.title.startswith("Quality · Rolling 400s") and "400 m at 4:25/km, 400 m at 5:01/km" in s.detail
-    rep = to_garmin(s, CFG, "x")["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
+    steps = to_garmin(s, CFG, "x")["workoutSegments"][0]["workoutSteps"]
+    assert steps[1]["endCondition"]["conditionTypeKey"] == "lap.button"        # after the warm-up: LAP to start
+    rep = steps[2]["workoutSteps"][0]
     assert rep["targetType"]["workoutTargetTypeKey"] == "pace.zone"
     assert 1000 / rep["targetValueTwo"] < p["5k"] < 1000 / rep["targetValueOne"]
     over = make_run("run_quality", 9, Phase("short", "base", "x", None, None, 1, False, 14), 1)
@@ -1406,7 +1408,26 @@ def test_lasting_preferences_are_kept_in_todoist_and_reach_the_ai():
         assert "<summary>What the AI coach saw</summary>" in res["report"] and '"athlete_preferences"' in res["report"]
     from coach.planner import Phase, make_run
     strides = make_run("run_strides", 6, Phase("short", "base", "x", None, None, 1, False, 14))
-    assert strides.steps[1] == {"type": "recovery", "end": "time", "value": 60, "zone": 1}
+    assert strides.steps[2] == {"type": "recovery", "end": "time", "value": 60, "zone": 1}
+
+
+def test_strides_run_beeps_at_the_distance_and_waits_for_the_lap_button():
+    """Easy run + strides: the watch beeps at the distance but doesn't stop the run (an open step follows),
+    then 1' rest, then it waits for LAP before the strides; Garmin gets lap.button steps without a value."""
+    from coach.planner import Phase, make_run, steps_km, describe_steps
+    from coach.workouts import to_garmin
+    s = make_run("run_strides", 6, Phase("short", "base", "x", None, None, 1, False, 14))
+    assert [st.get("end") for st in s.steps] == ["distance", "lap", "time", "lap", None], s.steps
+    assert s.steps[0]["zone"] == 2 and s.steps[1]["zone"] == 2          # running on stays in Z2
+    assert "beeps at" in s.detail and "press LAP" in s.detail and steps_km(s.steps) > 5
+    g = to_garmin(s, CFG, "x")["workoutSegments"][0]["workoutSteps"]
+    assert [x["endCondition"]["conditionTypeKey"] for x in g[:4]] == ["distance", "lap.button", "time", "lap.button"]
+    assert g[1]["endConditionValue"] is None and g[3]["endConditionValue"] is None
+    assert g[0]["endConditionValue"] == s.steps[0]["value"] and g[1]["description"].endswith("LAP to finish")
+    assert "Press LAP" in describe_steps(s.steps)
+    # a quality run: LAP after the warm-up, and the estimated distance doesn't change
+    q = make_run("run_quality", 8, Phase("short", "base", "x", None, None, 1, False, 14), 0)
+    assert q.steps[1]["end"] == "lap" and q.steps[0]["type"] == "warmup"
 
 
 def test_rides_are_at_least_30_minutes():

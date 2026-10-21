@@ -56,7 +56,7 @@ def _steps(steps: list[dict], counter: list[int], swim: bool) -> list[dict]:
             "type": "ExecutableStepDTO", "stepOrder": order,
             "stepType": {"stepTypeId": sid, "stepTypeKey": skey, "displayOrder": sid},
             "endCondition": {"conditionTypeId": cid, "conditionTypeKey": ckey, "displayOrder": cid, "displayable": True},
-            "endConditionValue": float(st["value"]),
+            "endConditionValue": None if st["end"] == "lap" else float(st["value"]),
             "targetType": tgt,
         }
         if zn:

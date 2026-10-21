@@ -1817,6 +1817,20 @@ def test_dashboard_builds_and_renders_without_error():
     assert data["race"]["name"] in html_out
 
 
+def test_week_so_far_counts_what_you_did_today():
+    """A swim this morning shows in "This week so far" on the dashboard; the planner's own count
+    (what to do today) still only looks at the days before."""
+    from coach import week as W
+    wed = dt.date(2026, 10, 21)
+    tpl = {"mon": ["rest"], "tue": ["run_quality"], "wed": ["swim_technique", "run_easy"], "thu": ["rest"],
+           "fri": ["rest"], "sat": ["bike_long"], "sun": ["run_long"]}
+    swim = {"date": wed.isoformat(), "sport": "swim", "distance_km": 1.1, "duration_min": 29}
+    before = W.ledger([swim], wed, tpl, {"easy": 6, "long": 12}, None)
+    assert before["swims"] == 0 and W.summary(before)["swims"] == "0 of 1"
+    now = W.ledger([swim], wed, tpl, {"easy": 6, "long": 12}, None, include_today=True)
+    assert now["swims"] == 1 and W.summary(now)["swims"] == "1 of 1"
+
+
 def test_dashboard_week_rows_and_projected_days():
     """This week is one row per day; days past the coach's drafts show the template's
     plan as 'projected' instead of 'Rest'; sessions of a day share one description."""

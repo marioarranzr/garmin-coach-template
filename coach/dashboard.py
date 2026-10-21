@@ -202,7 +202,7 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
     cal = Calendar(api, cfg)
     _, tpl, dist, bdist = week_parts(today, cfg, wt)
     led = W.ledger(acts, today, tpl, dist, bdist,
-                   quality_ok=not wt.get("return_mode") and phase.name != "transition")
+                   quality_ok=not wt.get("return_mode") and phase.name != "transition", include_today=True)
 
     mon = monday_of(today)
 

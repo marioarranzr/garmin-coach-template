@@ -24,13 +24,15 @@ def _hard(a: dict) -> bool:
 
 
 def ledger(acts: list[dict], d: dt.date, tpl: dict, dist: dict, bdist: dict | None,
-           quality_ok: bool = True, quality_days: set[str] = frozenset()) -> dict:
-    """What's been done this week before day d, against the week's template.
+           quality_ok: bool = True, quality_days: set[str] = frozenset(), include_today: bool = False) -> dict:
+    """What's been done this week before day d, against the week's template
+    (`include_today`: also what's been done on d itself, for showing the week so far).
     `quality_ok` is False when the plan has no hard runs (return to running, transition).
     A run on one of `quality_days` (days the coach planned a quality run) counts as
     the quality session even if Garmin's Training Effect stayed moderate."""
     mon = monday_of(d)
-    week = [a for a in acts if mon.isoformat() <= a["date"] < d.isoformat()]
+    end = d + dt.timedelta(days=1) if include_today else d
+    week = [a for a in acts if mon.isoformat() <= a["date"] < end.isoformat()]
     kinds = [k for day in WEEKDAYS for k in tpl.get(day, []) if quality_ok or k != "run_quality"]
     before = [k for day in WEEKDAYS[:d.weekday()] for k in tpl.get(day, []) if quality_ok or k != "run_quality"]
     runs = [a for a in week if a["sport"] == "run"]

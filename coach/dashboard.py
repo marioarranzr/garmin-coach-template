@@ -125,18 +125,36 @@ def _full_description(cal: Calendar, entry: dict) -> str:
         return ""
 
 
-def _merge_descriptions(texts: list[str]) -> str:
-    """The descriptions of a day's sessions as one text: the paragraphs they share
-    (the why, the footer) appear once."""
-    seen: set[str] = set()
-    out: list[str] = []
-    for t in texts:
-        for para in (t or "").strip().split("\n\n"):
-            key = para.strip()
-            if key and key not in seen:
-                seen.add(key)
-                out.append(key)
-    return "\n\n".join(out)
+def _merge_descriptions(items: list[tuple[str, str]]) -> str:
+    """The descriptions of a day's sessions as one text, in reading order: what the coach
+    says about the day, then each session ("## title" + its own instructions), then what
+    they share about you (readiness, sleep, phase). `items`: [(session title, description)]."""
+    paras = [[p.strip() for p in (t or "").strip().split("\n\n") if p.strip()] for _, t in items]
+    if not paras:
+        return ""
+    if len(items) == 1:
+        return "\n\n".join(paras[0])
+    common = set(paras[0]).intersection(*map(set, paras[1:]))
+    first = paras[0]
+    own = [i for i, p in enumerate(first) if p not in common]
+    if not own:
+        return "\n\n".join(first)
+    head = first[:own[0]]
+    tail = [p for p in first[own[0]:] if p in common]
+    body = []
+    for (title, _), ps in zip(items, paras):
+        mine = [p for p in ps if p not in common]
+        if mine:
+            body.append(f"## {title}\n" + "\n\n".join(mine))
+    return "\n\n".join(head + body + tail)
+
+
+def _desc_html(desc: str) -> str:
+    """Description text as HTML lines; a "## title" line starts a session's section."""
+    out = []
+    for line in desc.splitlines():
+        out.append(f'<strong class="desc-h">{_e(line[3:])}</strong>' if line.startswith("## ") else _e(line))
+    return "<br>".join(out)
 
 
 def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today: dt.date,
@@ -160,8 +178,9 @@ def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today:
             "is_past": day < today,
             "projected": projected,
             "planned": planned,
-            "description": (_merge_descriptions([_full_description(cal, e) for e in entries
-                                                 if e.get("workoutId")]) if full_text and entries else ""),
+            "description": (_merge_descriptions([(e["session"]["title"], _full_description(cal, e))
+                                                 for e in entries if e.get("workoutId")])
+                            if full_text and entries else ""),
             "done": [f"{a.get('name') or a['sport']} — {a['distance_km']:g} km, {a['duration_min']:.0f}'"
                      for a in done if (a.get("distance_km") or 0) > 0],
         })
@@ -371,8 +390,7 @@ def _day_card(d: dict, compact: bool = False) -> str:
                 '</details>'
             )
         else:
-            desc_html = "<br>".join(_e(line) for line in desc.splitlines()) if "\n" in desc else _e(desc)
-            reason_html = f'<div class="day-reason">{desc_html}</div>'
+            reason_html = f'<div class="day-reason">{_desc_html(desc)}</div>'
 
     if compact:
         return (
@@ -723,7 +741,7 @@ def _week_row(d: dict) -> str:
     if not d["is_past"] and d.get("description"):
         desc = _clean_desc(d["description"])
         if desc:
-            reason_html = f'<div class="day-reason">{"<br>".join(_e(x) for x in desc.splitlines())}</div>'
+            reason_html = f'<div class="day-reason">{_desc_html(desc)}</div>'
     return (
         f'<div class="day-row {cls}">'
         f'<div class="day-label"><div class="day-name">{_e(name)}</div>'
@@ -906,6 +924,7 @@ _PAGE = (
     '.wk-cell.projected .day-session { color: var(--muted); }\n'
     '.day-row.projected .day-session { color: var(--muted); }\n'
     '.day-reason { max-width: 78ch; }\n'
+    '.desc-h { color: var(--fg); font-weight: 600; }\n'
     '.day-card {\n'
     '  background: var(--s1); border: 1px solid var(--border);\n'
     '  border-radius: 10px; padding: 10px 12px; font-size: .8rem;\n'

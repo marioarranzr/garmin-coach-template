@@ -105,10 +105,10 @@ def compute(w: dict, ctx: dict) -> dict:
     if acwr:
         if acwr > 1.5:
             score -= 15
-            reasons.append(f"Running load has jumped (ratio {acwr:.2f} vs your last 4 weeks): injury risk.")
+            reasons.append(f"Running load is {acwr:.1f}× your 4-week average (a fast build-up).")
         elif acwr > 1.3:
             score -= 7
-            reasons.append(f"Running load is up on your last 4 weeks (ratio {acwr:.2f}).")
+            reasons.append(f"Running load is {acwr:.1f}× your 4-week average.")
 
     c = ctx.get("compliance") or {}
     if c.get("excess_km", 0) >= 2:
@@ -256,7 +256,7 @@ def evening(ctx: dict) -> dict:
     acwr = ctx.get("acwr_own")
     if (acwr and acwr > 1.5) or ctx.get("consecutive_days", 0) >= 6:
         level = "amber"
-        reasons.append(f"Very high acute/chronic load ratio ({acwr:.2f})." if acwr and acwr > 1.5
+        reasons.append(f"Running load is {acwr:.1f}× your 4-week average (a fast build-up)." if acwr and acwr > 1.5
                        else f"You've trained {ctx['consecutive_days']} days in a row.")
     return {"score": None, "level": level, "label": "🌙 Planned the evening before",
             "components": {}, "reasons": reasons, "flags": flags}

@@ -589,6 +589,8 @@ def test_load_ratio_counts_running_only():
     assert ratio is not None and ratio < 1.3, ratio
     r = compute({"acwr": 1.72}, {"acwr_own": ratio})       # Garmin's all-sport ratio is ignored
     assert not any("injury" in x for x in r["reasons"]), r["reasons"]
+    r = compute({}, {"acwr_own": 2.58})                     # a fast build-up is stated, not called an injury risk
+    assert any("2.6× your 4-week average" in x for x in r["reasons"]) and not any("injury" in x for x in r["reasons"])
 
 
 def test_report_shows_watch_sync_and_warns_when_stale():
@@ -1815,11 +1817,16 @@ def test_dashboard_week_rows_and_projected_days():
                         "planned": [], "done": [], "description": "Old text."})
     assert "Old text." not in past                                        # past days stay short
     assert "projected" in html_out
-    # the coach's bookkeeping lines and the shared paragraphs
-    raw = "Why.\n\nSwim detail.\n\nPhase line\nPlanned the evening before (Tue 21:05); checked again in the morning."
-    run = "Why.\n\nRun detail.\n\nPhase line\nPlanned the evening before (Tue 21:05); checked again in the morning."
-    merged = D._merge_descriptions([raw, run])
-    assert merged.count("Why.") == 1 and "Swim detail." in merged and "Run detail." in merged
+    # two sessions in a day: the day's story, then each session, then what they share
+    foot = "Readiness 85/100\n• Running load is 2.6× your 4-week average.\n\nPhase line\nPlanned the evening before (Tue 21:05)."
+    swim = "Why.\n\nCoach note.\n\nSwim detail.\n\n" + foot
+    run = "Why.\n\nCoach note.\n\n6.5 km in Z2.\n\n" + foot
+    merged = D._merge_descriptions([("Swim 800 m (optional)", swim), ("Easy run 6.5 km", run)])
+    order = [merged.index(x) for x in ("Why.", "Coach note.", "## Swim 800 m (optional)", "Swim detail.",
+                                       "## Easy run 6.5 km", "6.5 km in Z2.", "Readiness 85/100", "Phase line")]
+    assert order == sorted(order) and merged.count("Why.") == 1 and merged.count("Readiness 85/100") == 1, merged
+    assert D._merge_descriptions([("Easy run", run)]) == run.strip()               # one session: as written
+    assert '<strong class="desc-h">Easy run 6.5 km</strong>' in D._desc_html("## Easy run 6.5 km\nx")
     clean = D._clean_desc(merged)
     assert "Planned the evening" not in clean and "Phase line" in clean
     assert D._clean_desc("Draft: the coach plans this day.\nX\nChecked 08:03.\nActivities seen today: 0.") == "X"

@@ -758,10 +758,8 @@ def _make_swim(kind: str, phase: Phase, short: bool = False) -> Session:
 def optional_swim(s: Session, phase: Phase) -> Session:
     """While the next goal isn't a triathlon, swims are optional extras: easy
     aerobic work that keeps your feel for the water, never a priority."""
-    until = f" until {phase.race.name}" if phase.race else ""
     return Session(s.kind, s.sport, f"{s.title} (optional)", "easy", s.distance_km, s.duration_min,
-                   f"Optional: running is the focus{until}. Swim if you feel like it; skipping it is fine. "
-                   + s.detail, s.steps, False, True)
+                   "Optional: swim if you feel like it; skipping it is fine. " + s.detail, s.steps, False, True)
 
 
 def make_rest(reason: str = "") -> Session:

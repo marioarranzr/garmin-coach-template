@@ -88,6 +88,20 @@ def new_notes_since_evening_plan(cfg: dict, now: dt.datetime, plan: list[dict], 
     return [n for n in recent_notes(cfg, now, api=notes_api) if not n["done"] and n["created"] >= since]
 
 
+def _asked_sports(plan: list[dict], phase) -> list[str]:
+    """The sports of a day already in the calendar when it holds a swim you asked for
+    (a swim without "(optional)" outside the triathlon block), else []."""
+    if phase.focus == "tri" or not any(e["session"].get("sport") == "swim" and not e["session"].get("optional")
+                                       for e in plan):
+        return []
+    out: list[str] = []
+    for e in plan:
+        sport = e["session"].get("sport")
+        if sport in ("run", "bike", "swim", "strength") and sport not in out:
+            out.append(sport)
+    return out
+
+
 def last_check(cfg: dict, d: dt.date, today_cal: list[dict], notes_api=None) -> tuple[str | None, int | None]:
     """When today's plan was last checked ("HH:MM") and how many of today's activities
     it had seen: from the workouts' footers and today's Todoist plan task (kept up to
@@ -247,6 +261,13 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     P.set_current(pace_set)
     week_km = wt["target_km"]
     ret = wt.get("return_mode", False)
+    asked = _asked_sports(today_cal, phase_for(d, cfg))
+    if asked:
+        # outside the triathlon block swims are optional extras, so a swim already in the calendar
+        # without "(optional)" is one you asked for in a note: the later checks keep that day's sports
+        c = dict(cfg.get("_constraints") or {})
+        c["day_plan"] = [e for e in c.get("day_plan") or [] if e.get("date") != d] + [{"date": d, "sports": asked}]
+        cfg = dict(cfg, _constraints=c, _today=d)
     phase, planned = plan_day(d, cfg, wt)
     _, tomorrow = plan_day(d + dt.timedelta(days=1), cfg, wt)
 

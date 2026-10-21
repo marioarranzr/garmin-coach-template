@@ -179,7 +179,7 @@ def test_swims_are_optional_until_the_triathlon_block():
     api, res = _run(day, swims=False)
     swims = [s for s in res["final"] if s.sport == "swim"]
     assert swims and all(s.optional and not s.priority for s in swims)
-    assert swims[0].title.endswith(" (optional)") and "running is the focus" in swims[0].detail
+    assert swims[0].title.endswith(" (optional)") and swims[0].detail.startswith("Optional: swim if you feel like it")
     assert "priority" not in res["report"].lower()
     # skipping an optional swim isn't "missed"
     from coach.readiness import compliance
@@ -1823,6 +1823,36 @@ def test_dashboard_week_rows_and_projected_days():
     clean = D._clean_desc(merged)
     assert "Planned the evening" not in clean and "Phase line" in clean
     assert D._clean_desc("Draft: the coach plans this day.\nX\nChecked 08:03.\nActivities seen today: 0.") == "X"
+
+
+def test_a_swim_asked_for_in_a_note_stays_a_real_session_in_the_morning_check():
+    """Tuesday evening: "tomorrow swim and run" → Wednesday's swim isn't an optional extra.
+    Wednesday morning, with no note left to read, the swim is still that session."""
+    tue, wed = dt.date(2026, 10, 20), dt.date(2026, 10, 21)
+    sched = dict(NO_SCHEDULE, day_plan=[{"date": wed.isoformat(), "sports": ["swim", "run"]}], notes_used=["t0"])
+    keep = {"decision": "keep", "sessions": [{"kind": "swim_technique", "distance_km": 0.8, "minutes": None},
+                                             {"kind": "run_easy", "distance_km": 6, "minutes": None}],
+            "why": "Swim and an easy run.", "coach_note": "", "notes_used": []}
+    with fresh():
+        todo = FakeTodoist([(dt.datetime(2026, 10, 20, 21, 0), "tomorrow swim and run")])
+        todo.day = tue
+        api = FakeGarmin(tue)
+        eve = engine.run_day(api, CFG, wed, evening=True, notes_api=todo, ai_client=FakeClaude(keep, schedule=sched),
+                             now=dt.datetime(2026, 10, 20, 21, 5))
+        swim = [s for s in eve["final"] if s.sport == "swim"]
+        assert swim and not swim[0].optional and "(optional)" not in swim[0].title, [s.title for s in eve["final"]]
+        titles = [i["title"] for i in api.cal["items"] if i["date"] == wed.isoformat()]
+        assert any("swim" in t.lower() for t in titles) and not any("(optional)" in t for t in titles), titles
+        morning = engine.run_day(api, CFG, wed, wait_for_sleep=True, notes_api=FakeTodoist([]),
+                                 ai_client=FakeClaude(keep, schedule=NO_SCHEDULE), now=dt.datetime(2026, 10, 21, 7, 0))
+        swim = [s for s in morning["final"] if s.sport == "swim"]
+        assert swim and not swim[0].optional and "(optional)" not in swim[0].title, [s.title for s in morning["final"]]
+        assert sorted({s.sport for s in morning["final"]}) == ["run", "swim"], [s.title for s in morning["final"]]
+    # an ordinary (unasked) swim outside the triathlon block is still optional, and says so once
+    day = dt.date(2026, 10, 16)
+    api, res = _run(day, swims=False)
+    sw = [s for s in res["final"] if s.sport == "swim"][0]
+    assert sw.title.endswith(" (optional)") and sw.detail.count("ptional") == 1 and "Silvesterlauf" not in sw.detail
 
 
 def test_only_the_planned_day_has_a_real_workout_no_duplicates_ahead():

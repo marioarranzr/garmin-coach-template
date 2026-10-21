@@ -297,7 +297,9 @@ def apply_limits(raw: list[dict], proposal: list[Session], phase: Phase, wk: int
             if swims:
                 continue
             swims += 1
-            out.append(make_swim(kind, phase, short=kind == "swim_technique" and kind not in {s.kind for s in proposal}))
+            asked = any(s.sport == "swim" and not s.optional for s in proposal)    # a swim the athlete asked for
+            out.append(make_swim(kind, phase, short=kind == "swim_technique" and kind not in {s.kind for s in proposal},
+                                 asked=asked))
     return out or [make_rest("Your coach chose rest today.")], limited
 
 

@@ -38,15 +38,20 @@ def fit(body: str, footer: str) -> str:
 EVENING = "Planned the evening before"
 
 
+ASKED = "Sports chosen by you:"
+
+
 def footer(phase_text: str, planned_at: dt.datetime, sleep_ready: bool, evening: bool = False,
-           seen: int | None = None) -> str:
+           seen: int | None = None, asked: list[str] | None = None) -> str:
     """The last lines of a workout's description, which the coach reads back:
     the evening plan says so; the morning check says when it checked, and how
-    many of that day's activities it had seen (a new one means: check again)."""
+    many of that day's activities it had seen (a new one means: check again).
+    `asked`: the sports you chose for that day in a note, so later checks keep them."""
+    chosen = [f"{ASKED} {', '.join(asked)}."] if asked else []
     if evening:
-        return f"{phase_text}\n{EVENING} ({planned_at:%a %H:%M}); checked again in the morning."
+        return "\n".join([phase_text] + chosen + [f"{EVENING} ({planned_at:%a %H:%M}); checked again in the morning."])
     lines = [] if sleep_ready else [NO_SLEEP]
-    lines += [f"{phase_text}", f"Checked {planned_at:%H:%M}."]
+    lines += [f"{phase_text}"] + chosen + [f"Checked {planned_at:%H:%M}."]
     if seen is not None:
         lines.append(f"Activities seen today: {seen}.")
     return "\n".join(lines)
@@ -77,6 +82,9 @@ def read_description(description: str | None) -> dict:
         when = re.search(re.escape(EVENING) + r" \(\w{3} (\d\d:\d\d)\)", text)
         if when:
             meta["eve_at"] = when.group(1)   # when, the evening before (to spot notes written later)
+    chosen = re.findall(r"^" + re.escape(ASKED) + r" (.+)\.$", text, flags=re.M)
+    if chosen:
+        meta["asked"] = [x.strip() for x in chosen[-1].split(",") if x.strip() in ("run", "bike", "swim", "strength")]
     seen = re.findall(r"^Activities seen today: (\d+)\.$", text, flags=re.M)
     if seen:
         meta["seen"] = int(seen[-1])

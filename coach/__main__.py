@@ -44,6 +44,8 @@ def main(argv=None):
     ap.add_argument("--scheduled", action="store_true",
                     help="scheduled runs: the morning check or, after the evening plan time, tomorrow's plan")
     ap.add_argument("--tomorrow", action="store_true", help="plan tomorrow (like the evening run)")
+    ap.add_argument("--force", action="store_true",
+                    help="manual runs: plan again even if today was already checked and nothing is new")
     ap.add_argument("--auto", action="store_true",
                     help="manual runs: tomorrow after the evening plan time, otherwise today")
     ap.add_argument("--port", type=int, default=8765, help="dashboard: port for the local web server")
@@ -104,7 +106,8 @@ def main(argv=None):
             elif a.tomorrow or (a.auto and not a.date and now.time() >= evening_plan(cfg)):
                 res = run_day(api, cfg, d + dt.timedelta(days=1), upload=upload, now=now, evening=True)
             else:
-                res = run_day(api, cfg, d, upload=upload, wait_for_sleep=a.wait_for_sleep)
+                res = run_day(api, cfg, d, upload=upload, wait_for_sleep=a.wait_for_sleep,
+                              keep_if_unchanged=a.auto and not a.date and not a.force)
             print(res["report"])
             summary = os.environ.get("GITHUB_STEP_SUMMARY")
             if summary:

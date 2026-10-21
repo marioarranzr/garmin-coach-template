@@ -1862,6 +1862,48 @@ def test_a_swim_asked_for_in_a_note_stays_a_real_session_in_the_morning_check():
     assert sw.title.endswith(" (optional)") and sw.detail.count("ptional") == 1 and "Silvesterlauf" not in sw.detail
 
 
+def test_what_you_chose_for_a_day_survives_later_checks_and_manual_runs():
+    """Tuesday evening "tomorrow swim and run". Afterwards nothing is new: the morning check and a manual
+    run leave Wednesday as it is, and even a forced re-plan without the note keeps swim + run."""
+    from coach.calendar import footer, read_description
+    tue, wed = dt.date(2026, 10, 20), dt.date(2026, 10, 21)
+    assert read_description(footer("Phase.", dt.datetime(2026, 10, 20, 21, 5), True, True, None, ["swim", "run"]))["asked"] == ["swim", "run"]
+    assert "asked" not in read_description(footer("Phase.", dt.datetime(2026, 10, 20, 21, 5), True, True))
+    sched = dict(NO_SCHEDULE, day_plan=[{"date": wed.isoformat(), "sports": ["swim", "run"]}], notes_used=["t0"])
+    keep = {"decision": "keep", "sessions": [{"kind": "swim_technique", "distance_km": 0.8, "minutes": None},
+                                             {"kind": "run_easy", "distance_km": 6, "minutes": None}],
+            "why": "Swim and an easy run.", "coach_note": "", "notes_used": []}
+    with fresh():
+        todo = FakeTodoist([(dt.datetime(2026, 10, 20, 21, 0), "tomorrow swim and run")])
+        todo.day = tue
+        api = FakeGarmin(tue)
+        engine.run_day(api, CFG, wed, evening=True, notes_api=todo, ai_client=FakeClaude(keep, schedule=sched),
+                       now=dt.datetime(2026, 10, 20, 21, 5))
+        wid = [i["workoutId"] for i in api.cal["items"] if i["date"] == wed.isoformat()][0]
+        assert "Sports chosen by you: swim, run." in api.cal["workouts"][wid]["description"]
+        # the morning check, a note-less AI that knows nothing: same day
+        morning = engine.run_day(api, CFG, wed, wait_for_sleep=True, notes_api=FakeTodoist([]),
+                                 ai_client=FakeClaude(keep, schedule=NO_SCHEDULE), now=dt.datetime(2026, 10, 21, 7, 0))
+        assert sorted({x.sport for x in morning["final"]}) == ["run", "swim"]
+        before = sorted(i["title"] for i in api.cal["items"] if i["date"] == wed.isoformat())
+        # a manual run with nothing new leaves it alone
+        again = engine.run_day(api, CFG, wed, keep_if_unchanged=True, notes_api=FakeTodoist([]),
+                               ai_client=FakeClaude(keep, schedule=NO_SCHEDULE), now=dt.datetime(2026, 10, 21, 7, 1))
+        assert again["status"] == "done"
+        assert before == sorted(i["title"] for i in api.cal["items"] if i["date"] == wed.isoformat())
+        # forced: planned again, and the swim and the run are still there
+        forced = engine.run_day(api, CFG, wed, notes_api=FakeTodoist([]), now=dt.datetime(2026, 10, 21, 7, 2))
+        assert sorted({x.sport for x in forced["final"]}) == ["run", "swim"], [x.title for x in forced["final"]]
+        # a new note about that day wins over what was kept
+        todo2 = FakeTodoist([(dt.datetime(2026, 10, 21, 7, 5), "today only a run")])
+        todo2.day = wed
+        sched2 = dict(NO_SCHEDULE, day_plan=[{"date": wed.isoformat(), "sports": ["run"]}], notes_used=["t0"])
+        new = engine.run_day(api, CFG, wed, keep_if_unchanged=True, notes_api=todo2,
+                             ai_client=FakeClaude(dict(keep, sessions=keep["sessions"][1:]), schedule=sched2),
+                             now=dt.datetime(2026, 10, 21, 7, 10))
+        assert [x.sport for x in new["final"]] == ["run"], [x.title for x in new["final"]]
+
+
 def test_only_the_planned_day_has_a_real_workout_no_duplicates_ahead():
     """A real workout left on a later day without the coach's footer (e.g. a week
     planned in advance) is removed, so a day never shows a workout and its draft."""

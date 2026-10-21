@@ -21,6 +21,10 @@ on:
         description: "Analyse only — don't upload to Garmin"
         type: boolean
         default: false
+      replan:
+        description: "Plan today again even if it was already checked and nothing is new"
+        type: boolean
+        default: false
 
 permissions:
   contents: write           # to save the plan history and the refreshed Garmin session
@@ -84,7 +88,7 @@ jobs:
           elif [ "${{ github.event_name }}" = "schedule" ]; then
             python -m coach run --scheduled            # morning check or evening plan, by your local time
           else
-            python -m coach run --auto                 # manual run: today, or tomorrow after the evening plan time
+            python -m coach run --auto ${{ inputs.replan && '--force' || '' }}   # manual run: today, or tomorrow after the evening plan time (a plan already checked stays unless something is new)
           fi
 
       - name: Export and deploy dashboard

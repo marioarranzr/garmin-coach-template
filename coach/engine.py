@@ -91,6 +91,9 @@ def new_notes_since_evening_plan(cfg: dict, now: dt.datetime, plan: list[dict], 
 def _asked_sports(plan: list[dict], phase) -> list[str]:
     """The sports of a day already in the calendar when it holds a swim you asked for
     (a swim without "(optional)" outside the triathlon block), else []."""
+    for e in plan:                    # recorded in the workout's footer when you chose them
+        if e["meta"].get("asked"):
+            return list(e["meta"]["asked"])
     if phase.focus == "tri" or not any(e["session"].get("sport") == "swim" and not e["session"].get("optional")
                                        for e in plan):
         return []
@@ -163,7 +166,7 @@ def planned_on(day: dt.date, calendar: Calendar, active: bool, acts: list[dict],
 
 def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: bool = False,
             now: dt.datetime | None = None, notes_api=None, ai_client=None, poster=None,
-            evening: bool = False, strava_http=None, **_ignored) -> dict:
+            evening: bool = False, strava_http=None, keep_if_unchanged: bool = False, **_ignored) -> dict:
     """Plans day `d`.
 
     `evening`: d is tomorrow, planned the evening before from your training
@@ -174,6 +177,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     night's sleep, HRV and Body Battery and your notes. It does nothing if
     today was already checked, and waits (returns without planning) while
     last night's sleep hasn't reached Garmin yet, until the configured deadline.
+
+    `keep_if_unchanged` (manual runs): like the morning check, leave a plan that was already
+    checked as it is unless there's a new note or new training since.
 
     Everything it knows about earlier runs comes from your Garmin calendar."""
     now = now or dt.datetime.now()
@@ -186,7 +192,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     notes_today = recent_notes(cfg, now, api=notes_api)          # last 14 h, open and done
     open_notes = [n for n in notes_today if not n["done"]]
     new_notes = [n for n in open_notes if _added_after(n, today_cal, d)]
-    if wait_for_sleep and checked and planned_sleep and not new_notes:
+    if (wait_for_sleep or keep_if_unchanged) and checked and planned_sleep and not new_notes:
         # checked already: during the day, look again only if you've trained since
         trained = trained_since(api, d, *last_check(cfg, d, today_cal, notes_api), strava_http=strava_http)
         if not trained:
@@ -261,13 +267,16 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     P.set_current(pace_set)
     week_km = wt["target_km"]
     ret = wt.get("return_mode", False)
-    asked = _asked_sports(today_cal, phase_for(d, cfg))
-    if asked:
-        # outside the triathlon block swims are optional extras, so a swim already in the calendar
-        # without "(optional)" is one you asked for in a note: the later checks keep that day's sports
-        c = dict(cfg.get("_constraints") or {})
-        c["day_plan"] = [e for e in c.get("day_plan") or [] if e.get("date") != d] + [{"date": d, "sports": asked}]
-        cfg = dict(cfg, _constraints=c, _today=d)
+    c = dict(cfg.get("_constraints") or {})
+    new_choice = next((e["sports"] for e in c.get("day_plan") or [] if e.get("date") == d), None)
+    if new_choice is None:
+        # no new note about this day: the sports you chose earlier (kept in the calendar) still stand
+        kept = _asked_sports(today_cal, phase_for(d, cfg))
+        if kept:
+            c["day_plan"] = list(c.get("day_plan") or []) + [{"date": d, "sports": kept}]
+            cfg = dict(cfg, _constraints=c, _today=d)
+            new_choice = kept
+    asked = new_choice or []
     phase, planned = plan_day(d, cfg, wt)
     _, tomorrow = plan_day(d + dt.timedelta(days=1), cfg, wt)
 
@@ -407,7 +416,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
             if not s.steps:
                 continue
             body = _workout_description(s, r, [] if coach.get("used") else notes, why, coach.get("coach_note", ""))
-            desc = fit(body, footer(phase.describe(), now, sleep_ready, evening, seen_today))
+            desc = fit(body, footer(phase.describe(), now, sleep_ready, evening, seen_today, asked))
             try:
                 uploads.append(G.upload_and_schedule(api, to_garmin(s, cfg, desc), d.isoformat()))
             except Exception as e:  # noqa: BLE001
@@ -461,7 +470,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         coach["plan_tasks"] = sync_plan(cfg, [(d, final, why, done_today_titles)] + [(day, sess, (wn or [""])[0])
                                                                  for day, _, sess, wn in ahead], api=notes_api,
                                        # when it was planned/checked (rest days have no workout to say so)
-                                       footer=footer(phase.describe(), now, sleep_ready, evening, seen_today))
+                                       footer=footer(phase.describe(), now, sleep_ready, evening, seen_today, asked))
 
     # notes the coach used: label them for your diary and complete them in Todoist (real runs only)
     if upload and used:

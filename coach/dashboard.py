@@ -335,7 +335,7 @@ def _dot(sport: str) -> str:
 
 
 _FOOTER_LINE = _re.compile(
-    r"^(?:Checked \d\d:\d\d\.|Activities seen today: \d+\.|Planned the evening before.*|Draft:.*)$")
+    r"^(?:Checked \d\d:\d\d\.|Activities seen today: \d+\.|Planned the evening before.*|Sports chosen by you:.*|Draft:.*)$")
 
 
 def _clean_desc(desc: str) -> str:

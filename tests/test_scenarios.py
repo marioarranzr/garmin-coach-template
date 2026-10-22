@@ -1837,6 +1837,14 @@ def test_the_coach_is_told_what_you_asked_for_and_you_are_told_what_it_understoo
     assert warn in body and body.index("Why.") < body.index(warn)
 
 
+def test_activity_names_from_coach_workouts_are_shown_clean():
+    from coach.dashboard import _clean_name
+    assert _clean_name("Winterthur - Coach draft · Easy run 5.5 km +") == "Easy run 5.5 km"
+    assert _clean_name("Winterthur - Coach · Easy run 8 km + 6 strides") == "Easy run 8 km + 6 strides"
+    assert _clean_name("Coach draft · Strength & core 47'") == "Strength & core 47'"
+    assert _clean_name("Winterthur Cycling") == "Winterthur Cycling" and _clean_name("Pool Swim") == "Pool Swim"
+
+
 def test_week_so_far_counts_what_you_did_today():
     """A swim this morning shows in "This week so far" on the dashboard; the planner's own count
     (what to do today) still only looks at the days before."""

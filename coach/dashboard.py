@@ -90,12 +90,14 @@ def _race_countdown(cfg: dict, today: dt.date) -> dict | None:
     }
 
 
-_COACH_PREFIX = _re.compile(r'^Coach(?:\s+draft)?\s+·\s+', _re.IGNORECASE)
+_COACH_PREFIX = _re.compile(r'^(?:[^-·]+\s-\s+)?Coach(?:\s+draft)?\s+·\s+', _re.IGNORECASE)
 
 
 def _clean_name(name: str) -> str:
-    """Strip 'Coach ·' / 'Coach draft ·' prefixes from activity names."""
-    return _COACH_PREFIX.sub("", name).strip()
+    """An activity started from a coach workout is named by Garmin "<city> - <workout name>",
+    and cut after ~45 characters ("Winterthur - Coach draft · Easy run 5.5 km +"): show just the
+    workout, without the city, the 'Coach' prefix or a dangling '+'."""
+    return _re.sub(r'\s*\+\s*$', '', _COACH_PREFIX.sub("", name).strip()).strip()
 
 
 def _weekly_history(acts: list[dict], today: dt.date, weeks: int = 12) -> list[dict]:

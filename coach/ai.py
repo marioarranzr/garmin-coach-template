@@ -93,6 +93,7 @@ from that date, not from the day you're planning (a note from yesterday evening 
 means the day you're planning; "today" in it means yesterday).
 - Take the athlete's own notes seriously (pain, illness, heavy legs, poor sleep, stress, motivation). \
 Pain in a joint or tendon means no running that day. Feeling great is not a reason to add volume.
+- "athlete_asked_for_the_day_planned" lists the sports the athlete asked for in a note for the day you're planning. Keep them: shorter or easier is fine, but don't turn the day into rest or drop one of them unless there is pain, illness or a very poor recovery, and then say why.
 - Notes may include unrelated things (shopping, work); ignore those.
 - You may keep the proposal, shorten it, make it easier, swap it for an easy alternative (an easy \
 swim or easy spin is often a good recovery choice), or choose rest. You must not add volume or \
@@ -199,7 +200,7 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
                   rule_why: str, earlier_notes: list[dict] | None = None,
                   notes_history: list[dict] | None = None, season: dict | None = None,
                   coming_days: list | None = None, planning: str = "today",
-                  preferences: list[str] | None = None) -> dict:
+                  preferences: list[str] | None = None, asked_today: list[str] | None = None) -> dict:
     keep_w = ("sleep_hours", "sleep_score", "hrv_last_night", "hrv_weekly_avg", "hrv_status", "hrv_baseline_low",
               "hrv_baseline_high", "body_battery_wake", "rhr", "rhr_7d", "stress_yesterday", "training_readiness",
               "training_status", "steps_today", "after_training", "last_sync")
@@ -213,6 +214,7 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
         "phase": phase.describe(),
         "season": season or {},
         "athlete_preferences": preferences or [],
+        "athlete_asked_for_the_day_planned": asked_today or [],
         "coming_days": [{"date": day.isoformat(), "weekday": day.strftime("%A"),
                          "sessions": [_session_json(s) for s in sess]} for day, _, sess, _ in coming_days or []],
         "next_race": ({"name": phase.race.name, "date": phase.race.date.isoformat(), "kind": phase.race.kind,

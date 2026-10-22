@@ -105,6 +105,27 @@ def _asked_sports(plan: list[dict], phase) -> list[str]:
     return out
 
 
+def _notes_line(sc: dict) -> str:
+    """One line for the notification about your notes: what was understood, or that they
+    couldn't be read (so you know the plan may not include them)."""
+    if sc.get("error"):
+        return "⚠️ I couldn't read your notes just now, so this plan may not include them."
+    return sc.get("summary") or ""
+
+
+def _requested_sports(cfg: dict, d: dt.date) -> list[str]:
+    """The sports your notes ask for on day d ("tomorrow swim and run", "I can run Thursday")."""
+    c = cfg.get("_constraints") or {}
+    out: list[str] = []
+    for e in c.get("day_plan") or []:
+        if e.get("date") == d:
+            out += [x for x in e.get("sports", []) if x != "rest"]
+    for kind, day in c.get("moves") or []:
+        if day == d:
+            out.append(kind.split("_")[0])
+    return list(dict.fromkeys(out))
+
+
 def last_check(cfg: dict, d: dt.date, today_cal: list[dict], notes_api=None) -> tuple[str | None, int | None]:
     """When today's plan was last checked ("HH:MM") and how many of today's activities
     it had seen: from the workouts' footers and today's Todoist plan task (kept up to
@@ -380,7 +401,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                                    acts, notes, why, earlier, history,
                                    season=ai.season_context(d, cfg),
                                    coming_days=W.drafts(d, cfg, acts, final, preview_n, quality_days),
-                                   planning="tomorrow" if evening else "today", preferences=prefs)
+                                   planning="tomorrow" if evening else "today", preferences=prefs,
+                                   asked_today=_requested_sports(cfg, d))
         coach["context"] = context
         coach.update(ai.decide(cfg, context, final, phase, week_index(d, cfg), client=ai_client,
                                prov=getattr(ai_client, "provider", None)))
@@ -496,7 +518,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         label = None if wait_for_sleep else "Today"
     coach["notified"] = bool(upload and label and send(*message(final, why, coach.get("coach_note", ""), r, label,
                                                                ahead if evening else ahead[:2],
-                                                               done=done_today_titles), poster=poster))
+                                                               done=done_today_titles,
+                                                               notes_line=_notes_line(coach.get("schedule") or {})),
+                                         poster=poster))
     coach["was_evening_plan"] = any(e["meta"].get("eve") for e in today_cal)
 
     report = build_report(d, phase, wt, wellness, r, comp, ctx, planned, final, notes, uploads, upload, why,
@@ -731,8 +755,12 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
     if sc.get("prefs_saved"):
         L += ["", "## Saved to your coach preferences"] + [f"- {x}" for x in sc["prefs_saved"]] + [
             "- (They're in the “📌 Coach preferences” task in your Todoist “Training plan” project: edit it there.)"]
-    if sc.get("unavailable") or sc.get("moves") or sc.get("no_swim_until"):
+    if sc.get("error"):
+        L += ["", "## Your notes about the week", "- ⚠️ Couldn't read them this time (" + str(sc["error"])[:120] + ")."]
+    if sc.get("unavailable") or sc.get("moves") or sc.get("no_swim_until") or sc.get("day_plan"):
         L += ["", "## Your notes about the week"]
+        for e in sc.get("day_plan") or []:
+            L.append(f"- {e['date']:%a %d/%m}: " + " + ".join(e["sports"]))
         if sc.get("summary"):
             L.append(f"- {sc['summary']}")
         if sc.get("unavailable"):

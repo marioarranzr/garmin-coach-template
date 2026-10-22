@@ -1817,6 +1817,26 @@ def test_dashboard_builds_and_renders_without_error():
     assert data["race"]["name"] in html_out
 
 
+def test_the_coach_is_told_what_you_asked_for_and_you_are_told_what_it_understood():
+    from coach import notify
+    from coach.ai import build_context
+    wed, thu = dt.date(2026, 10, 21), dt.date(2026, 10, 22)
+    cfg = dict(CFG, _constraints={"day_plan": [{"date": thu, "sports": ["swim", "rest"]}],
+                                  "moves": [("run_quality", thu), ("bike_long", wed)]})
+    assert engine._requested_sports(cfg, thu) == ["swim", "run"] and engine._requested_sports(cfg, wed) == ["bike"]
+    assert engine._requested_sports(CFG, thu) == []
+    phase, final = plan_day(thu, CFG, 30)
+    ctx = build_context(thu, phase, {"target_km": 30}, {}, {"score": None, "level": "green", "reasons": []},
+                        {}, final, final, [], [], [], "", asked_today=["run"])
+    assert ctx["athlete_asked_for_the_day_planned"] == ["run"]
+    # the notification says what was understood, or that the notes couldn't be read
+    assert engine._notes_line({"summary": "Run moved to Thursday."}) == "Run moved to Thursday."
+    warn = engine._notes_line({"error": "overloaded"})
+    assert "couldn't read your notes" in warn
+    title, body = notify.message(final, "Why.", "", {"score": None}, "Tomorrow", notes_line=warn)
+    assert warn in body and body.index("Why.") < body.index(warn)
+
+
 def test_week_so_far_counts_what_you_did_today():
     """A swim this morning shows in "This week so far" on the dashboard; the planner's own count
     (what to do today) still only looks at the days before."""

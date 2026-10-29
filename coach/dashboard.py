@@ -216,7 +216,7 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
     cal = Calendar(api, cfg)
     _, tpl, dist, bdist = week_parts(today, cfg, wt)
     led = W.ledger(acts, today, tpl, dist, bdist,
-                   quality_ok=not wt.get("return_mode") and phase.name != "transition", include_today=True)
+                   quality_ok=not (wt.get("return_mode") or wt.get("after_gap")) and phase.name != "transition", include_today=True)
 
     mon = monday_of(today)
 
@@ -650,6 +650,9 @@ def _why_html(data: dict) -> str:
     ]
     if wt.get("return_mode"):
         lines.append("Return-to-running: volume builds ~20%/week from a 10&nbsp;km base, no hard sessions yet.")
+    if wt.get("after_gap"):
+        lines.append(f"Break from running ({wt.get('days_since_run')}&nbsp;days): no hard session and about 85%"
+                     " of your usual volume until you run again. Rides and hikes don't count as running.")
     cards.append(
         f'<div class="why-card">'
         f'<div class="why-lbl">Volume logic</div>'

@@ -138,7 +138,7 @@ def main(argv=None):
         from .planner import week_parts
         phase, today = plan_day(d, cfg, wt)
         _, tpl, dist, bdist = week_parts(d, cfg, wt)
-        led = W.ledger(acts, d, tpl, dist, bdist, quality_ok=not wt.get("return_mode") and phase.name != "transition")
+        led = W.ledger(acts, d, tpl, dist, bdist, quality_ok=not (wt.get("return_mode") or wt.get("after_gap")) and phase.name != "transition")
         today, notes, _ = W.apply(today, led, phase, dist)
         days = [(d, phase, today, notes)] + W.drafts(d, cfg, acts, today, 6)
         for day, _, sess, notes in days:

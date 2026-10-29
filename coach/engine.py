@@ -298,7 +298,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     pace_set = P.estimate(cfg, G.fetch_race_predictions(api), wt.get("chronic_km"))
     P.set_current(pace_set)
     week_km = wt["target_km"]
-    ret = wt.get("return_mode", False)
+    ret = wt.get("return_mode", False) or wt.get("after_gap", False)
     c = dict(cfg.get("_constraints") or {})
     new_choice = next((e["sports"] for e in c.get("day_plan") or [] if e.get("date") == d), None)
     if new_choice is None:
@@ -716,6 +716,9 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
     if wt.get("return_mode"):
         L.insert(-1, "**Return-to-running mode:** volume grows ~20 %/week from 10 km and there are "
                      "no hard sessions until you average 10+ km/week.  ")
+    if wt.get("after_gap"):
+        L.insert(-1, f"**After a break from running ({wt.get('days_since_run')} days):** no hard session and at most "
+                     "~85 % of your usual volume until you've run again; other cardio doesn't count as running.  ")
     if wt.get("ramp_km") and wt["ramp_km"] < wt["target_km"]:
         L.insert(-1, f"**Week raised from {wt['ramp_km']:g} to {wt['target_km']:g} km** so no run is shorter than "
                      f"your usual run lately ({wt.get('typical_run_km', 0):g} km) or the long-run minimum.  ")

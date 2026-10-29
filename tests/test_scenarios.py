@@ -1853,6 +1853,18 @@ def test_cut_activity_names_are_completed_from_the_planned_workout():
     assert _complete_name("Easy run 5.5 km", []) == "Easy run 5.5 km"
 
 
+def test_a_break_from_running_means_no_quality_and_no_build():
+    from coach.planner import compute_week_target
+    def run(day, km=8): return {"date": day.isoformat(), "sport": "run", "distance_km": km, "duration_min": km * 6}
+    d = dt.date(2026, 10, 30)
+    base = [run(d - dt.timedelta(days=k), 8) for k in (9, 11, 13, 15, 17, 19, 21, 23, 25)]
+    gap = compute_week_target(base, d, {})
+    assert gap["after_gap"] and gap["days_since_run"] == 9
+    assert gap["target_km"] <= max(gap["chronic_km"] * 0.85, 15) + 0.1
+    fresh = compute_week_target(base + [run(d - dt.timedelta(days=1))], d, {})
+    assert not fresh["after_gap"]
+
+
 def test_activity_names_from_coach_workouts_are_shown_clean():
     from coach.dashboard import _clean_name
     assert _clean_name("Winterthur - Coach draft · Easy run 5.5 km +") == "Easy run 5.5 km"

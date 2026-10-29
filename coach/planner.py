@@ -279,6 +279,14 @@ def compute_week_target(activities: list[dict], d: dt.date, cfg: dict) -> dict:
     else:
         target = min(chronic * 1.08, last * 1.10 + 3)   # cautious progression
         target = max(target, chronic * 0.75, floor)     # after a light week, don't drop off a cliff
+    # A break from running (pain, a trip, hikes and rides instead): other cardio keeps your
+    # engine going but not your running legs. Don't build on top of it: no quality
+    # session and no more than ~85 % of your usual volume until you've run again.
+    last_run = max((a["date"] for a in activities if a["sport"] == "run" and a["date"] < d.isoformat()), default=None)
+    days_since_run = (d - dt.date.fromisoformat(last_run)).days if last_run else None
+    after_gap = bool(not return_mode and chronic > 0 and days_since_run is not None and days_since_run >= 5)
+    if after_gap:
+        target = min(target, max(chronic * 0.85, floor))
     target = min(target, peak)
     target *= phase.volume_factor
     recent_runs = sorted(a["distance_km"] for a in activities if a["sport"] == "run"
@@ -289,7 +297,7 @@ def compute_week_target(activities: list[dict], d: dt.date, cfg: dict) -> dict:
     out = {"target_km": round(target, 1), "chronic_km": round(chronic, 1), "longest_run_km": round(longest, 1),
            "typical_run_km": round(typical, 1),
            "last_week_km": last, "phase": phase.name, "deload": phase.deload,
-           "return_mode": return_mode}
+           "return_mode": return_mode, "after_gap": after_gap, "days_since_run": days_since_run}
     out.update(_bike_week(activities, mon, cfg, phase))
     return out
 
@@ -895,7 +903,7 @@ def apply_constraints(tpl: dict, mon: dt.date, c: dict, today: dt.date | None = 
 def week_parts(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = False):
     """(phase, template, run distances, ride minutes or None) for the week of day d."""
     wt = week if isinstance(week, dict) else {"target_km": week}
-    return_mode = return_mode or wt.get("return_mode", False)
+    return_mode = return_mode or wt.get("return_mode", False) or wt.get("after_gap", False)
     phase = phase_for(d, cfg)
     tpl = template_for(phase, cfg)
     if cfg.get("_constraints"):
@@ -923,7 +931,7 @@ def week_parts(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = Fa
 def plan_day(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = False) -> tuple[Phase, list[Session]]:
     """`week` is the week target dict from compute_week_target (or just the running km)."""
     wt = week if isinstance(week, dict) else {"target_km": week}
-    return_mode = return_mode or wt.get("return_mode", False)
+    return_mode = return_mode or wt.get("return_mode", False) or wt.get("after_gap", False)
     phase, tpl, dist, bdist = week_parts(d, cfg, wt, return_mode)
     wk = week_index(d, cfg)
     sessions: list[Session] = []

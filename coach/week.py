@@ -170,7 +170,7 @@ def drafts(d: dt.date, cfg: dict, acts: list[dict], today: list[Session], days: 
         notes: list[str] = []
         if not any(s.kind == "race" for s in sess):
             _, tpl, dist, bdist = week_parts(day, cfg, wt)
-            led = ledger(done, day, tpl, dist, bdist, quality_ok=not wt.get("return_mode") and phase.name != "transition",
+            led = ledger(done, day, tpl, dist, bdist, quality_ok=not (wt.get("return_mode") or wt.get("after_gap")) and phase.name != "transition",
                          quality_days=quality_days)
             sess, notes, _ = apply(sess, led, phase, dist)
             sess, more, _ = no_back_to_back_runs(sess, day, done, cfg)

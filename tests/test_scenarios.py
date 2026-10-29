@@ -1846,6 +1846,13 @@ def test_notes_line_uses_only_current_dates_not_the_ai_sentence():
     assert _notes_line(sc) == "From your notes: run on Fri 30/10." and "2026" not in _notes_line(sc)
 
 
+def test_cut_activity_names_are_completed_from_the_planned_workout():
+    from coach.dashboard import _complete_name
+    assert _complete_name("Easy run 5.5 km", ["Easy run 5.5 km + 6 strides"]) == "Easy run 5.5 km + 6 strides"
+    assert _complete_name("Easy run 5.5 km", ["Strength & core 47'"]) == "Easy run 5.5 km"
+    assert _complete_name("Easy run 5.5 km", []) == "Easy run 5.5 km"
+
+
 def test_activity_names_from_coach_workouts_are_shown_clean():
     from coach.dashboard import _clean_name
     assert _clean_name("Winterthur - Coach draft · Easy run 5.5 km +") == "Easy run 5.5 km"

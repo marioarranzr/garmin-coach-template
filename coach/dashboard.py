@@ -189,6 +189,18 @@ def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today:
     return out
 
 
+def _complete_name(cleaned: str, titles: list[str]) -> str:
+    """Garmin cuts long names ("Easy run 5.5 km +"): when a workout planned that day
+    starts with what's left, show its whole title ("Easy run 5.5 km + 6 strides")."""
+    stem = cleaned.strip()
+    if not stem:
+        return cleaned
+    for t in titles:
+        if t != stem and t.startswith(stem):
+            return t
+    return cleaned
+
+
 def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
     today = today or dt.datetime.now().date()
     from . import strava as S
@@ -222,12 +234,28 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
 
     # Full activity list for the Log tab
     activities = []
+    titles_cache: dict[str, list[str]] = {}
+
+    def planned_titles(day: str) -> list[str]:
+        if day not in titles_cache:
+            try:
+                d = dt.date.fromisoformat(day)
+                titles_cache[day] = [e["session"]["title"] for e in (cal.plan(d) or cal.plan(d, draft=True))]
+            except Exception as e:  # noqa: BLE001 — a nicety
+                log.warning("Couldn't read the plan of %s: %s", day, e)
+                titles_cache[day] = []
+        return titles_cache[day]
+
     for a in acts:
         if (a.get("distance_km") or 0) > 0 or (a.get("duration_min") or 0) > 0:
+            raw = a.get("name") or a["sport"].replace("_", " ").title()
+            name = _clean_name(raw)
+            if _COACH_PREFIX.match(raw) and (a["date"] >= (today - dt.timedelta(weeks=12)).isoformat()):
+                name = _complete_name(name, planned_titles(a["date"]))
             activities.append({
                 "date": a["date"],
                 "sport": a["sport"],
-                "name": _clean_name(a.get("name") or a["sport"].replace("_", " ").title()),
+                "name": name,
                 "distance_km": a.get("distance_km"),
                 "duration_min": a.get("duration_min"),
                 "aerobic_te": a.get("aerobic_te"),

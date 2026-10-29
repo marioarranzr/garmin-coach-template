@@ -1830,11 +1830,20 @@ def test_the_coach_is_told_what_you_asked_for_and_you_are_told_what_it_understoo
                         {}, final, final, [], [], [], "", asked_today=["run"])
     assert ctx["athlete_asked_for_the_day_planned"] == ["run"]
     # the notification says what was understood, or that the notes couldn't be read
-    assert engine._notes_line({"summary": "Run moved to Thursday."}) == "Run moved to Thursday."
+    assert engine._notes_line({"summary": "Run moved to Thursday.", "moves": [("run", dt.date(2026, 10, 22))]}) == "From your notes: run on Thu 22/10."
     warn = engine._notes_line({"error": "overloaded"})
     assert "couldn't read your notes" in warn
     title, body = notify.message(final, "Why.", "", {"score": None}, "Tomorrow", notes_line=warn)
     assert warn in body and body.index("Why.") < body.index(warn)
+
+
+def test_notes_line_uses_only_current_dates_not_the_ai_sentence():
+    import datetime as dt
+    from coach.engine import _notes_line
+    sc = {"summary": "Move the run to 2026-10-22.", "moves": [], "unavailable": set(), "day_plan": []}
+    assert _notes_line(sc) == ""
+    sc = {"summary": "Move the run to 2026-10-22.", "moves": [("run", dt.date(2026, 10, 30))]}
+    assert _notes_line(sc) == "From your notes: run on Fri 30/10." and "2026" not in _notes_line(sc)
 
 
 def test_activity_names_from_coach_workouts_are_shown_clean():

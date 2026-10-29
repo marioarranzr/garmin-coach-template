@@ -110,7 +110,18 @@ def _notes_line(sc: dict) -> str:
     couldn't be read (so you know the plan may not include them)."""
     if sc.get("error"):
         return "⚠️ I couldn't read your notes just now, so this plan may not include them."
-    return sc.get("summary") or ""
+    # Built from the dates that still count (today onwards), never from the AI's free
+    # sentence: that one could repeat an old date ("Move the run to 2026-10-22").
+    def d(x):
+        return f"{x:%a %d/%m}"
+    parts = [f"{d(e['date'])}: " + " + ".join(e["sports"]) for e in sc.get("day_plan") or []]
+    parts += [f"{k.replace('run_', '').replace('bike_', 'bike ').replace('_', ' ')} on {d(x)}"
+              for k, x in sc.get("moves") or []]
+    if sc.get("unavailable"):
+        parts.append("no training " + ", ".join(d(x) for x in sorted(sc["unavailable"])))
+    if sc.get("no_swim_until"):
+        parts.append(f"no swims until {d(sc['no_swim_until'])}")
+    return ("From your notes: " + "; ".join(parts) + ".") if parts else ""
 
 
 def _requested_sports(cfg: dict, d: dt.date) -> list[str]:
@@ -761,8 +772,6 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
         L += ["", "## Your notes about the week"]
         for e in sc.get("day_plan") or []:
             L.append(f"- {e['date']:%a %d/%m}: " + " + ".join(e["sports"]))
-        if sc.get("summary"):
-            L.append(f"- {sc['summary']}")
         if sc.get("unavailable"):
             L.append("- No training: " + ", ".join(f"{x:%a %d/%m}" for x in sorted(sc["unavailable"])))
         for kind, day in sc.get("moves") or []:

@@ -528,7 +528,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     else:   # the morning check keeps last night's plan: no need to buzz your wrist (manual runs still do)
         label = None if wait_for_sleep else "Today"
     coach["notified"] = bool(upload and label and send(*message(final, why, coach.get("coach_note", ""), r, label,
-                                                               ahead if evening else ahead[:2],
+                                                               ahead,
                                                                done=done_today_titles,
                                                                notes_line=_notes_line(coach.get("schedule") or {})),
                                          poster=poster))

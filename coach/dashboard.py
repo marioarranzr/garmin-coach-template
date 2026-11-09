@@ -25,7 +25,7 @@ from . import garmin_api as G
 from . import paces as P
 from . import week as W
 from .calendar import Calendar
-from .planner import (compute_week_target, history_start, learn_long_day,
+from .planner import (rebuilding, compute_week_target, history_start, learn_long_day,
                       monday_of, phase_for, plan_day, week_parts)
 
 log = logging.getLogger(__name__)
@@ -299,7 +299,8 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
         "generated_at": dt.datetime.now().isoformat(timespec="minutes"),
         "today": today.isoformat(),
         "race": _race_countdown(cfg, today),
-        "phase": {"name": phase.name, "describe": phase.describe(), "focus": phase.focus},
+        "phase": {"name": "build-up" if rebuilding(phase, wt).rebuild else phase.name,
+                  "describe": rebuilding(phase, wt).describe(), "focus": phase.focus},
         "week_target": {
             "target_km": wt["target_km"],
             "chronic_km": wt["chronic_km"],
@@ -854,6 +855,7 @@ _PAGE = (
     '}\n'
     '.hdr-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; }\n'
     '.hdr-ts { color: var(--muted); font-size: .74rem; }\n'
+    '.stale { margin: 10px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: .8rem; }\n'
     '.btn {\n'
     '  background: var(--s1); border: 1px solid var(--border); color: var(--fg);\n'
     '  border-radius: 6px; padding: 4px 10px; font-size: .77rem;\n'
@@ -1087,8 +1089,9 @@ _PAGE = (
     '}\n'
     '</style>\n'
     '</head>\n'
-    '<body>\n'
+    '<body data-generated="__GENERATED_ISO__">\n'
     '<div class="app">\n'
+    '<div id="stale" class="stale" hidden></div>\n'
     '\n'
     '<header class="hdr">\n'
     '  <span class="hdr-title">Garmin Coach</span>\n'
@@ -1143,6 +1146,17 @@ _PAGE = (
     '\n'
     '<script>\n'
     '(function(){\n'
+    '  // The page is a snapshot: after midnight (or before the morning check) say so,\n'
+    '  // because "today" below is the day it was built.\n'
+    '  try {\n'
+    '    var g=document.body.dataset.generated||"", n=new Date(), p=function(x){return (x<10?"0":"")+x;};\n'
+    '    var today=n.getFullYear()+"-"+p(n.getMonth()+1)+"-"+p(n.getDate());\n'
+    '    if(g && g.slice(0,10)!==today){\n'
+    '      var s=document.getElementById("stale");\n'
+    '      s.textContent="This page was updated "+g.replace("T"," ")+". Today\'s plan appears after this morning\'s check; the day marked Today below is the day it was built.";\n'
+    '      s.hidden=false;\n'
+    '    }\n'
+    '  } catch(e) {}\n'
     '  var tip=document.getElementById("chart-tip");\n'
     '  document.querySelectorAll(".hist-chart rect[data-km]").forEach(function(r){\n'
     '    r.addEventListener("mouseenter",function(){\n'
@@ -1185,6 +1199,7 @@ def render_html(data: dict) -> str:
     return (
         _PAGE
         .replace("__PHASE__", _e(data["phase"]["name"].replace("_", " ").title()))
+        .replace("__GENERATED_ISO__", _e(data["generated_at"]))
         .replace("__GENERATED_AT__", _e(data["generated_at"]))
         .replace("__STATUS_STRIP__", _status_strip(data))
         .replace("__WEEK_CONTENT__", _week_content(data))

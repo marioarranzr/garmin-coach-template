@@ -1865,6 +1865,18 @@ def test_a_break_from_running_means_no_quality_and_no_build():
     assert not fresh["after_gap"]
 
 
+def test_phase_shows_build_up_after_a_break_from_running():
+    from coach.planner import phase_for, rebuilding
+    cfg = {"races": [{"name": "Zürcher Silvesterlauf", "date": "2026-12-13", "kind": "road", "distance_km": 8.5, "priority": "A"}]}
+    ph = phase_for(dt.date(2026, 11, 9), cfg)
+    assert ph.name == "specific" and "specific" in ph.describe().lower()
+    b = rebuilding(ph, {"after_gap": True})
+    assert b.rebuild and b.name == "specific" and b.describe().startswith("Build-up")
+    assert not rebuilding(ph, {}).rebuild
+    taper = phase_for(dt.date(2026, 12, 5), cfg)
+    assert not rebuilding(taper, {"after_gap": True}).rebuild
+
+
 def test_activity_names_from_coach_workouts_are_shown_clean():
     from coach.dashboard import _clean_name
     assert _clean_name("Winterthur - Coach draft · Easy run 5.5 km +") == "Easy run 5.5 km"

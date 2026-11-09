@@ -68,10 +68,23 @@ class Phase:
     volume_factor: float
     deload: bool
     long_cap_km: float
+    rebuild: bool = False     # back from a break from running: shown as "Build-up"
 
     def describe(self) -> str:
         r = f" — {self.race.name} in {self.days_out} days" if self.race and self.days_out is not None else ""
-        return f"{self.label}{' (deload week)' if self.deload else ''}{r}"
+        label = "Build-up: back from a break from running" if self.rebuild else self.label
+        return f"{label}{' (deload week)' if self.deload else ''}{r}"
+
+
+def rebuilding(phase: "Phase", wt: dict) -> "Phase":
+    """After a break from running (or in return-to-running mode) the race phase is on hold:
+    the plan is easy running and a gradual build-up, so it's shown as "Build-up". The
+    plan itself is already easy-only then (see compute_week_target); taper and race
+    week stay as they are."""
+    from dataclasses import replace
+    if (wt.get("after_gap") or wt.get("return_mode")) and phase.name in ("base", "specific", "build", "peak"):
+        return replace(phase, rebuild=True)
+    return phase
 
 
 @dataclass
@@ -984,7 +997,7 @@ def plan_day(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = Fals
                 continue                                  # nothing in the last days before a race
             from .strength import make_strength
             sessions.append(make_strength(kind, phase, wk))
-    return phase, sessions or [make_rest()]
+    return rebuilding(phase, wt), sessions or [make_rest()]
 
 
 def planned_run_km(sessions: list[Session]) -> float:

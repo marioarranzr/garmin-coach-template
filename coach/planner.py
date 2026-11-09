@@ -68,19 +68,19 @@ class Phase:
     volume_factor: float
     deload: bool
     long_cap_km: float
-    rebuild: bool = False     # back from a break from running: shown as "Build-up"
+    rebuild: bool = False     # back from a break from running: shown next to the phase, which stays
 
     def describe(self) -> str:
         r = f" — {self.race.name} in {self.days_out} days" if self.race and self.days_out is not None else ""
-        label = "Build-up: back from a break from running" if self.rebuild else self.label
-        return f"{label}{' (deload week)' if self.deload else ''}{r}"
+        back = " · returning from a break (easy runs only)" if self.rebuild else ""
+        return f"{self.label}{back}{' (deload week)' if self.deload else ''}{r}"
 
 
 def rebuilding(phase: "Phase", wt: dict) -> "Phase":
-    """After a break from running (or in return-to-running mode) the race phase is on hold:
-    the plan is easy running and a gradual build-up, so it's shown as "Build-up". The
-    plan itself is already easy-only then (see compute_week_target); taper and race
-    week stay as they are."""
+    """After a break from running (or in return-to-running mode) the phase stays what the
+    calendar says; "returning from a break" is shown next to it. The plan is easy-only
+    until you've run twice in a week (see compute_week_target); taper and race week stay
+    as they are."""
     from dataclasses import replace
     if (wt.get("after_gap") or wt.get("return_mode")) and phase.name in ("base", "specific", "build", "peak"):
         return replace(phase, rebuild=True)
@@ -295,9 +295,16 @@ def compute_week_target(activities: list[dict], d: dt.date, cfg: dict) -> dict:
     # A break from running (pain, a trip, hikes and rides instead): other cardio keeps your
     # engine going but not your running legs. Don't build on top of it: no quality
     # session and no more than ~85 % of your usual volume until you've run again.
-    last_run = max((a["date"] for a in activities if a["sport"] == "run" and a["date"] < d.isoformat()), default=None)
+    run_days = sorted({a["date"] for a in activities if a["sport"] == "run" and a["date"] < d.isoformat()})
+    last_run = run_days[-1] if run_days else None
     days_since_run = (d - dt.date.fromisoformat(last_run)).days if last_run else None
-    after_gap = bool(not return_mode and chronic > 0 and days_since_run is not None and days_since_run >= 5)
+    # the break ends when you've run twice in the last 7 days, not with the first run back
+    week_ago = (d - dt.timedelta(days=7)).isoformat()
+    runs_7d = sum(1 for x in run_days if x >= week_ago)
+    before_last = dt.date.fromisoformat(run_days[-2]) if len(run_days) > 1 else None
+    broke_before = before_last is None or (dt.date.fromisoformat(last_run) - before_last).days >= 5
+    after_gap = bool(not return_mode and chronic > 0 and days_since_run is not None
+                     and (days_since_run >= 5 or (runs_7d < 2 and broke_before)))
     if after_gap:
         target = min(target, max(chronic * 0.85, floor))
     target = min(target, peak)

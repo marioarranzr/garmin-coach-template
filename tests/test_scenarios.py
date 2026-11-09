@@ -1861,20 +1861,32 @@ def test_a_break_from_running_means_no_quality_and_no_build():
     gap = compute_week_target(base, d, {})
     assert gap["after_gap"] and gap["days_since_run"] == 9
     assert gap["target_km"] <= max(gap["chronic_km"] * 0.85, 15) + 0.1
-    fresh = compute_week_target(base + [run(d - dt.timedelta(days=1))], d, {})
+    assert compute_week_target(base + [run(d - dt.timedelta(days=1))], d, {})["after_gap"]   # only one run back
+    fresh = compute_week_target(base + [run(d - dt.timedelta(days=1)), run(d - dt.timedelta(days=3))], d, {})
     assert not fresh["after_gap"]
 
 
-def test_phase_shows_build_up_after_a_break_from_running():
+def test_phase_stays_and_the_break_is_shown_next_to_it():
     from coach.planner import phase_for, rebuilding
     cfg = {"races": [{"name": "Zürcher Silvesterlauf", "date": "2026-12-13", "kind": "road", "distance_km": 8.5, "priority": "A"}]}
     ph = phase_for(dt.date(2026, 11, 9), cfg)
-    assert ph.name == "specific" and "specific" in ph.describe().lower()
     b = rebuilding(ph, {"after_gap": True})
-    assert b.rebuild and b.name == "specific" and b.describe().startswith("Build-up")
+    assert b.rebuild and b.name == "specific" and b.label == ph.label
+    assert "returning from a break" in b.describe() and b.describe().startswith(ph.label)
     assert not rebuilding(ph, {}).rebuild
-    taper = phase_for(dt.date(2026, 12, 5), cfg)
-    assert not rebuilding(taper, {"after_gap": True}).rebuild
+    assert not rebuilding(phase_for(dt.date(2026, 12, 5), cfg), {"after_gap": True}).rebuild
+
+
+def test_the_break_ends_after_two_runs_in_a_week():
+    from coach.planner import compute_week_target
+    def run(day): return {"date": day.isoformat(), "sport": "run", "distance_km": 8, "duration_min": 48}
+    base = [run(dt.date(2026, 10, 1) + dt.timedelta(days=k)) for k in (0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20)]
+    one_back = base + [run(dt.date(2026, 11, 3))]
+    assert compute_week_target(one_back, dt.date(2026, 11, 9), {})["after_gap"]        # 6 days since the last run
+    assert not compute_week_target(one_back + [run(dt.date(2026, 11, 8))], dt.date(2026, 11, 9), {})["after_gap"]  # two runs
+    two = one_back + [run(dt.date(2026, 11, 9))]
+    assert not compute_week_target(two, dt.date(2026, 11, 10), {})["after_gap"]          # 3 Nov and 9 Nov: two runs in 7 days
+    assert compute_week_target(one_back, dt.date(2026, 11, 7), {})["after_gap"]          # one run in 7 days after a break
 
 
 def test_activity_names_from_coach_workouts_are_shown_clean():

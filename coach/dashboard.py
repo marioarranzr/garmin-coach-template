@@ -299,7 +299,7 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
         "generated_at": dt.datetime.now().isoformat(timespec="minutes"),
         "today": today.isoformat(),
         "race": _race_countdown(cfg, today),
-        "phase": {"name": "build-up" if rebuilding(phase, wt).rebuild else phase.name,
+        "phase": {"name": phase.name, "returning": rebuilding(phase, wt).rebuild,
                   "describe": rebuilding(phase, wt).describe(), "focus": phase.focus},
         "week_target": {
             "target_km": wt["target_km"],
@@ -520,7 +520,7 @@ def _status_strip(data: dict) -> str:
         f'<div class="strip-item">'
         f'<div class="strip-lbl">Phase</div>'
         f'<div class="strip-val">{_e(phase_name)}</div>'
-        f'<div class="strip-sub">{_e(focus_label)}</div>'
+        f'<div class="strip-sub">{_e(focus_label)}{" · returning from a break" if phase.get("returning") else ""}</div>'
         f'</div>'
     )
 

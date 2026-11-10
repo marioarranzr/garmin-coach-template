@@ -1889,6 +1889,32 @@ def test_the_break_ends_after_two_runs_in_a_week():
     assert compute_week_target(one_back, dt.date(2026, 11, 7), {})["after_gap"]          # one run in 7 days after a break
 
 
+def test_strength_cues_are_short_spanish_and_the_warmup_is_plain_timed_steps():
+    from coach.planner import Phase
+    from coach import strength as S
+    from coach.workouts import to_garmin
+    cfg = {"strength": {"language": "es"}}
+    S.set_loads(cfg)
+    try:
+        ph = Phase("short", "base", "x", None, None, 1, False, 14)
+        for kind in ("strength", "strength_core"):
+            s = S.make_strength(kind, ph, 0)
+            w = to_garmin(s, {}, "d")
+            def flat(steps):
+                for st in steps:
+                    yield from flat(st["workoutSteps"]) if "workoutSteps" in st else [st]
+            steps = list(flat(w["workoutSegments"][0]["workoutSteps"]))
+            assert all(len(x.get("description", "")) <= 50 for x in steps), [x["description"] for x in steps if len(x.get("description", "")) > 50]
+            warm = [x for x in steps if x["endCondition"]["conditionTypeKey"] == "time" and "exerciseName" not in x and x.get("description")]
+            assert any("Zancadas" in x["description"] for x in warm)                 # no Garmin exercise: no rep prompt
+            assert all("exerciseName" in x for x in steps if x["endCondition"]["conditionTypeKey"] == "reps")
+            assert s.how.startswith("Cómo hacerlo")
+    finally:
+        S.set_loads({})
+    en = S.make_strength("strength", Phase("short", "base", "x", None, None, 1, False, 14), 0)
+    assert en.how.startswith("How to")
+
+
 def test_activity_names_from_coach_workouts_are_shown_clean():
     from coach.dashboard import _clean_name
     assert _clean_name("Winterthur - Coach draft · Easy run 5.5 km +") == "Easy run 5.5 km"

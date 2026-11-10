@@ -748,6 +748,7 @@ workflow file, and keys in GitHub secrets.
 | `todoist.project` | `Inbox` | Todoist project the notes are read from |
 | `strength.loads` | 30 / 30 / 20 / 10 | Your current loads in kg: `front_squat`, `hip_thrust`, `row`, `dumbbell` |
 | `strength.max_bar_kg` | 48 | The most you can put on the bar |
+| `strength.language` | en | Language of the one-line how-to cues on the watch and in Todoist: `en` or `es` |
 | `todoist.plan_project` | `"Training plan"` | Todoist project with your coming days, one task per day; `""` turns it off |
 | `todoist.lookback_hours` | 14 | How far back notes count as today's state (14 h at 08:00 = since 18:00 the evening before) |
 | `todoist.diary_label` | coach | Label given to the notes the coach used; completed notes with it are your training diary |

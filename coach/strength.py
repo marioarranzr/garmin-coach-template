@@ -27,6 +27,7 @@ DEFAULT_LOADS = {"front_squat": 30, "hip_thrust": 30, "dumbbell": 10, "row": 20,
 def set_loads(cfg: dict) -> None:
     _loads.clear()
     _loads.update(DEFAULT_LOADS | ((cfg.get("strength") or {}).get("loads") or {}))
+    _language[0] = str((cfg.get("strength") or {}).get("language") or "en").lower()[:2]
     if (cfg.get("strength") or {}).get("max_bar_kg"):
         _loads["max_bar_kg"] = cfg["strength"]["max_bar_kg"]
 
@@ -119,6 +120,53 @@ HOW = {
 }
 
 
+# The same cues in Spanish, short enough to fit the watch without scrolling (about 45
+# characters). Used when `strength.language: es` in config.yaml.
+HOW_ES = {
+    "Walking lunge": "Paso largo, rodilla casi al suelo, alterna",
+    "Bear crawl": "Manos y pies, rodillas arriba, espalda plana",
+    "Leg swings": "Una pierna recta adelante y atrás, suave",
+    "Press-up walk-out": "Manos al suelo, camina a flexión, vuelve",
+    "Front squat": "Barra al pecho, codos altos, baja recto",
+    "Step-up onto box (50 cm)": "Pie entero en el cajón, sube, baja lento",
+    "Single-leg RDL with knee drive": "Bisagra a una pierna, sube y rodilla arriba",
+    "Single-leg RDL": "Bisagra a una pierna, espalda plana, sube",
+    "Raised-leg hip thrust": "Hombros en el cajón, sube cadera, aprieta",
+    "Bulgarian split squat (rear foot on box)": "Pie atrás en el cajón, baja recto, sube",
+    "Single-leg calf raise": "Un pie en el borde, sube alto, baja lento",
+    "Lateral walk": "Goma en los tobillos, pasos laterales",
+    "Hanging leg raise": "Colgado, sin balanceo, rodillas a la cadera",
+    "Side plank": "Antebrazo bajo el hombro, cuerpo recto",
+    "Box jump (50 cm), step down": "Salta al cajón, aterriza suave, baja andando",
+    "Broad jump": "Salto largo, aterriza suave en sentadilla",
+    "Lateral bound": "Salta de lado de un pie al otro, amortigua",
+    "Split squat jump": "Zancada, salta y cambia de pierna en el aire",
+    "Pogo hop": "Saltitos rápidos solo con tobillos",
+    "Pull-up": "Cuelga, sube la barbilla sobre la barra",
+    "Hurdle hops": "Saltos a pies juntos sobre un obstáculo bajo",
+    "Bent-over barbell row": "Torso a 45°, tira de la barra a las costillas",
+    "Press-up": "Cuerpo recto, pecho casi al suelo, empuja",
+    "Single-arm snatch": "Mancuerna del suelo a brazo estirado arriba",
+    "Prone Y raise": "Boca abajo, brazos en Y, sube y aprieta",
+    "Prone T raise": "Boca abajo, brazos en T, sube y aprieta",
+    "Prone W raise": "Boca abajo, codos doblados (W), sube y aprieta",
+    "Dead bug": "Boca arriba, baja brazo y pierna contrarios",
+    "Seated calf raise": "Sentado, mancuerna en rodillas, sube a puntas",
+    "Standing side bend": "Mancuerna en una mano, inclínate de lado",
+    "Glute bridge march": "Puente de glúteo, sube una rodilla y la otra",
+    "Superman hold": "Boca abajo, sube brazos y piernas y aguanta",
+}
+# Warm-up moves are plain timed steps (no Garmin exercise), so the watch doesn't count
+# reps or ask for them after each one: the step's note is the whole instruction.
+WARMUP_ES = {"Walking lunge": "Zancadas caminando", "Bear crawl": "Gateo del oso", "Leg swings": "Balanceo de piernas",
+             "Press-up walk-out": "Manos a flexión y vuelta"}
+_language = ["en"]
+
+
+def how(name: str) -> str:
+    return (HOW_ES if _language[0] == "es" else HOW).get(name, "")
+
+
 # one side at a time: what changes sides ("left leg", then "right leg")
 SIDE = {"Side plank": "side", "Standing side bend": "hand"}
 # both sides, alternating within one set: what the total counts
@@ -132,8 +180,9 @@ def ex(name: str, reps: int | None = None, secs: int | None = None, kg: float | 
     """The exercise's steps on the watch. `each_side`: `reps`/`secs` per side, as two
     steps (left, then right), or as one set alternating sides (ALTERNATE: 2× the reps)."""
     load = f" @ {kg:g} kg" if kg else ""
-    base = {"type": "interval", "zone": None, "exercise": GARMIN_EXERCISE.get(name), "kg": kg,
-            "how": HOW.get(name, "")}
+    warm = name in WARMUP_ES and secs and not reps
+    base = {"type": "interval", "zone": None, "exercise": None if warm else GARMIN_EXERCISE.get(name), "kg": kg,
+            "how": "" if warm else how(name)}
     end = {"end": "time", "value": secs} if secs else {"end": "reps", "value": reps}
     what = f"{reps} reps" if reps else f"{secs}\""
     if each_side and name in ALTERNATE:
@@ -143,10 +192,13 @@ def ex(name: str, reps: int | None = None, secs: int | None = None, kg: float | 
     if each_side:
         part = SIDE.get(name, "leg")
         line = f"{name} · {what} each {part}, left then right{load}"
-        return [base | end | {"note": f"{name} · {what} · {lr} {part}{load}", "line": line}
+        es = warm and _language[0] == "es"
+        return [base | end | {"note": (f"{WARMUP_ES[name]} {secs}\" · pierna {'izquierda' if lr == 'left' else 'derecha'}"
+                                       if es else f"{name} · {what} · {lr} {part}{load}"), "line": line}
                 for lr in ("left", "right")]
     line = f"{name} · {what}{load}"
-    return [base | end | {"note": line, "line": line}]
+    note = f"{WARMUP_ES[name]} {secs}\"" if warm and _language[0] == "es" else line
+    return [base | end | {"note": note, "line": line}]
 
 
 def _rest(secs: int) -> dict:
@@ -157,7 +209,8 @@ def _block(rounds: int, exercises: list[list[dict]], rest_s: int) -> dict:
     return {"type": "repeat", "iterations": rounds, "steps": [x for e in exercises for x in e] + [_rest(rest_s)]}
 
 
-WARMUP = [x for e in (ex("Walking lunge", secs=30), ex("Bear crawl", secs=30),
+def _warmup() -> list[dict]:   # built per session: the notes follow the language setting
+    return [x for e in (ex("Walking lunge", secs=30), ex("Bear crawl", secs=30),
                        ex("Leg swings", secs=15, each_side=True), ex("Press-up walk-out", secs=30)) for x in e]
 
 
@@ -221,7 +274,7 @@ def make_strength(kind: str, phase: Phase, wk: int = 0) -> Session:
     if kind == "strength" and phase.name in ("race_week", "taper", "transition"):
         kind = "strength_core"
     title, blocks, tip = (_strength_blocks if kind == "strength" else _core_blocks)(phase, wk)
-    steps = [{"type": "repeat", "iterations": 2, "steps": WARMUP}] + blocks
+    steps = [{"type": "repeat", "iterations": 2, "steps": _warmup()}] + blocks
     m = _minutes(steps)
 
     lines = ["Warm-up, 2 rounds of 30\" each: walking lunge, bear crawl, leg swings, press-up walk-out"]
@@ -232,6 +285,7 @@ def make_strength(kind: str, phase: Phase, wk: int = 0) -> Session:
     detail = "\n".join(lines + [tip])
     names = dict.fromkeys(x["line"].split(" · ")[0] for b in [steps[0]] + blocks for x in b["steps"]
                           if x["type"] == "interval")
-    how = "How to:\n" + "\n".join(f"• {n}: {HOW[n].split(': ', 1)[-1]}" for n in names if n in HOW)
+    head = "Cómo hacerlo:\n" if _language[0] == "es" else "How to:\n"
+    how_text = head + "\n".join(f"• {n}: {how(n).split(': ', 1)[-1]}" for n in names if how(n))
     return Session(kind, "strength", f"{title} {m}'", "moderate" if kind == "strength" else "easy",
-                   None, m, detail, steps, how=how)
+                   None, m, detail, steps, how=how_text)

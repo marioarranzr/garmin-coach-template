@@ -772,7 +772,8 @@ def _strength_html(data: dict) -> str:
                 rows.append(f'<div class="ex"><div class="ex-img">{img}</div><div><strong>{_e(i["name"])}</strong>'
                             f'<div class="ex-what">{_e(what)}</div>'
                             + (f'<div class="ex-cue">{_e(i["cue"])}</div>' if i["cue"] else "") + '</div></div>')
-            blocks.append(f'<div class="blk"><div class="blk-h">{_e(head.strip(" ·"))}</div>{"".join(rows)}</div>')
+            blocks.append(f'<div class="blk"><div class="blk-h">{_e(head.strip(" ·"))}</div>'
+                          f'<div class="ex-grid c{1 if len(rows) == 1 else 3 if len(rows) in (3, 5, 6, 9) else 2}">{"".join(rows)}</div></div>')
         draft = ' <span class="badge">draft</span>' if w["draft"] else ""
         panels.append(f'<div class="spanel{on}" id="st{n}"><div class="card"><h3>{_e(w["title"])}{draft}</h3>'
                       + ("".join(blocks) or '<p class="muted">Couldn\'t read the exercises.</p>') + '</div></div>')
@@ -944,9 +945,11 @@ _PAGE = (
     '.strip-val { font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; font-variant-numeric: tabular-nums; }\n'
     '.strip-sub { color: var(--muted); font-size: .75rem; margin-top: 3px; }\n'
     '.badge{font-size:.65rem;font-weight:600;padding:1px 7px;border-radius:99px;background:var(--s2);color:var(--muted);vertical-align:middle}\n'
-    '.ex{display:flex;gap:12px;align-items:center;padding:8px 0;border-top:1px solid var(--border)}\n'
-    '.ex-img{width:132px;height:99px;flex-shrink:0;border-radius:8px;background:var(--s2);overflow:hidden}\n'
+    '.ex-grid{display:grid;gap:12px;margin-top:8px}.c1{grid-template-columns:1fr;max-width:300px}.c2{grid-template-columns:1fr 1fr}.c3{grid-template-columns:repeat(3,1fr)}\n'
+    '.ex{min-width:0}\n'
+    '.ex-img{width:100%;aspect-ratio:4/3;border-radius:8px;background:var(--s2);overflow:hidden;margin-bottom:6px}\n'
     '.ex-img img{width:100%;height:100%;object-fit:cover;display:block}\n'
+    '.ex strong{font-size:.9rem}\n'
     '.ex-what{font-size:.85rem;font-variant-numeric:tabular-nums}\n'
     '.ex-cue{font-size:.78rem;color:var(--muted)}\n'
     '.blk-h{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:10px}\n'

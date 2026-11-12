@@ -409,11 +409,45 @@ def image_urls(name: str) -> list[str]:
     urls = [_IMG.format(IMAGE[name])] if name in IMAGE else []
     if name in IMAGE2:
         urls.append(_IMG2.format(IMAGE2[name]))
+    if not urls and name in PICTO:
+        urls.append(PICTO[name])
     return urls
 
 
 def image_url(name: str) -> str:
     return (image_urls(name) or [""])[0]
+
+
+# Drawn pictograms for the few exercises no picture collection has (a figure in dark strokes
+# on white), as data URIs the page shows when there's no photo.
+def _svg(body: str) -> str:
+    from urllib.parse import quote
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150"><rect width="200" height="150" fill="#fff"/>'
+           '<g fill="none" stroke="#1f2937" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">'
+           + body + '</g></svg>')
+    return "data:image/svg+xml;utf8," + quote(svg)
+
+
+_ARROW = 'stroke="#2563eb" stroke-width="3"'
+_ghost = 'stroke="#9ca3af"'
+
+
+def _prone(arms: str, letter: str) -> str:
+    return _svg('<circle cx="100" cy="42" r="10" fill="#1f2937"/><path d="M100 54V112M96 112L92 140M104 112L108 140"/>'
+                f'<path {_ARROW} d="{arms}"/>'
+                f'<text x="100" y="146" font-size="14" fill="#2563eb" stroke="none" text-anchor="middle" font-family="sans-serif">{letter}</text>')
+
+
+PICTO = {
+    "Leg swings": _svg('<path d="M150 20V135"/><circle cx="100" cy="38" r="10" fill="#1f2937"/><path d="M100 50V95M100 62L148 62M100 95V138"/>'
+                       f'<path d="M100 95L138 126" /><path {_ghost} d="M100 95L64 126"/>'
+                       f'<path {_ARROW} d="M126 138Q100 150 76 138M80 130L76 138L86 141"/>'),
+    "Broad jump": _svg('<circle cx="120" cy="40" r="10" fill="#1f2937"/><path d="M112 52L92 88M112 58L142 44M112 58L84 66M92 88L62 100L40 92M92 88L72 112L56 108"/>'
+                       f'<path {_ghost} d="M20 135H180"/><path {_ARROW} d="M70 28Q120 10 168 28M158 20L168 28L158 34"/>'),
+    "Prone Y raise": _prone("M100 64L62 28M100 64L138 28", "Y"),
+    "Prone T raise": _prone("M100 64L52 64M100 64L148 64", "T"),
+    "Prone W raise": _prone("M100 64L76 92L58 62M100 64L124 92L142 62", "W"),
+}
 
 
 def name_from_step(step: dict) -> str:

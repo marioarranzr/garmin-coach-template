@@ -162,6 +162,51 @@ WARMUP_ES = {"Walking lunge": "Zancadas caminando", "Bear crawl": "Gateo del oso
              "Press-up walk-out": "Manos a flexión y vuelta"}
 _language = ["en"]
 
+# Display names and wording for the written description when `strength.language: es`.
+# (Workout titles stay in English: the coach reads them back. The watch shows Garmin's own
+# exercise names in the watch's language.)
+NAME_ES = {
+    "Walking lunge": "Zancadas caminando", "Bear crawl": "Gateo del oso", "Leg swings": "Balanceo de piernas",
+    "Press-up walk-out": "Flexión con desplazamiento", "Front squat": "Sentadilla frontal",
+    "Step-up onto box (50 cm)": "Subida al cajón (50 cm)", "Pogo hop": "Saltitos de tobillo",
+    "Single-leg RDL with knee drive": "Peso muerto a una pierna con rodilla arriba",
+    "Single-leg RDL": "Peso muerto a una pierna", "Raised-leg hip thrust": "Puente de cadera a una pierna",
+    "Bulgarian split squat (rear foot on box)": "Sentadilla búlgara (pie atrás en el cajón)",
+    "Single-leg calf raise": "Elevación de gemelo a una pierna", "Lateral walk": "Pasos laterales con goma",
+    "Hanging leg raise": "Elevación de piernas colgado", "Side plank": "Plancha lateral",
+    "Box jump (50 cm), step down": "Salto al cajón (50 cm), baja andando", "Broad jump": "Salto de longitud",
+    "Lateral bound": "Salto lateral", "Split squat jump": "Zancada con salto", "Pull-up": "Dominadas",
+    "Bent-over barbell row": "Remo con barra", "Press-up": "Flexiones", "Single-arm snatch": "Arrancada a un brazo",
+    "Prone Y raise": "Elevación en Y (boca abajo)", "Prone T raise": "Elevación en T (boca abajo)",
+    "Prone W raise": "Elevación en W (boca abajo)", "Dead bug": "Bicho muerto", "Seated calf raise": "Gemelo sentado",
+    "Standing side bend": "Inclinación lateral de pie", "Glute bridge march": "Puente de glúteo alternando rodillas",
+    "Superman hold": "Superman isométrico", "Hurdle hops": "Saltos sobre vallas",
+}
+TIP_ES = {
+    "Heavier, fewer reps, explosive up and controlled down; jumps fast off the ground.":
+        "Más peso y menos repeticiones: sube explosivo, baja controlado; saltos rápidos, con poco contacto con el suelo.",
+    "Smooth reps with 2-3 left in the tank; the last rep should still look good.":
+        "Repeticiones fluidas, con 2-3 en reserva; la última debe salir con buena técnica.",
+    "Controlled reps; shoulders down and back on the rows and Y-T-W (good for swimming).":
+        "Repeticiones controladas; hombros atrás y abajo en el remo y en Y-T-W (bueno para nadar).",
+}
+_PHRASES_ES = (
+    ("each leg, left then right", "cada pierna, primero izquierda y luego derecha"),
+    ("each side, left then right", "cada lado, primero izquierdo y luego derecho"),
+    ("each hand, left then right", "cada mano, primero izquierda y luego derecha"),
+    ("alternating hands (switch at the floor)", "alternando manos (cambia en el suelo)"),
+    ("alternating sides", "alternando lados"), ("alternating legs", "alternando piernas"),
+    (" one way, ", " a un lado, "), (" back", " de vuelta"), (" steps:", " pasos:"), (" reps", " repeticiones"),
+)
+
+
+def es_line(line: str) -> str:
+    """One written exercise line ("Front squat · 8 reps @ 30 kg") in Spanish."""
+    name, _, rest = line.partition(" · ")
+    for en, es in _PHRASES_ES:
+        rest = rest.replace(en, es)
+    return f"{NAME_ES.get(name, name)} · {rest}" if rest else NAME_ES.get(name, name)
+
 
 def how(name: str) -> str:
     return (HOW_ES if _language[0] == "es" else HOW).get(name, "")
@@ -277,15 +322,21 @@ def make_strength(kind: str, phase: Phase, wk: int = 0) -> Session:
     steps = [{"type": "repeat", "iterations": 2, "steps": _warmup()}] + blocks
     m = _minutes(steps)
 
-    lines = ["Warm-up, 2 rounds of 30\" each: walking lunge, bear crawl, leg swings, press-up walk-out"]
+    es = _language[0] == "es"
+    lines = ["Calentamiento, 2 rondas de 30\" cada uno: zancadas caminando, gateo del oso, balanceo de piernas, "
+             "flexión con desplazamiento" if es else
+             "Warm-up, 2 rounds of 30\" each: walking lunge, bear crawl, leg swings, press-up walk-out"]
     for b in blocks:
         rest_s = next((x["value"] for x in b["steps"] if x["type"] == "rest"), 0)
-        lines.append(f"{b['iterations']} rounds ({rest_s}\" rest after each):")
-        lines += [f"• {x}" for x in dict.fromkeys(x["line"] for x in b["steps"] if x["type"] == "interval")]
-    detail = "\n".join(lines + [tip])
+        lines.append(f"{b['iterations']} rondas ({rest_s}\" de descanso tras cada una):" if es
+                     else f"{b['iterations']} rounds ({rest_s}\" rest after each):")
+        lines += [f"• {es_line(x) if es else x}"
+                  for x in dict.fromkeys(x["line"] for x in b["steps"] if x["type"] == "interval")]
+    detail = "\n".join(lines + [TIP_ES.get(tip, tip) if es else tip])
     names = dict.fromkeys(x["line"].split(" · ")[0] for b in [steps[0]] + blocks for x in b["steps"]
                           if x["type"] == "interval")
     head = "Cómo hacerlo:\n" if _language[0] == "es" else "How to:\n"
-    how_text = head + "\n".join(f"• {n}: {how(n).split(': ', 1)[-1]}" for n in names if how(n))
+    how_text = head + "\n".join(f"• {NAME_ES.get(n, n) if es else n}: {how(n).split(': ', 1)[-1]}"
+                                for n in names if how(n))
     return Session(kind, "strength", f"{title} {m}'", "moderate" if kind == "strength" else "easy",
                    None, m, detail, steps, how=how_text)

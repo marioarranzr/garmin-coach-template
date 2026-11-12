@@ -1909,6 +1909,10 @@ def test_strength_cues_are_short_spanish_and_the_warmup_is_plain_timed_steps():
             assert any("Zancadas" in x["description"] for x in warm)                 # no Garmin exercise: no rep prompt
             assert all("exerciseName" in x for x in steps if x["endCondition"]["conditionTypeKey"] == "reps")
             assert s.how.startswith("Cómo hacerlo")
+            # the written description is Spanish too (no English left over)
+            for word in ("rounds", "rest after", "each leg", "Warm-up", "Front squat", "Pull-up", "Dead bug"):
+                assert word not in s.detail and word not in s.how, (word, s.detail)
+            assert "rondas" in s.detail and "descanso" in s.detail
     finally:
         S.set_loads({})
     en = S.make_strength("strength", Phase("short", "base", "x", None, None, 1, False, 14), 0)

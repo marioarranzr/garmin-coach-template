@@ -2134,6 +2134,30 @@ def test_leftover_coach_workouts_are_removed_from_garmin():
     assert sorted(api.deleted) == [1, 3] and api.unscheduled == [30] and n == 2    # old "lower" + the rest draft; not what's used or kept
 
 
+def test_strength_tab_also_shows_library_workouts_no_calendar_day_has():
+    from coach import dashboard as D, strength as ST, workouts as WK
+    from coach.calendar import Calendar
+    from coach.planner import Phase
+    ph = Phase("run", "base", "b", None, None, 1.0, False, 10)
+    ST.set_loads({})
+    wj = WK.to_garmin(ST.make_strength("strength", ph, 1), {}, "d")
+
+    class Api:
+        def get_scheduled_workouts(self, y, m):
+            return {"calendarItems": [] if (y, m) != (2026, 11) else [
+                {"itemType": "workout", "date": "2026-11-18", "title": "Coach draft · Strength · power 37'", "workoutId": 2, "id": 20}]}
+        def get_workouts(self, start, limit):
+            return [{"workoutId": 2, "workoutName": "Coach draft · Strength · power 37'"},
+                    {"workoutId": 1, "workoutName": "Coach draft · Strength · lower body 52'"},
+                    {"workoutId": 9, "workoutName": "My strength thing"}]
+        def get_workout_by_id(self, wid): return wj
+    api = Api()
+    got = D._strength_workouts(Calendar(api, {}), dt.date(2026, 11, 12))
+    assert [w["title"] for w in got] == ["Strength · power 37'", "Strength · lower body 52'", "My strength thing"]
+    html = D._strength_html({"strength": got})
+    assert "Strength · power" in html and "Strength · lower body" in html and html.count('data-st=') == 3
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

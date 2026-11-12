@@ -215,6 +215,25 @@ def _strength_workouts(cal: Calendar, today: dt.date) -> list[dict]:
                         "title": name, "draft": "draft" in title.lower(), "is_past": day < today.isoformat(),
                         "blocks": blocks})
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    # workouts in the Garmin library that no calendar day has (they can still be on the watch)
+    try:
+        library = cal.api.get_workouts(0, 200) or []
+    except Exception as e:  # noqa: BLE001
+        log.warning("Couldn't read the Garmin workout library: %s", e)
+        library = []
+    have = {w for _, w in seen}
+    for w in library:
+        name, wid = str(w.get("workoutName") or ""), w.get("workoutId")
+        if not wid or wid in have or "strength" not in name.lower():
+            continue
+        have.add(wid)
+        try:
+            blocks = ST.read_workout(cal.api.get_workout_by_id(wid) or {})
+        except Exception as e:  # noqa: BLE001
+            log.warning("Couldn't read strength workout %s: %s", wid, e)
+            blocks = []
+        out.append({"date": "9999", "weekday": "On your watch", "title": name.split("·", 1)[-1].strip(),
+                    "draft": "draft" in name.lower(), "is_past": False, "blocks": blocks})
     return sorted(out, key=lambda x: x["date"])
 
 

@@ -2112,6 +2112,28 @@ def test_strength_tab_reads_workouts_back_from_garmin():
     ST.set_loads({})
 
 
+def test_leftover_coach_workouts_are_removed_from_garmin():
+    from coach import garmin_api as G
+    from coach.calendar import Calendar
+
+    class Api:
+        deleted, unscheduled = [], []
+        def get_scheduled_workouts(self, y, m):
+            return {"calendarItems": [
+                {"itemType": "workout", "date": "2026-11-18", "title": "Coach draft · Strength · power 37'", "workoutId": 2, "id": 20},
+                {"itemType": "workout", "date": "2026-11-14", "title": "Coach draft · Rest / mobility 20'", "workoutId": 3, "id": 30},
+                {"itemType": "workout", "date": "2026-11-12", "title": "Coach · Easy run 5 km", "workoutId": 4, "id": 40}]}
+        def get_workouts(self, start, limit):
+            return [{"workoutId": i, "workoutName": n} for i, n in (
+                (1, "Coach draft · Strength · lower body 52'"), (2, "Coach draft · Strength · power 37'"),
+                (3, "Coach draft · Rest / mobility 20'"), (4, "Coach · Easy run 5 km"), (5, "My own workout"), (6, "Coach · Just uploaded"))]
+        def delete_workout(self, wid): self.deleted.append(wid)
+        def unschedule_workout(self, sid): self.unscheduled.append(sid)
+    api = Api()
+    n = G.purge_leftovers(api, Calendar(api, {}), dt.date(2026, 11, 12), keep={"6"})
+    assert sorted(api.deleted) == [1, 3] and api.unscheduled == [30] and n == 2    # old "lower" + the rest draft; not what's used or kept
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -352,3 +352,31 @@ def remove_uploaded(api, uploads: list[dict]) -> None:
             _safe(api.unschedule_workout, u["scheduleId"])
         if u.get("workoutId"):
             _safe(api.delete_workout, u["workoutId"])
+
+
+def purge_leftovers(api, cal, today: dt.date, keep: set | None = None) -> int:
+    """Delete the coach's workouts that no calendar day uses any more (a draft whose delete
+    failed would still show on the watch, e.g. last week's "Strength · lower body"), and any
+    "Rest / mobility" workout from the days ahead (a rest day has no workout). Returns how many. `keep`: workout ids just uploaded (the calendar may not show them yet)."""
+    prefixes = (cal.prefix, cal.draft_prefix)
+    used, rest = {str(k) for k in (keep or ())}, []
+    y, m = (today - dt.timedelta(days=62)).year, (today - dt.timedelta(days=62)).month
+    end = today + dt.timedelta(days=45)
+    while (y, m) <= (end.year, end.month):
+        for item in cal._month(y, m):
+            wid = item.get("workoutId") or find_key(item, "workoutId")
+            if wid:
+                used.add(str(wid))
+            title = str(item.get("title") or "")
+            if title.startswith(cal.draft_prefix) and "rest / mobility" in title.lower() \
+                    and str(item.get("date") or "")[:10] >= today.isoformat():
+                rest.append({"workoutId": wid, "scheduleId": item.get("id") or find_key(item, "workoutScheduleId")})
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    remove_uploaded(api, rest)
+    gone = len(rest)
+    for w in _safe(api.get_workouts, 0, 200, default=[]) or []:
+        name, wid = str(w.get("workoutName") or ""), w.get("workoutId")
+        if wid and name.startswith(prefixes) and str(wid) not in used:
+            _safe(api.delete_workout, wid)
+            gone += 1
+    return gone

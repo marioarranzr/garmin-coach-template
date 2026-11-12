@@ -481,6 +481,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     # the drafts of the next days as they were, to tell you if they change
     old_drafts = ({day: calendar.plan(day, draft=True) for day, _, _, _ in ahead[:2]}
                   if today_cal and not evening else {})
+    kept_ids: set = set()           # what this run uploaded: never a leftover
     if upload:
         draft_cfg = dict(cfg, garmin=dict(cfg.get("garmin") or {},
                                           workout_prefix=(cfg.get("garmin") or {}).get("workout_prefix", "Coach") + " draft"))
@@ -497,9 +498,18 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                     continue
                 body = "\n\n".join(x for x in (DRAFT_LINE, s.detail, " ".join(wnotes), ph.describe()) if x)
                 try:
-                    G.upload_and_schedule(api, to_garmin(s, draft_cfg, fit(body, "")), day.isoformat())
+                    kept_ids.add(str(G.upload_and_schedule(api, to_garmin(s, draft_cfg, fit(body, "")), day.isoformat())["workoutId"]))
                 except Exception as e:  # noqa: BLE001
                     log.error("Could not upload the draft for %s to Garmin: %s", day, e)
+
+    if upload:       # leftovers that would still show on the watch
+        try:
+            n = G.purge_leftovers(api, Calendar(api, cfg), d,
+                                 kept_ids | {str(u.get("workoutId")) for u in uploads if u.get("workoutId")})
+            if n:
+                log.info("Removed %d leftover coach workout(s) from Garmin.", n)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Couldn't clean up leftover workouts: %s", e)
 
     # the coming days as tasks in Todoist, to see the week at a glance
     if upload:

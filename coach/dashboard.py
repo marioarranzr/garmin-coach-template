@@ -758,7 +758,8 @@ def _strength_html(data: dict) -> str:
             head += f' · rest {b["rest_s"]}"' if b["rest_s"] and not warm else ""
             rows = []
             for i in b["items"]:
-                img = (f'<img src="{_e(i["img"])}" alt="{_e(i["name"])}" loading="lazy" onerror="this.remove()">'
+                img = (f'<img src="{_e(i["img"])}" data-alt="{_e(i.get("alt", ""))}" alt="{_e(i["name"])}" loading="lazy" '
+                       'onerror="var a=this.dataset.alt;if(a){this.dataset.alt=\'\';this.src=a}else{this.remove()}">'
                        if i["img"] else "")
                 what = i["what"] + (" each side" if i["both"] else "") + (f' · {i["kg"]:g} kg' if i["kg"] else "")
                 rows.append(f'<div class="ex"><div class="ex-img">{img}</div><div><strong>{_e(i["name"])}</strong>'

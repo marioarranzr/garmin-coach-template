@@ -2100,6 +2100,8 @@ def test_strength_tab_reads_workouts_back_from_garmin():
     html = D._strength_html({"strength": [{"date": "2026-11-18", "weekday": "Wed 18 Nov", "title": "Strength · lower 52'",
                                            "draft": True, "is_past": False, "blocks": blocks}]})
     assert "draft" in html and "Front squat" in html and "32 kg" in html and "each side" in html
+    assert ST.image_urls("Bear crawl") and ST.image_urls("Pull-up")[1:]       # a backup collection covers gaps
+    assert 'data-alt="https://' in html                                       # the page tries the backup if one fails
     assert "No strength workouts" in D._strength_html({"strength": []})
     ST.set_loads({})
 

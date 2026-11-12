@@ -374,8 +374,46 @@ IMAGE = {
 }
 
 
+# Backup collection (hasaneyldrm/exercises-dataset, thumbnails): used when the first one has
+# no picture for an exercise, or the browser can't load it.
+_IMG2 = "https://raw.githubusercontent.com/hasaneyldrm/exercises-dataset/main/{}"
+IMAGE2 = {
+    "Walking lunge": "images/1460-IZVHb27.jpg",
+    "Bear crawl": "images/3360-0Yz8WdV.jpg",
+    "Press-up walk-out": "images/1471-ZgsNQ6d.jpg",
+    "Front squat": "images/0042-zG0zs85.jpg",
+    "Step-up onto box (50 cm)": "images/0431-aXtJhlg.jpg",
+    "Single-leg RDL with knee drive": "images/1757-gKozT8X.jpg",
+    "Single-leg RDL": "images/1757-gKozT8X.jpg",
+    "Raised-leg hip thrust": "images/3645-rmEukuS.jpg",
+    "Single-leg calf raise": "images/0727-fKZgDEO.jpg",
+    "Lateral walk": "images/0628-O95afRA.jpg",
+    "Hanging leg raise": "images/0472-I3tsCnC.jpg",
+    "Side plank": "images/3544-5VXmnV5.jpg",
+    "Lateral bound": "images/3361-zfNHMN9.jpg",
+    "Pogo hop": "images/2612-e1e76I2.jpg",
+    "Pull-up": "images/0652-lBDjFxJ.jpg",
+    "Bent-over barbell row": "images/0027-eZyBC3j.jpg",
+    "Press-up": "images/0662-I4hDWkc.jpg",
+    "Dead bug": "images/0276-iny3m5y.jpg",
+    "Single-arm snatch": "images/3888-6pTkI99.jpg",
+    "Seated calf raise": "images/1379-r29jP7S.jpg",
+    "Standing side bend": "images/0407-IpONWYv.jpg",
+    "Glute bridge march": "images/3561-GibBPPg.jpg",
+    "Bulgarian split squat (rear foot on box)": "images/0410-qx4fgX7.jpg"
+}
+
+
+def image_urls(name: str) -> list[str]:
+    """Pictures of the exercise, best first: the page tries them in turn."""
+    urls = [_IMG.format(IMAGE[name])] if name in IMAGE else []
+    if name in IMAGE2:
+        urls.append(_IMG2.format(IMAGE2[name]))
+    return urls
+
+
 def image_url(name: str) -> str:
-    return _IMG.format(IMAGE[name]) if name in IMAGE else ""
+    return (image_urls(name) or [""])[0]
 
 
 def name_from_step(step: dict) -> str:
@@ -411,7 +449,7 @@ def read_workout(w: dict) -> list[dict]:
             if out and out[-1]["name"] == name and out[-1]["what"] == what and not out[-1]["both"]:
                 out[-1]["both"] = True
                 continue
-            out.append({"name": name, "what": what, "kg": kg or None, "cue": cue, "img": image_url(name), "both": False})
+            out.append({"name": name, "what": what, "kg": kg or None, "cue": cue, "img": image_url(name), "alt": (image_urls(name)[1:] or [""])[0], "both": False})
         return out
 
     blocks, loose = [], []

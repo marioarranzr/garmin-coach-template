@@ -945,7 +945,7 @@ _PAGE = (
     '.strip-val { font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; font-variant-numeric: tabular-nums; }\n'
     '.strip-sub { color: var(--muted); font-size: .75rem; margin-top: 3px; }\n'
     '.badge{font-size:.65rem;font-weight:600;padding:1px 7px;border-radius:99px;background:var(--s2);color:var(--muted);vertical-align:middle}\n'
-    '.ex-grid{display:grid;gap:14px 12px;margin-top:8px;justify-content:start}.c1{grid-template-columns:minmax(0,155px)}.c2{grid-template-columns:repeat(2,minmax(0,155px))}.c3{grid-template-columns:repeat(3,minmax(0,155px))}.c4{grid-template-columns:repeat(4,minmax(0,155px))}\n'
+    '.ex-grid{display:grid;gap:14px 12px;margin-top:8px;justify-content:start}.c1{grid-template-columns:minmax(0,230px)}.c2{grid-template-columns:repeat(2,minmax(0,230px))}.c3{grid-template-columns:repeat(3,minmax(0,230px))}.c4{grid-template-columns:repeat(4,minmax(0,230px))}\n'
     '.ex{min-width:0}\n'
     '.ex-img{width:100%;aspect-ratio:4/3;border-radius:8px;background:var(--s2);overflow:hidden;margin-bottom:6px}\n'
     '.ex-img img{width:100%;height:100%;object-fit:cover;display:block}\n'

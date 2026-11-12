@@ -421,6 +421,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
             final, why = coach["sessions"], coach["why"] or why
             notes += [f"Safety limit: {x}." for x in coach.get("limited", [])]
     final = ride_rules(final, cfg, phase, notes)
+    from .strength import spare_shoulders
+    final = spare_shoulders(final, phase, week_index(d, cfg), swam=not evening and any(
+        a["sport"] == "swim" for a in ctx["today_acts"] if is_training(a)), notes=notes)
     final, more, b2b_why = W.no_back_to_back_runs(final, d, acts, cfg)     # also after the AI coach
     notes += more
     why = why or b2b_why

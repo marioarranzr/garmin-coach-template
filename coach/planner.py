@@ -1004,7 +1004,8 @@ def plan_day(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = Fals
                 continue                                  # nothing in the last days before a race
             from .strength import make_strength
             sessions.append(make_strength(kind, phase, wk))
-    return rebuilding(phase, wt), sessions or [make_rest()]
+    from .strength import spare_shoulders
+    return rebuilding(phase, wt), spare_shoulders(sessions or [make_rest()], phase, wk)
 
 
 def planned_run_km(sessions: list[Session]) -> float:

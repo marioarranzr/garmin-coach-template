@@ -158,30 +158,11 @@ HOW_ES = {
 }
 # Warm-up moves are plain timed steps (no Garmin exercise), so the watch doesn't count
 # reps or ask for them after each one: the step's note is the whole instruction.
-WARMUP_ES = {"Walking lunge": "Zancadas caminando", "Bear crawl": "Gateo del oso", "Leg swings": "Balanceo de piernas",
-             "Press-up walk-out": "Manos a flexión y vuelta"}
+WARMUP_MOVES = {"Walking lunge", "Bear crawl", "Leg swings", "Press-up walk-out"}
 _language = ["en"]
 
-# Display names and wording for the written description when `strength.language: es`.
-# (Workout titles stay in English: the coach reads them back. The watch shows Garmin's own
-# exercise names in the watch's language.)
-NAME_ES = {
-    "Walking lunge": "Zancadas caminando", "Bear crawl": "Gateo del oso", "Leg swings": "Balanceo de piernas",
-    "Press-up walk-out": "Flexión con desplazamiento", "Front squat": "Sentadilla frontal",
-    "Step-up onto box (50 cm)": "Subida al cajón (50 cm)", "Pogo hop": "Saltitos de tobillo",
-    "Single-leg RDL with knee drive": "Peso muerto a una pierna con rodilla arriba",
-    "Single-leg RDL": "Peso muerto a una pierna", "Raised-leg hip thrust": "Puente de cadera a una pierna",
-    "Bulgarian split squat (rear foot on box)": "Sentadilla búlgara (pie atrás en el cajón)",
-    "Single-leg calf raise": "Elevación de gemelo a una pierna", "Lateral walk": "Pasos laterales con goma",
-    "Hanging leg raise": "Elevación de piernas colgado", "Side plank": "Plancha lateral",
-    "Box jump (50 cm), step down": "Salto al cajón (50 cm), baja andando", "Broad jump": "Salto de longitud",
-    "Lateral bound": "Salto lateral", "Split squat jump": "Zancada con salto", "Pull-up": "Dominadas",
-    "Bent-over barbell row": "Remo con barra", "Press-up": "Flexiones", "Single-arm snatch": "Arrancada a un brazo",
-    "Prone Y raise": "Elevación en Y (boca abajo)", "Prone T raise": "Elevación en T (boca abajo)",
-    "Prone W raise": "Elevación en W (boca abajo)", "Dead bug": "Bicho muerto", "Seated calf raise": "Gemelo sentado",
-    "Standing side bend": "Inclinación lateral de pie", "Glute bridge march": "Puente de glúteo alternando rodillas",
-    "Superman hold": "Superman isométrico", "Hurdle hops": "Saltos sobre vallas",
-}
+# Wording of the written description when `strength.language: es`. Exercise names and
+# workout titles stay in English (the names identify the exercise; the coach reads titles).
 TIP_ES = {
     "Heavier, fewer reps, explosive up and controlled down; jumps fast off the ground.":
         "Más peso y menos repeticiones: sube explosivo, baja controlado; saltos rápidos, con poco contacto con el suelo.",
@@ -205,7 +186,7 @@ def es_line(line: str) -> str:
     name, _, rest = line.partition(" · ")
     for en, es in _PHRASES_ES:
         rest = rest.replace(en, es)
-    return f"{NAME_ES.get(name, name)} · {rest}" if rest else NAME_ES.get(name, name)
+    return f"{name} · {rest}" if rest else name
 
 
 def how(name: str) -> str:
@@ -225,7 +206,7 @@ def ex(name: str, reps: int | None = None, secs: int | None = None, kg: float | 
     """The exercise's steps on the watch. `each_side`: `reps`/`secs` per side, as two
     steps (left, then right), or as one set alternating sides (ALTERNATE: 2× the reps)."""
     load = f" @ {kg:g} kg" if kg else ""
-    warm = name in WARMUP_ES and secs and not reps
+    warm = name in WARMUP_MOVES and secs and not reps
     base = {"type": "interval", "zone": None, "exercise": None if warm else GARMIN_EXERCISE.get(name), "kg": kg,
             "how": "" if warm else how(name)}
     end = {"end": "time", "value": secs} if secs else {"end": "reps", "value": reps}
@@ -238,11 +219,11 @@ def ex(name: str, reps: int | None = None, secs: int | None = None, kg: float | 
         part = SIDE.get(name, "leg")
         line = f"{name} · {what} each {part}, left then right{load}"
         es = warm and _language[0] == "es"
-        return [base | end | {"note": (f"{WARMUP_ES[name]} {secs}\" · pierna {'izquierda' if lr == 'left' else 'derecha'}"
+        return [base | end | {"note": (f"{name} {secs}\" · {'izquierda' if lr == 'left' else 'derecha'}"
                                        if es else f"{name} · {what} · {lr} {part}{load}"), "line": line}
                 for lr in ("left", "right")]
     line = f"{name} · {what}{load}"
-    note = f"{WARMUP_ES[name]} {secs}\"" if warm and _language[0] == "es" else line
+    note = f"{name} {secs}\"" if warm and _language[0] == "es" else line
     return [base | end | {"note": note, "line": line}]
 
 
@@ -254,9 +235,11 @@ def _block(rounds: int, exercises: list[list[dict]], rest_s: int) -> dict:
     return {"type": "repeat", "iterations": rounds, "steps": [x for e in exercises for x in e] + [_rest(rest_s)]}
 
 
-def _warmup() -> list[dict]:   # built per session: the notes follow the language setting
-    return [x for e in (ex("Walking lunge", secs=30), ex("Bear crawl", secs=30),
-                       ex("Leg swings", secs=15, each_side=True), ex("Press-up walk-out", secs=30)) for x in e]
+def _warmup(spare_shoulders: bool = False) -> list[dict]:   # built per session: the notes follow the language
+    moves = (ex("Walking lunge", secs=30), ex("Leg swings", secs=15, each_side=True)) if spare_shoulders else (
+        ex("Walking lunge", secs=30), ex("Bear crawl", secs=30), ex("Leg swings", secs=15, each_side=True),
+        ex("Press-up walk-out", secs=30))
+    return [x for e in moves for x in e]
 
 
 def _strength_blocks(phase: Phase, wk: int) -> tuple[str, list[dict], str]:
@@ -290,9 +273,20 @@ def _strength_blocks(phase: Phase, wk: int) -> tuple[str, list[dict], str]:
     return "Strength · lower body", blocks, "Smooth reps with 2-3 left in the tank; the last rep should still look good."
 
 
-def _core_blocks(phase: Phase, wk: int) -> tuple[str, list[dict], str]:
+SWIM_DAY_TIP = "Swim day: no shoulders or upper body today, only core and legs, light."
+TIP_ES[SWIM_DAY_TIP] = "Día de natación: hoy sin hombros ni tren superior, solo core y piernas, suave."
+
+
+def _core_blocks(phase: Phase, wk: int, spare_shoulders: bool = False) -> tuple[str, list[dict], str]:
     db, row = _load("dumbbell", wk), _load("row", wk)
     rounds = 2 if phase.name in ("taper", "race_week", "transition") else 3
+    if spare_shoulders:                      # swim day: nothing that loads the shoulders
+        blocks = [
+            _block(rounds, [ex("Dead bug", 10, each_side=True), ex("Glute bridge march", 10, each_side=True),
+                            ex("Seated calf raise", 15, kg=db)], 45),
+            _block(2, [ex("Lateral walk", 10, each_side=True), ex("Single-leg calf raise", 12, kg=db, each_side=True)], 45),
+        ]
+        return "Strength & core", blocks, SWIM_DAY_TIP
     blocks = [
         _block(rounds, [ex("Pull-up", 5), ex("Bent-over barbell row", 10, kg=row),
                         ex("Press-up", 10), ex("Single-arm snatch", 10, kg=db, each_side=True)], 60),
@@ -314,18 +308,40 @@ def _minutes(steps: list[dict]) -> int:
     return round(sum(secs(st) for st in steps) / 60)
 
 
-def make_strength(kind: str, phase: Phase, wk: int = 0) -> Session:
-    """`strength` or `strength_core`. Race week and the days around a race: core only."""
+def spare_shoulders(sessions: list[Session], phase: Phase, wk: int = 0, swam: bool = False,
+                    notes: list[str] | None = None) -> list[Session]:
+    """On a swim day (a swim planned, or one already done today) the upper-body strength
+    session becomes core and legs only: your shoulders are spent after the pool."""
+    # an optional swim doesn't count until you've actually swum (then `swam` is set)
+    if not (swam or any(s.sport == "swim" and "(optional)" not in s.title for s in sessions)):
+        return sessions
+    out = []
+    for s in sessions:
+        if s.sport == "strength" and s.kind == "strength_core" and SWIM_DAY_TIP not in (s.detail or "") \
+                and "no shoulders" not in (s.detail or "") and "sin hombros" not in (s.detail or ""):
+            out.append(make_strength("strength_core", phase, wk, spare_shoulders=True))
+            if notes is not None:
+                notes.append("Swim day: the strength session leaves out shoulders and upper body.")
+        else:
+            out.append(s)
+    return out
+
+
+def make_strength(kind: str, phase: Phase, wk: int = 0, spare_shoulders: bool = False) -> Session:
+    """`strength` or `strength_core`. Race week and the days around a race: core only.
+    `spare_shoulders`: core and legs only (swim day)."""
     if kind == "strength" and phase.name in ("race_week", "taper", "transition"):
         kind = "strength_core"
-    title, blocks, tip = (_strength_blocks if kind == "strength" else _core_blocks)(phase, wk)
-    steps = [{"type": "repeat", "iterations": 2, "steps": _warmup()}] + blocks
+    title, blocks, tip = (_strength_blocks(phase, wk) if kind == "strength"
+                          else _core_blocks(phase, wk, spare_shoulders))
+    steps = [{"type": "repeat", "iterations": 2, "steps": _warmup(spare_shoulders and kind == "strength_core")}] + blocks
     m = _minutes(steps)
 
     es = _language[0] == "es"
-    lines = ["Calentamiento, 2 rondas de 30\" cada uno: zancadas caminando, gateo del oso, balanceo de piernas, "
-             "flexión con desplazamiento" if es else
-             "Warm-up, 2 rounds of 30\" each: walking lunge, bear crawl, leg swings, press-up walk-out"]
+    spare = spare_shoulders and kind == "strength_core"
+    moves = "walking lunge, leg swings" if spare else "walking lunge, bear crawl, leg swings, press-up walk-out"
+    lines = [f"Calentamiento, 2 rondas de 30\" cada uno: {moves}" if es
+             else f"Warm-up, 2 rounds of 30\" each: {moves}"]
     for b in blocks:
         rest_s = next((x["value"] for x in b["steps"] if x["type"] == "rest"), 0)
         lines.append(f"{b['iterations']} rondas ({rest_s}\" de descanso tras cada una):" if es
@@ -336,7 +352,7 @@ def make_strength(kind: str, phase: Phase, wk: int = 0) -> Session:
     names = dict.fromkeys(x["line"].split(" · ")[0] for b in [steps[0]] + blocks for x in b["steps"]
                           if x["type"] == "interval")
     head = "Cómo hacerlo:\n" if _language[0] == "es" else "How to:\n"
-    how_text = head + "\n".join(f"• {NAME_ES.get(n, n) if es else n}: {how(n).split(': ', 1)[-1]}"
+    how_text = head + "\n".join(f"• {n}: {how(n).split(': ', 1)[-1]}"
                                 for n in names if how(n))
     return Session(kind, "strength", f"{title} {m}'", "moderate" if kind == "strength" else "easy",
                    None, m, detail, steps, how=how_text)

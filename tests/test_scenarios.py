@@ -1906,17 +1906,39 @@ def test_strength_cues_are_short_spanish_and_the_warmup_is_plain_timed_steps():
             steps = list(flat(w["workoutSegments"][0]["workoutSteps"]))
             assert all(len(x.get("description", "")) <= 50 for x in steps), [x["description"] for x in steps if len(x.get("description", "")) > 50]
             warm = [x for x in steps if x["endCondition"]["conditionTypeKey"] == "time" and "exerciseName" not in x and x.get("description")]
-            assert any("Zancadas" in x["description"] for x in warm)                 # no Garmin exercise: no rep prompt
+            assert any("Walking lunge" in x["description"] for x in warm)             # no Garmin exercise: no rep prompt
             assert all("exerciseName" in x for x in steps if x["endCondition"]["conditionTypeKey"] == "reps")
             assert s.how.startswith("Cómo hacerlo")
             # the written description is Spanish too (no English left over)
-            for word in ("rounds", "rest after", "each leg", "Warm-up", "Front squat", "Pull-up", "Dead bug"):
+            for word in ("rounds", "rest after", "each leg", "Warm-up", "full hang", "left then right"):
                 assert word not in s.detail and word not in s.how, (word, s.detail)
             assert "rondas" in s.detail and "descanso" in s.detail
+            assert "Pull-up" in s.detail or kind == "strength"                        # names stay in English
     finally:
         S.set_loads({})
     en = S.make_strength("strength", Phase("short", "base", "x", None, None, 1, False, 14), 0)
     assert en.how.startswith("How to")
+
+
+def test_no_shoulders_in_the_strength_session_on_a_swim_day():
+    from coach import strength as S
+    from coach.planner import Phase, make_swim, make_rest
+    S.set_loads({})
+    ph = Phase("short", "base", "x", None, None, 1, False, 14)
+    core = S.make_strength("strength_core", ph, 0)
+    assert "Pull-up" in core.detail and "Prone Y raise" in core.detail
+    swim = make_swim("swim_technique", ph, asked=True)
+    out = S.spare_shoulders([swim, core], ph, 0)
+    s = next(x for x in out if x.sport == "strength")
+    assert "Swim day" in s.detail and s.title.startswith("Strength & core")
+    for word in ("Pull-up", "Prone", "row", "Press-up", "snatch", "Side plank", "Superman", "side bend"):
+        assert word.lower() not in s.detail.lower(), word
+    assert S.spare_shoulders([core], ph, 0, swam=True)[0].detail == s.detail           # swum earlier today
+    assert S.spare_shoulders([core], ph, 0)[0] is core                                  # no swim: unchanged
+    opt = make_swim("swim_technique", ph, asked=False)
+    assert "(optional)" in opt.title and S.spare_shoulders([opt, core], ph, 0)[1] is core      # an optional swim doesn't count
+    lower = S.make_strength("strength", ph, 0)
+    assert S.spare_shoulders([swim, lower], ph, 0)[1] is lower                          # lower body stays
 
 
 def test_activity_names_from_coach_workouts_are_shown_clean():

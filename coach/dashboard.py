@@ -745,12 +745,19 @@ def _decision_card(d: dict) -> str:
 
 
 def _strength_html(data: dict) -> str:
-    items = data.get("strength") or []
-    if not items:
-        return '<p class="muted">No strength workouts in your Garmin calendar from last week to the next two.</p>'
-    cards = []
-    for w in items:
-        badge = ' <span class="badge">draft</span>' if w["draft"] else ""
+    """Pending strength workouts (today on, drafts or not), one tab per kind of workout
+    ("Strength & core", "Strength · power"…): the soonest of each, without the day."""
+    groups: dict[str, dict] = {}
+    for w in data.get("strength") or []:
+        if w["is_past"]:
+            continue
+        groups.setdefault(_re.sub(r"\s*\d+'$", "", w["title"]).strip(), w)     # sorted by date: the first is the next one
+    if not groups:
+        return '<p class="muted">No pending strength workouts in your Garmin calendar (it looks two weeks ahead).</p>'
+    tabs, panels = [], []
+    for n, (name, w) in enumerate(groups.items()):
+        on = " active" if n == 0 else ""
+        tabs.append(f'<button class="stab{on}" data-st="st{n}" onclick="showStrength(this)">{_e(name)}</button>')
         blocks = []
         for b in w["blocks"]:
             warm = b.get("warmup") or (b["rounds"] > 1 and not any(i["cue"] or i["kg"] for i in b["items"]))
@@ -766,9 +773,10 @@ def _strength_html(data: dict) -> str:
                             f'<div class="ex-what">{_e(what)}</div>'
                             + (f'<div class="ex-cue">{_e(i["cue"])}</div>' if i["cue"] else "") + '</div></div>')
             blocks.append(f'<div class="blk"><div class="blk-h">{_e(head.strip(" ·"))}</div>{"".join(rows)}</div>')
-        cards.append(f'<div class="card{" past" if w["is_past"] else ""}"><h3>{_e(w["weekday"])} · {_e(w["title"])}{badge}</h3>'
-                     + ("".join(blocks) or '<p class="muted">Couldn\'t read the exercises.</p>') + '</div>')
-    return "".join(cards)
+        draft = ' <span class="badge">draft</span>' if w["draft"] else ""
+        panels.append(f'<div class="spanel{on}" id="st{n}"><div class="card"><h3>{_e(w["title"])}{draft}</h3>'
+                      + ("".join(blocks) or '<p class="muted">Couldn\'t read the exercises.</p>') + '</div></div>')
+    return f'<div class="stabs">{"".join(tabs)}</div>{"".join(panels)}'
 
 
 def _week_content(data: dict) -> str:
@@ -937,7 +945,7 @@ _PAGE = (
     '.strip-sub { color: var(--muted); font-size: .75rem; margin-top: 3px; }\n'
     '.badge{font-size:.65rem;font-weight:600;padding:1px 7px;border-radius:99px;background:var(--s2);color:var(--muted);vertical-align:middle}\n'
     '.ex{display:flex;gap:12px;align-items:center;padding:8px 0;border-top:1px solid var(--border)}\n'
-    '.ex-img{width:84px;height:64px;flex-shrink:0;border-radius:8px;background:var(--s2);overflow:hidden}\n'
+    '.ex-img{width:132px;height:99px;flex-shrink:0;border-radius:8px;background:var(--s2);overflow:hidden}\n'
     '.ex-img img{width:100%;height:100%;object-fit:cover;display:block}\n'
     '.ex-what{font-size:.85rem;font-variant-numeric:tabular-nums}\n'
     '.ex-cue{font-size:.78rem;color:var(--muted)}\n'
@@ -945,7 +953,10 @@ _PAGE = (
     '.card{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px}\n'
     '.card h3{margin:0 0 4px;font-size:.95rem}\n'
     '.muted{color:var(--muted)}\n'
-    '.card.past{opacity:.6}\n'
+    '.stabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}\n'
+    '.stab{border:1px solid var(--border);background:var(--s1);color:var(--muted);border-radius:99px;padding:6px 14px;font-size:.82rem;cursor:pointer}\n'
+    '.stab.active{background:var(--s2);color:var(--fg)}\n'
+    '.spanel{display:none}.spanel.active{display:block}\n'
     '.tabs {\n'
     '  display: flex; gap: 2px; padding-block: 14px 0;\n'
     '  border-bottom: 1px solid var(--border); margin-bottom: 20px;\n'
@@ -1250,6 +1261,12 @@ _PAGE = (
     '  document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));\n'
     '  btn.classList.add("active");\n'
     '  document.getElementById(btn.dataset.tab).classList.add("active");\n'
+    '}\n'
+    'function showStrength(btn) {\n'
+    '  document.querySelectorAll(".stab").forEach(b => b.classList.remove("active"));\n'
+    '  document.querySelectorAll(".spanel").forEach(p => p.classList.remove("active"));\n'
+    '  btn.classList.add("active");\n'
+    '  document.getElementById(btn.dataset.st).classList.add("active");\n'
     '}\n'
     'function filterActs(btn) {\n'
     '  document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));\n'

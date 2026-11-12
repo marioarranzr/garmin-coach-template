@@ -2102,7 +2102,13 @@ def test_strength_tab_reads_workouts_back_from_garmin():
     assert "draft" in html and "Front squat" in html and "32 kg" in html and "each side" in html
     assert ST.image_urls("Bear crawl") and ST.image_urls("Pull-up")[1:]       # a backup collection covers gaps
     assert 'data-alt="https://' in html                                       # the page tries the backup if one fails
-    assert "No strength workouts" in D._strength_html({"strength": []})
+    two = [{"date": d, "weekday": d, "title": "Strength & core %d'" % m, "draft": False, "is_past": p, "blocks": blocks}
+           for d, m, p in (("2026-11-09", 33, True), ("2026-11-16", 47, False), ("2026-11-23", 47, False))]
+    two.append(dict(two[1], date="2026-11-18", title="Strength · power 37'"))
+    tabbed = D._strength_html({"strength": two})
+    assert tabbed.count('data-st=') == 2 and "Strength &amp; core" in tabbed and "Strength · power" in tabbed
+    assert "2026-11-09" not in tabbed and "33'" not in tabbed                  # past ones and repeats are left out
+    assert "No pending strength" in D._strength_html({"strength": []})
     ST.set_loads({})
 
 

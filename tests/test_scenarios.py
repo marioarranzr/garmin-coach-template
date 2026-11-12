@@ -2119,7 +2119,7 @@ def test_leftover_coach_workouts_are_removed_from_garmin():
     class Api:
         deleted, unscheduled = [], []
         def get_scheduled_workouts(self, y, m):
-            return {"calendarItems": [
+            return {"calendarItems": [] if (y, m) != (2026, 11) else [
                 {"itemType": "workout", "date": "2026-11-18", "title": "Coach draft · Strength · power 37'", "workoutId": 2, "id": 20},
                 {"itemType": "workout", "date": "2026-11-14", "title": "Coach draft · Rest / mobility 20'", "workoutId": 3, "id": 30},
                 {"itemType": "workout", "date": "2026-11-12", "title": "Coach · Easy run 5 km", "workoutId": 4, "id": 40}]}

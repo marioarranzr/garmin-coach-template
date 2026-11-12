@@ -54,7 +54,8 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
 
 ## Dashboard
 - `coach/dashboard.py` — `python -m coach dashboard` serves http://localhost:8765.
-- Five tabs: Status (race countdown, phase, week progress, 12-week chart), Why
+- Tabs: Week, Log, Strength (every strength workout in the Garmin calendar, draft or not, with
+  exercises, sets, weights, short cue and a picture from free-exercise-db). Older notes: Status (race countdown, phase, week progress, 12-week chart), Why
   (training logic), Decisions (14-day coach reasoning log), Training (filterable
   activity list), Upcoming (this week + next week with full descriptions).
 - `/api/data` returns the raw JSON for debugging.

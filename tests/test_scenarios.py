@@ -2087,6 +2087,23 @@ def test_only_the_planned_day_has_a_real_workout_no_duplicates_ahead():
     assert not any(t.startswith("Coach · ") for t in on_thu)
 
 
+def test_strength_tab_reads_workouts_back_from_garmin():
+    from coach import dashboard as D, strength as ST, workouts as WK
+    from coach.planner import Phase
+    ST.set_loads({"strength": {"language": "es"}})
+    ph = Phase("run", "base", "b", None, None, 1.0, False, 10)
+    blocks = ST.read_workout(WK.to_garmin(ST.make_strength("strength", ph, 1), {}, "d"))
+    items = [i for b in blocks for i in b["items"]]
+    front = next(i for i in items if i["name"] == "Front squat")
+    assert front["kg"] == 32 and front["what"] == "8 reps" and front["cue"].startswith("Barra") and front["img"]
+    assert next(i for i in items if i["name"] == "Bulgarian split squat (rear foot on box)")["both"]   # left + right = one row
+    html = D._strength_html({"strength": [{"date": "2026-11-18", "weekday": "Wed 18 Nov", "title": "Strength · lower 52'",
+                                           "draft": True, "is_past": False, "blocks": blocks}]})
+    assert "draft" in html and "Front squat" in html and "32 kg" in html and "each side" in html
+    assert "No strength workouts" in D._strength_html({"strength": []})
+    ST.set_loads({})
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

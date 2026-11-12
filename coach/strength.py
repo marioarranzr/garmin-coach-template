@@ -356,3 +356,73 @@ def make_strength(kind: str, phase: Phase, wk: int = 0, spare_shoulders: bool = 
                                 for n in names if how(n))
     return Session(kind, "strength", f"{title} {m}'", "moderate" if kind == "strength" else "easy",
                    None, m, detail, steps, how=how_text)
+
+
+# A picture per exercise for the dashboard: the free-exercise-db collection (public domain),
+# loaded from GitHub. Exercises with no good match have no picture.
+_IMG = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/{}/0.jpg"
+IMAGE = {
+    "Walking lunge": "Bodyweight_Walking_Lunge", "Press-up walk-out": "Inchworm",
+    "Front squat": "Front_Squat_Clean_Grip", "Step-up onto box (50 cm)": "Dumbbell_Step_Ups",
+    "Raised-leg hip thrust": "Single_Leg_Glute_Bridge", "Bulgarian split squat (rear foot on box)": "Split_Squats",
+    "Single-leg calf raise": "Calf_Raise_On_A_Dumbbell", "Hanging leg raise": "Hanging_Leg_Raise",
+    "Side plank": "Side_Bridge", "Box jump (50 cm), step down": "Front_Box_Jump", "Lateral bound": "Lateral_Bound",
+    "Split squat jump": "Split_Jump", "Pogo hop": "Rope_Jumping", "Pull-up": "Pullups", "Hurdle hops": "Hurdle_Hops",
+    "Bent-over barbell row": "Bent_Over_Barbell_Row", "Press-up": "Pushups", "Dead bug": "Dead_Bug",
+    "Single-arm snatch": "One-Arm_Kettlebell_Snatch", "Standing side bend": "Dumbbell_Side_Bend",
+    "Glute bridge march": "Butt_Lift_Bridge", "Superman hold": "Superman",
+}
+
+
+def image_url(name: str) -> str:
+    return _IMG.format(IMAGE[name]) if name in IMAGE else ""
+
+
+def name_from_step(step: dict) -> str:
+    """The exercise's name for a step of a workout read back from Garmin: its cue
+    (either language) or Garmin's exercise name; warm-up steps carry it in their note."""
+    desc = str(step.get("description") or "")
+    for table in (HOW_ES, HOW):
+        for n, cue in table.items():
+            if cue and cue[:100] == desc:
+                return n
+    key = step.get("exerciseName")
+    if key:
+        for n, (_, k) in GARMIN_EXERCISE.items():
+            if k == key:
+                return n
+    return desc.split(' ·')[0].rsplit(' ', 1)[0].strip() if desc else ""
+
+
+def read_workout(w: dict) -> list[dict]:
+    """A strength workout from Garmin as blocks for the dashboard:
+    [{rounds, rest_s, items: [{name, what, kg, cue, img}]}]. Left/right steps become one item."""
+    def items(steps: list[dict]) -> list[dict]:
+        out: list[dict] = []
+        for s in steps:
+            if s.get("type") != "ExecutableStepDTO" or (s.get("stepType") or {}).get("stepTypeKey") == "rest":
+                continue
+            name = name_from_step(s)
+            cond = (s.get("endCondition") or {}).get("conditionTypeKey")
+            v = int(s.get("endConditionValue") or 0)
+            what = f'{v}"' if cond == "time" else f"{v} reps" if cond == "reps" else ""
+            kg = round(float(s.get("weightValue") or 0) / 1000, 1)
+            cue = "" if (s.get("description") or "").startswith(name) else str(s.get("description") or "")
+            if out and out[-1]["name"] == name and out[-1]["what"] == what and not out[-1]["both"]:
+                out[-1]["both"] = True
+                continue
+            out.append({"name": name, "what": what, "kg": kg or None, "cue": cue, "img": image_url(name), "both": False})
+        return out
+
+    blocks, loose = [], []
+    for s in (w.get("workoutSegments") or [{}])[0].get("workoutSteps") or []:
+        if s.get("type") == "RepeatGroupDTO":
+            inner = s.get("workoutSteps") or []
+            rest = next((int(x.get("endConditionValue") or 0) for x in inner
+                         if (x.get("stepType") or {}).get("stepTypeKey") == "rest"), 0)
+            blocks.append({"rounds": int(s.get("numberOfIterations") or 1), "rest_s": rest, "items": items(inner)})
+        else:
+            loose.append(s)
+    if loose:
+        blocks.insert(0, {"rounds": 1, "rest_s": 0, "items": items(loose), "warmup": True})
+    return blocks

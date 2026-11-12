@@ -189,6 +189,35 @@ def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today:
     return out
 
 
+def _strength_workouts(cal: Calendar, today: dt.date) -> list[dict]:
+    """Every strength workout in the Garmin calendar from a week ago to two weeks ahead,
+    drafts or not (whatever the coach's prefix), read from the workout itself."""
+    from . import strength as ST
+    out, seen = [], set()
+    start, end = today - dt.timedelta(days=7), today + dt.timedelta(days=14)
+    y, m = start.year, start.month
+    while (y, m) <= (end.year, end.month):
+        for item in cal._month(y, m):
+            day, title = str(item.get("date") or "")[:10], str(item.get("title") or "")
+            if not (start.isoformat() <= day <= end.isoformat()) or "strength" not in title.lower():
+                continue
+            wid = item.get("workoutId") or G.find_key(item, "workoutId")
+            if not wid or (day, wid) in seen:
+                continue
+            seen.add((day, wid))
+            try:
+                blocks = ST.read_workout(cal.api.get_workout_by_id(wid) or {})
+            except Exception as e:  # noqa: BLE001
+                log.warning("Couldn't read strength workout %s: %s", wid, e)
+                blocks = []
+            name = title.split("·", 1)[1].strip() if "·" in title else title
+            out.append({"date": day, "weekday": dt.date.fromisoformat(day).strftime("%a %d %b"),
+                        "title": name, "draft": "draft" in title.lower(), "is_past": day < today.isoformat(),
+                        "blocks": blocks})
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return sorted(out, key=lambda x: x["date"])
+
+
 def _complete_name(cleaned: str, titles: list[str]) -> str:
     """Garmin cuts long names ("Easy run 5.5 km +"): when a workout planned that day
     starts with what's left, show its whole title ("Easy run 5.5 km + 6 strides")."""
@@ -262,6 +291,8 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
             })
     activities.sort(key=lambda x: x["date"], reverse=True)
 
+    strength = _strength_workouts(cal, today)
+
     # Decisions log: last 14 days with coach reasoning
     decisions = []
     for i in range(14):
@@ -316,6 +347,7 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
         "upcoming": upcoming,
         "activities": activities,
         "decisions": decisions,
+        "strength": strength,
     }
 
 
@@ -712,6 +744,32 @@ def _decision_card(d: dict) -> str:
     )
 
 
+def _strength_html(data: dict) -> str:
+    items = data.get("strength") or []
+    if not items:
+        return '<p class="muted">No strength workouts in your Garmin calendar from last week to the next two.</p>'
+    cards = []
+    for w in items:
+        badge = ' <span class="badge">draft</span>' if w["draft"] else ""
+        blocks = []
+        for b in w["blocks"]:
+            warm = b.get("warmup") or (b["rounds"] > 1 and not any(i["cue"] or i["kg"] for i in b["items"]))
+            head = ("Warm-up · " if warm else "") + (f'{b["rounds"]} rounds' if b["rounds"] > 1 else "")
+            head += f' · rest {b["rest_s"]}"' if b["rest_s"] and not warm else ""
+            rows = []
+            for i in b["items"]:
+                img = (f'<img src="{_e(i["img"])}" alt="{_e(i["name"])}" loading="lazy" onerror="this.remove()">'
+                       if i["img"] else "")
+                what = i["what"] + (" each side" if i["both"] else "") + (f' · {i["kg"]:g} kg' if i["kg"] else "")
+                rows.append(f'<div class="ex"><div class="ex-img">{img}</div><div><strong>{_e(i["name"])}</strong>'
+                            f'<div class="ex-what">{_e(what)}</div>'
+                            + (f'<div class="ex-cue">{_e(i["cue"])}</div>' if i["cue"] else "") + '</div></div>')
+            blocks.append(f'<div class="blk"><div class="blk-h">{_e(head.strip(" ·"))}</div>{"".join(rows)}</div>')
+        cards.append(f'<div class="card{" past" if w["is_past"] else ""}"><h3>{_e(w["weekday"])} · {_e(w["title"])}{badge}</h3>'
+                     + ("".join(blocks) or '<p class="muted">Couldn\'t read the exercises.</p>') + '</div>')
+    return "".join(cards)
+
+
 def _week_content(data: dict) -> str:
     """The Week tab.
 
@@ -876,6 +934,17 @@ _PAGE = (
     '}\n'
     '.strip-val { font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; font-variant-numeric: tabular-nums; }\n'
     '.strip-sub { color: var(--muted); font-size: .75rem; margin-top: 3px; }\n'
+    '.badge{font-size:.65rem;font-weight:600;padding:1px 7px;border-radius:99px;background:var(--s2);color:var(--muted);vertical-align:middle}\n'
+    '.ex{display:flex;gap:12px;align-items:center;padding:8px 0;border-top:1px solid var(--border)}\n'
+    '.ex-img{width:84px;height:64px;flex-shrink:0;border-radius:8px;background:var(--s2);overflow:hidden}\n'
+    '.ex-img img{width:100%;height:100%;object-fit:cover;display:block}\n'
+    '.ex-what{font-size:.85rem;font-variant-numeric:tabular-nums}\n'
+    '.ex-cue{font-size:.78rem;color:var(--muted)}\n'
+    '.blk-h{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:10px}\n'
+    '.card{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px}\n'
+    '.card h3{margin:0 0 4px;font-size:.95rem}\n'
+    '.muted{color:var(--muted)}\n'
+    '.card.past{opacity:.6}\n'
     '.tabs {\n'
     '  display: flex; gap: 2px; padding-block: 14px 0;\n'
     '  border-bottom: 1px solid var(--border); margin-bottom: 20px;\n'
@@ -1107,11 +1176,16 @@ _PAGE = (
     '<nav class="tabs" role="tablist">\n'
     '  <button class="tab active" data-tab="week" onclick="showTab(this)">&#x1F4C5;&nbsp;Week</button>\n'
     '  <button class="tab"        data-tab="log"  onclick="showTab(this)">&#x1F4CA;&nbsp;Log</button>\n'
+    '  <button class="tab"        data-tab="strength" onclick="showTab(this)">&#x1F3CB;&nbsp;Strength</button>\n'
     '</nav>\n'
     '\n'
     '<!-- Tab: Week -->\n'
     '<section id="week" class="section active">\n'
     '__WEEK_CONTENT__\n'
+    '</section>\n'
+    '\n'
+    '<section id="strength" class="section">\n'
+    '__STRENGTH__\n'
     '</section>\n'
     '\n'
     '<!-- Tab: Log -->\n'
@@ -1203,6 +1277,7 @@ def render_html(data: dict) -> str:
         .replace("__GENERATED_AT__", _e(data["generated_at"]))
         .replace("__STATUS_STRIP__", _status_strip(data))
         .replace("__WEEK_CONTENT__", _week_content(data))
+        .replace("__STRENGTH__", _strength_html(data))
         .replace("__HISTORY__", _svg_history(data["history"]))
         .replace("__WEEK_PROGRESS__", _week_progress(data))
         .replace("__ACT_ROWS__", "\n".join(_act_row(a) for a in data["activities"]))

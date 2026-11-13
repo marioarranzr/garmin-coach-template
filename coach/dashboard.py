@@ -183,10 +183,16 @@ def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today:
             "description": (_merge_descriptions([(e["session"]["title"], _full_description(cal, e))
                                                  for e in entries if e.get("workoutId")])
                             if full_text and entries else ""),
-            "done": [f"{a.get('name') or a['sport']} — {a['distance_km']:g} km, {a['duration_min']:.0f}'"
-                     for a in done if (a.get("distance_km") or 0) > 0],
+            "done": [_done_text(a, " — ", ", ") for a in done
+                     if (a.get("distance_km") or 0) > 0 or (a.get("duration_min") or 0) >= 10],
         })
     return out
+
+
+def _done_text(a: dict, sep: str, sep2: str) -> str:
+    """"Name — 5.6 km, 33'" (no km for strength and the like)."""
+    km = f"{a['distance_km']:g} km{sep2}" if (a.get("distance_km") or 0) > 0 else ""
+    return f"{a.get('name') or a['sport']}{sep}{km}{a['duration_min']:.0f}'"
 
 
 def _strength_workouts(cal: Calendar, today: dt.date) -> list[dict]:
@@ -329,8 +335,7 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
             "is_past": day < today,
             "planned": planned_titles,
             "description": desc,
-            "done": [f"{a.get('name') or a['sport']} · {a['distance_km']:g} km · {a['duration_min']:.0f}'"
-                     for a in day_acts],
+            "done": [_done_text(a, " · ", " · ") for a in day_acts],
         })
 
     # Current week aggregates — include all bike-type sports

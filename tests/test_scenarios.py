@@ -2158,6 +2158,27 @@ def test_strength_tab_also_shows_library_workouts_no_calendar_day_has():
     assert "Strength · power" in html and "Strength · lower body" in html and html.count('data-st=') == 3
 
 
+def test_a_short_jog_isnt_a_run_and_strength_done_yesterday_isnt_repeated():
+    from coach import garmin_api as G, week as W, dashboard as D
+    from coach.planner import Phase, make_rest
+    from coach.strength import make_strength
+    jog = G.normalize_activity({"activityType": {"typeKey": "running"}, "distance": 1700, "duration": 600,
+                                "startTimeLocal": "2026-11-13 08:00:00"})
+    run = G.normalize_activity({"activityType": {"typeKey": "running"}, "distance": 6200, "duration": 2000,
+                               "startTimeLocal": "2026-11-13 08:00:00"})
+    assert jog["sport"] == "other" and run["sport"] == "run"
+    ph = Phase("run", "base", "b", None, None, 1.0, False, 10)
+    fri = dt.date(2026, 11, 13)
+    acts = [{"date": "2026-11-12", "sport": "strength", "name": "Strength", "distance_km": 0, "duration_min": 47}]
+    led = W.ledger(acts, fri, {"friday": ["strength_core"]}, {}, None)
+    assert led["strength_yesterday"] and led["strength"] == 1
+    out, notes, why = W.apply([make_strength("strength_core", ph, 1)], led, ph, {})
+    assert [s.kind for s in out] == ["rest"] and "no strength today" in notes[0]
+    led = W.ledger([], fri, {"friday": ["strength_core"]}, {}, None)
+    assert [s.kind for s in W.apply([make_strength("strength_core", ph, 1)], led, ph, {})[0]] == ["strength_core"]
+    assert D._done_text(acts[0], " — ", ", ") == "Strength — 47'"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

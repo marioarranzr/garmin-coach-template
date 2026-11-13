@@ -44,6 +44,13 @@ def _safe(fn, *args, default=None):
         return default
 
 
+MIN_RUN_KM = 3.0      # a "run" shorter than this (a jog to the track, a few strides) isn't a run session
+
+
+def real_sport(sport: str, distance_km: float) -> str:
+    return "other" if sport == "run" and distance_km < MIN_RUN_KM else sport
+
+
 def sport_of(type_key: str) -> str:
     if type_key in RUN_TYPES or "run" in type_key:
         return "run"
@@ -159,7 +166,7 @@ def normalize_activity(a: dict) -> dict:
         "date": start[:10],
         "start": str(start).replace(" ", "T")[:19],
         "type": type_key,
-        "sport": sport_of(type_key),
+        "sport": real_sport(sport_of(type_key), (a.get("distance") or 0) / 1000),
         "distance_km": round((a.get("distance") or 0) / 1000, 2),
         "duration_min": round((a.get("duration") or 0) / 60, 1),
         "avg_hr": a.get("averageHR"),

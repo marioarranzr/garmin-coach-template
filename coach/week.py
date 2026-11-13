@@ -53,11 +53,14 @@ def ledger(acts: list[dict], d: dt.date, tpl: dict, dist: dict, bdist: dict | No
         "long_run": long_run, "long_ride": long_ride,
         "hard_runs": len(hard_runs), "hard_rides": sum(_hard(a) for a in rides if a is not long_ride),
         "swims": sum(a["sport"] == "swim" for a in week),
+        "strength": sum(a["sport"] == "strength" for a in week),
+        "strength_yesterday": any(a["sport"] == "strength" and a["date"] == yday for a in week),
         # runs so far this week vs the template's runs up to today: a run done on
         # another day (e.g. moved by your note) isn't run again
         "runs": sum(a["distance_km"] >= 2 for a in runs), "runs_due": len(run_kinds),
         "planned": {"run_long": kinds.count("run_long"), "run_quality": kinds.count("run_quality"),
-                    "swims": sum(k.startswith("swim_") for k in kinds), "bike_long": kinds.count("bike_long"),
+                    "swims": sum(k.startswith("swim_") for k in kinds),
+                    "strength": sum(k.startswith("strength") for k in kinds), "bike_long": kinds.count("bike_long"),
                     "bike_quality": kinds.count("bike_quality")},
         # a quality run planned earlier this week that hasn't happened
         "quality_owed": before.count("run_quality") > len(hard_runs),
@@ -91,6 +94,12 @@ def apply(sessions: list[Session], led: dict, phase, dist: dict) -> tuple[list[S
             notes.append(f"You've already run {led['runs']}× this week, as many as planned up to today, "
                          "so there's no run today.")
             why = why or "No run today: you've already done this week's runs so far."
+            continue
+        elif s.sport == "strength" and (led.get("strength_yesterday")
+                                        or (p.get("strength") and led.get("strength", 0) >= p["strength"])):
+            notes.append("You've done strength recently" + (" (yesterday)" if led.get("strength_yesterday") else "")
+                         + f" — {led.get('strength', 0)}× this week — so no strength today.")
+            why = why or "No strength today: you've already done it."
             continue
         elif s.sport == "swim" and p["swims"] and led["swims"] >= p["swims"]:
             notes.append(f"You've already swum {led['swims']}× this week ({p['swims']} planned), so this swim is dropped.")
@@ -136,7 +145,7 @@ def as_done(sessions: list[Session], day: dt.date) -> list[dict]:
     return [{"date": day.isoformat(), "sport": s.sport, "name": s.title,
              "distance_km": s.distance_km or 0, "duration_min": s.duration_min or (s.distance_km or 0) * 6,
              "aerobic_te": 4.0 if s.intensity == "hard" else 2.5}
-            for s in sessions if s.sport in ("run", "bike", "swim")]
+            for s in sessions if s.sport in ("run", "bike", "swim", "strength")]
 
 
 def summary(led: dict) -> dict:

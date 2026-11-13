@@ -99,7 +99,8 @@ def normalize(a: dict) -> dict:
     return {
         "id": None, "strava_id": a.get("id"), "source": "strava",
         "name": a.get("name"), "date": start[:10], "start": start,
-        "type": kind.lower(), "sport": sport_of(kind),
+        "type": kind.lower(), "sport": ("other" if sport_of(kind) == "run" and (a.get("distance") or 0) < 3000
+                                        else sport_of(kind)),
         "distance_km": round((a.get("distance") or 0) / 1000, 2),
         "duration_min": round((a.get("moving_time") or a.get("elapsed_time") or 0) / 60, 1),
         "avg_hr": a.get("average_heartrate"), "avg_power": a.get("average_watts"),

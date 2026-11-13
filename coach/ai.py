@@ -27,7 +27,7 @@ DEFAULT_MODEL = DEFAULT_MODELS["anthropic"]
 
 KINDS = ["rest", "run_easy", "run_strides", "run_quality", "run_long", "run_brick",
          "bike_easy", "bike_spin", "bike_long", "bike_quality", "swim_technique", "swim_endurance", "swim_css", "strength", "strength_core"]
-ALWAYS_ALLOWED = {"rest", "run_easy", "bike_easy", "bike_spin", "swim_technique", "strength_core"}   # the easy options
+ALWAYS_ALLOWED = {"rest", "run_easy", "bike_easy", "bike_spin", "swim_technique"}   # the easy options
 
 _num_or_null = {"anyOf": [{"type": "number"}, {"type": "null"}]}
 SCHEMA = {
@@ -249,6 +249,8 @@ def apply_limits(raw: list[dict], proposal: list[Session], phase: Phase, wk: int
     has_training = any(s.sport in ("run", "bike", "swim") for s in proposal)
     # easy alternatives only replace training that was planned: never added to a rest day
     allowed = (ALWAYS_ALLOWED if has_training else {"rest"}) | {s.kind for s in proposal}
+    if any(s.sport == "strength" for s in proposal):          # strength only where the plan has it (not after a session
+        allowed |= {"strength", "strength_core"}              # you already did), and then the core version is always fine
     run_budget = sum(s.distance_km or 0 for s in proposal if s.sport == "run")
     long_cap = max((s.distance_km or 0 for s in proposal if s.kind == "run_long"), default=0)
     bike_budget = sum(s.duration_min or 0 for s in proposal if s.sport == "bike")

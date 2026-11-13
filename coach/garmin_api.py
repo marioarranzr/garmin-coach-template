@@ -174,6 +174,7 @@ def normalize_activity(a: dict) -> dict:
         "anaerobic_te": a.get("anaerobicTrainingEffect"),
         "load": a.get("activityTrainingLoad"),
         "pool_length_m": _pool_length_m(a),
+        "short_run": sport_of(type_key) == "run" and (a.get("distance") or 0) / 1000 < MIN_RUN_KM,
     }
 
 

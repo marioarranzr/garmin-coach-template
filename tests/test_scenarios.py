@@ -2158,6 +2158,11 @@ def test_strength_tab_also_shows_library_workouts_no_calendar_day_has():
     assert "Strength · power" in html and "Strength · lower body" in html and html.count('data-st=') == 3
 
 
+def make_run_for_test(ph):
+    from coach.planner import make_run
+    return make_run("run_easy", 6, ph)
+
+
 def test_a_short_jog_isnt_a_run_and_strength_done_yesterday_isnt_repeated():
     from coach import garmin_api as G, week as W, dashboard as D
     from coach.planner import Phase, make_rest
@@ -2177,6 +2182,10 @@ def test_a_short_jog_isnt_a_run_and_strength_done_yesterday_isnt_repeated():
     led = W.ledger([], fri, {"friday": ["strength_core"]}, {}, None)
     assert [s.kind for s in W.apply([make_strength("strength_core", ph, 1)], led, ph, {})[0]] == ["strength_core"]
     assert D._done_text(acts[0], " — ", ", ") == "Strength — 47'"
+    assert jog["short_run"] and not run["short_run"]
+    notes = []
+    kept = engine.account_for_today([make_run_for_test(ph)], [jog], ph, notes)
+    assert kept == [] and "a test, not a run" in notes[0]
 
 
 if __name__ == "__main__":

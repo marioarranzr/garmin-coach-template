@@ -658,7 +658,11 @@ def account_for_today(final: list[Session], done_today: list[dict], phase, notes
     if not done_today:
         return final
     kept = []
+    jog = next((a for a in done_today if a.get("short_run")), None)
     for s in final:
+        if jog and s.sport == "run":
+            notes.append(f"You jogged {jog['distance_km']:g} km today (a test, not a run): no more running today.")
+            continue
         same = [a for a in done_today if a["sport"] == s.sport and s.sport in ("run", "bike", "swim")
                 and is_training(a)]                     # a short ride to the pool isn't the planned ride
         if same:

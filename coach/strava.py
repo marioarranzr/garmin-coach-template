@@ -105,6 +105,7 @@ def normalize(a: dict) -> dict:
         "duration_min": round((a.get("moving_time") or a.get("elapsed_time") or 0) / 60, 1),
         "avg_hr": a.get("average_heartrate"), "avg_power": a.get("average_watts"),
         "aerobic_te": None, "anaerobic_te": None, "load": None,
+        "short_run": sport_of(kind) == "run" and (a.get("distance") or 0) < 3000,
     }
 
 

@@ -110,6 +110,10 @@ watch for). No generic motivation.
 - "notes_used": the ids of the athlete notes that are about how they feel or their training \
 and that you took into account, or []. Never include unrelated notes (they stay in the athlete's \
 to-do list). Notes listed under "earlier_notes_today" were already used; don't list them again.
+- "short_runs_last_10_days": jogs under 3 km, which don't count as runs. After a break or pain in the \
+notes (an Achilles, a calf…) a very short jog is the athlete TESTING it: don't treat it as a normal run \
+or as nothing. Look in "notes_history" for the reason, say in "coach_note" that you understood it as a test, \
+and be cautious the next days: easy and short, no hard efforts, no run the next day unless they say it felt fine.
 - "notes_history" holds the athlete's notes from the last 6 weeks, each with what they trained that day \
 and the day before, their readiness and what the coach had planned. "activities_last_6_weeks" and \
 "weekly_summary" show the training trend over the same weeks. Use them to learn how this athlete responds (which loads leave \
@@ -232,6 +236,8 @@ def build_context(d, phase: Phase, wt: dict, wellness: dict, r: dict, ctx: dict,
         "yesterday_vs_plan": {k: (ctx.get("compliance") or {}).get(k)
                               for k in ("run_planned", "run_done", "missed", "done_titles", "extra_intensity", "vs_plan")},
         "done_today_so_far": ctx.get("today_acts"),
+        "short_runs_last_10_days": [{"date": a["date"], "km": a["distance_km"], "minutes": a["duration_min"]}
+                                    for a in acts if a.get("short_run") and a["date"] >= (d - dt.timedelta(days=10)).isoformat()],
         "activities_last_6_weeks": recent,
         "weekly_summary": weekly_summary(acts, d),
         "originally_planned_today": [_session_json(s) for s in planned],

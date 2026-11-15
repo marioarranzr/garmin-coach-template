@@ -253,7 +253,7 @@ def _strength_blocks(phase: Phase, wk: int) -> tuple[str, list[dict], str]:
             _block(rounds, [ex("Front squat", 5, kg=squat + 2), ex("Box jump (50 cm), step down", 5),
                             ex("Broad jump", 5)], 120),
             _block(rounds, [ex("Single-leg RDL", 6, kg=db, each_side=True),
-                            ex("Split squat jump", 6, each_side=True)], 90),
+                            ex("Split squat jump", 6, kg=2 * db, each_side=True)], 90),     # split squat jump: a dumbbell in each hand
             _block(rounds, [ex("Bulgarian split squat (rear foot on box)", 6, kg=db, each_side=True),
                             ex("Lateral bound", 6, each_side=True),
                             ex("Single-leg calf raise", 12, kg=db, each_side=True)], 75),

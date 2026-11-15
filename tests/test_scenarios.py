@@ -2163,6 +2163,14 @@ def make_run_for_test(ph):
     return make_run("run_easy", 6, ph)
 
 
+def test_every_strength_exercise_has_a_garmin_name_the_watch_can_show():
+    from coach import strength as ST
+    for name, (cat, key) in ST.GARMIN_EXERCISE.items():
+        if name in ST.WARMUP_MOVES:          # plain timed steps: no Garmin exercise at all
+            continue
+        assert key, f"{name} has no Garmin exercise name: the watch would show 'Go'"
+
+
 def test_a_short_jog_isnt_a_run_and_strength_done_yesterday_isnt_repeated():
     from coach import garmin_api as G, week as W, dashboard as D
     from coach.planner import Phase, make_rest

@@ -178,6 +178,7 @@ _PHRASES_ES = (
     ("each side, left then right", "cada lado, primero izquierdo y luego derecho"),
     ("each hand, left then right", "cada mano, primero izquierda y luego derecha"),
     ("alternating hands (switch at the floor)", "alternando manos (cambia en el suelo)"),
+    ("one side, then", "un lado, luego"), (" the other", " el otro"),
     ("alternating sides", "alternando lados"), ("alternating legs", "alternando piernas"),
     (" one way, ", " a un lado, "), (" back", " de vuelta"), (" steps:", " pasos:"), (" reps", " repeticiones"),
 )
@@ -201,6 +202,12 @@ SIDE = {"Side plank": "side", "Standing side bend": "hand"}
 ALTERNATE = {"Single-arm snatch": "{n} reps, alternating hands (switch at the floor)",
              "Dead bug": "{n} reps, alternating sides", "Glute bridge march": "{n} reps, alternating legs",
              "Lateral walk": "{n} steps: {r} one way, {r} back"}
+# one leg/hand at a time, in ONE step of 2× the reps (the athlete does one side, then the other, pressing
+# the button once); timed exercises (side plank, leg swings) stay as left and right steps
+_ONE_THEN_OTHER = "{n} reps: {r} one side, then {r} the other"
+for _n in ("Single-leg calf raise", "Single-leg RDL", "Single-leg RDL with knee drive", "Bulgarian split squat (rear foot on box)",
+           "Step-up onto box (50 cm)", "Raised-leg hip thrust", "Split squat jump", "Lateral bound", "Standing side bend"):
+    ALTERNATE[_n] = _ONE_THEN_OTHER
 
 
 def ex(name: str, reps: int | None = None, secs: int | None = None, kg: float | None = None,
@@ -216,6 +223,8 @@ def ex(name: str, reps: int | None = None, secs: int | None = None, kg: float | 
     if each_side and name in ALTERNATE:
         n = reps * 2
         line = f"{name} · {ALTERNATE[name].format(n=n, r=reps)}{load}"
+        if ALTERNATE[name] == _ONE_THEN_OTHER:         # the watch counts 2× the reps: say how they split
+            base = base | {"how": f"{reps}+{reps} · " + base["how"]}
         return [base | {"end": "reps", "value": n, "note": line, "line": line}]
     if each_side:
         part = SIDE.get(name, "leg")
@@ -452,10 +461,13 @@ PICTO = {
 }
 
 
+_PREFIX = _re.compile(r"^(?:(\d+)\+(\d+) · )?(?:[\d.]+ kg · )?")     # what a step's description starts with: "6+6 · 10 kg · "
+
+
 def name_from_step(step: dict) -> str:
     """The exercise's name for a step of a workout read back from Garmin: its cue
     (either language) or Garmin's exercise name; warm-up steps carry it in their note."""
-    desc = _re.sub(r"^[\d.]+ kg · ", "", str(step.get("description") or ""))
+    desc = _PREFIX.sub("", str(step.get("description") or ""))
     for table in (HOW_ES, HOW):
         for n, cue in table.items():
             if cue and cue[:100] == desc:
@@ -481,7 +493,10 @@ def read_workout(w: dict) -> list[dict]:
             v = int(s.get("endConditionValue") or 0)
             what = f'{v}"' if cond == "time" else f"{v} reps" if cond == "reps" else ""
             kg = round(float(s.get("weightValue") or 0) / 1000, 1)
-            cue = _re.sub(r"^[\d.]+ kg · ", "", str(s.get("description") or ""))
+            split = _PREFIX.match(str(s.get("description") or ""))
+            cue = _PREFIX.sub("", str(s.get("description") or ""))
+            if split and split.group(1):
+                what = f"{split.group(1)} + {split.group(2)} reps"
             cue = "" if cue.startswith(name) else cue
             if out and out[-1]["name"] == name and out[-1]["what"] == what and not out[-1]["both"]:
                 out[-1]["both"] = True

@@ -1527,10 +1527,10 @@ def test_strength_sessions_for_a_home_gym():
     assert all(f"• Prone {x} raise · 8 reps" in core.detail for x in "YTW")      # 8 of each
     # one side at a time: a step per side on the watch; alternating: one set counting both
     calf = [x for st in s.steps for x in st.get("steps", []) if x.get("note", "").startswith("Single-leg calf")]
-    assert [x["note"] for x in calf] == ["Single-leg calf raise · 15 reps · left leg @ 10 kg",
-                                         "Single-leg calf raise · 15 reps · right leg @ 10 kg"]
-    assert all(x["value"] == 15 for x in calf)
-    assert "• Single-leg calf raise · 15 reps each leg, left then right @ 10 kg" in s.detail
+    assert [x["note"] for x in calf] == ["Single-leg calf raise · 30 reps: 15 one side, then 15 the other @ 10 kg"]
+    assert all(x["value"] == 30 and x["how"].startswith("15+15 · 10 kg · ") for x in calf)      # one step, 15 + 15
+    assert "• Single-leg calf raise · 30 reps: 15 one side, then 15 the other @ 10 kg" in s.detail
+    assert [x["value"] for st in s.steps for x in st.get("steps", []) if x.get("note", "").startswith("Side plank")] == [40, 40]   # timed: still one step per side
     assert "• Single-arm snatch · 20 reps, alternating hands (switch at the floor) @ 10 kg" in core.detail
     from coach.strength import GARMIN_EXERCISE
     from garminconnect.exercises import _RAW
@@ -2096,7 +2096,8 @@ def test_strength_tab_reads_workouts_back_from_garmin():
     items = [i for b in blocks for i in b["items"]]
     front = next(i for i in items if i["name"] == "Front squat")
     assert front["kg"] == 32 and front["what"] == "8 reps" and front["cue"].startswith("Barra") and front["img"]
-    assert next(i for i in items if i["name"] == "Bulgarian split squat (rear foot on box)")["both"]   # left + right = one row
+    assert next(i for i in items if i["name"] == "Bulgarian split squat (rear foot on box)")["what"] == "8 + 8 reps"   # one step, split shown
+    assert next(i for i in items if i["name"] == "Side plank")["both"]               # timed: left + right steps = one row
     html = D._strength_html({"strength": [{"date": "2026-11-18", "weekday": "Wed 18 Nov", "title": "Strength · lower 52'",
                                            "draft": True, "is_past": False, "blocks": blocks}]})
     assert "draft" in html and "Front squat" in html and "32 kg" in html and "each side" in html

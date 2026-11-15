@@ -18,6 +18,8 @@ reps and weight on screen; the watch counts the reps); rests are timed.
 """
 from __future__ import annotations
 
+import re as _re
+
 from .planner import Phase, Session
 
 _loads: dict = {}
@@ -208,7 +210,7 @@ def ex(name: str, reps: int | None = None, secs: int | None = None, kg: float | 
     load = f" @ {kg:g} kg" if kg else ""
     warm = name in WARMUP_MOVES and secs and not reps
     base = {"type": "interval", "zone": None, "exercise": GARMIN_EXERCISE.get(name), "kg": kg,
-            "how": how(name)}
+            "how": (f"{kg:g} kg · " if kg else "") + how(name)}      # the load first: the watch shows it with the step
     end = {"end": "time", "value": secs} if secs else {"end": "reps", "value": reps}
     what = f"{reps} reps" if reps else f"{secs}\""
     if each_side and name in ALTERNATE:
@@ -453,7 +455,7 @@ PICTO = {
 def name_from_step(step: dict) -> str:
     """The exercise's name for a step of a workout read back from Garmin: its cue
     (either language) or Garmin's exercise name; warm-up steps carry it in their note."""
-    desc = str(step.get("description") or "")
+    desc = _re.sub(r"^[\d.]+ kg · ", "", str(step.get("description") or ""))
     for table in (HOW_ES, HOW):
         for n, cue in table.items():
             if cue and cue[:100] == desc:
@@ -479,7 +481,8 @@ def read_workout(w: dict) -> list[dict]:
             v = int(s.get("endConditionValue") or 0)
             what = f'{v}"' if cond == "time" else f"{v} reps" if cond == "reps" else ""
             kg = round(float(s.get("weightValue") or 0) / 1000, 1)
-            cue = "" if (s.get("description") or "").startswith(name) else str(s.get("description") or "")
+            cue = _re.sub(r"^[\d.]+ kg · ", "", str(s.get("description") or ""))
+            cue = "" if cue.startswith(name) else cue
             if out and out[-1]["name"] == name and out[-1]["what"] == what and not out[-1]["both"]:
                 out[-1]["both"] = True
                 continue

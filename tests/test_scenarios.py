@@ -1519,7 +1519,7 @@ def test_strength_sessions_for_a_home_gym():
     assert step["endCondition"]["conditionTypeKey"] == "reps" and step["endConditionValue"] == 8
     assert (step["category"], step["exerciseName"]) == ("SQUAT", "BARBELL_FRONT_SQUAT")
     assert step["weightValue"] == 32000.0 and step["weightUnit"]["unitKey"] == "kilogram"
-    assert step["description"].startswith("Bar on the front of the shoulders")      # how to do it
+    assert "Bar on the front of the shoulders" in step["description"]      # how to do it
     from coach.strength import HOW
     assert all(len(v) <= 100 for v in HOW.values())
     core = S.make_strength("strength_core", base, 0)
@@ -1904,7 +1904,7 @@ def test_strength_cues_are_short_spanish_and_the_warmup_is_plain_timed_steps():
                 for st in steps:
                     yield from flat(st["workoutSteps"]) if "workoutSteps" in st else [st]
             steps = list(flat(w["workoutSegments"][0]["workoutSteps"]))
-            assert all(len(x.get("description", "")) <= 50 for x in steps), [x["description"] for x in steps if len(x.get("description", "")) > 50]
+            assert all(len(x.get("description", "")) <= 60 for x in steps), [x["description"] for x in steps if len(x.get("description", "")) > 60]
             assert any(x.get("exerciseName") == "WALKING_LUNGE" and x["endCondition"]["conditionTypeKey"] == "time"
                        and x["description"].startswith("Paso largo") for x in steps)   # timed, with its Garmin exercise and cue (as before)
             assert all("exerciseName" in x for x in steps if x["endCondition"]["conditionTypeKey"] == "reps")

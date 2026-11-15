@@ -208,7 +208,7 @@ def ex(name: str, reps: int | None = None, secs: int | None = None, kg: float | 
     load = f" @ {kg:g} kg" if kg else ""
     warm = name in WARMUP_MOVES and secs and not reps
     base = {"type": "interval", "zone": None, "exercise": GARMIN_EXERCISE.get(name), "kg": kg,
-            "how": "" if warm else how(name)}
+            "how": how(name)}
     end = {"end": "time", "value": secs} if secs else {"end": "reps", "value": reps}
     what = f"{reps} reps" if reps else f"{secs}\""
     if each_side and name in ALTERNATE:

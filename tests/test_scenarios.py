@@ -1905,8 +1905,8 @@ def test_strength_cues_are_short_spanish_and_the_warmup_is_plain_timed_steps():
                     yield from flat(st["workoutSteps"]) if "workoutSteps" in st else [st]
             steps = list(flat(w["workoutSegments"][0]["workoutSteps"]))
             assert all(len(x.get("description", "")) <= 50 for x in steps), [x["description"] for x in steps if len(x.get("description", "")) > 50]
-            warm = [x for x in steps if x["endCondition"]["conditionTypeKey"] == "time" and x.get("description")]
-            assert any("Walking lunge" in x["description"] and x.get("exerciseName") for x in warm)   # named, so the watch never shows "Go"
+            assert any(x.get("exerciseName") == "WALKING_LUNGE" and x["endCondition"]["conditionTypeKey"] == "time"
+                       and x["description"].startswith("Paso largo") for x in steps)   # timed, with its Garmin exercise and cue (as before)
             assert all("exerciseName" in x for x in steps if x["endCondition"]["conditionTypeKey"] == "reps")
             assert s.how.startswith("Cómo hacerlo")
             # the written description is Spanish too (no English left over)

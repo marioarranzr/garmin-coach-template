@@ -156,8 +156,8 @@ HOW_ES = {
     "Glute bridge march": "Puente de glúteo, sube una rodilla y la otra",
     "Superman hold": "Boca abajo, sube brazos y piernas y aguanta",
 }
-# Warm-up moves are plain timed steps (no Garmin exercise), so the watch doesn't count
-# reps or ask for them after each one: the step's note is the whole instruction.
+# Warm-up moves are timed steps (30" each) that still carry the Garmin exercise, so the watch
+# shows which move to do (a step without one shows just "Go").
 WARMUP_MOVES = {"Walking lunge", "Bear crawl", "Leg swings", "Press-up walk-out"}
 _language = ["en"]
 
@@ -207,7 +207,7 @@ def ex(name: str, reps: int | None = None, secs: int | None = None, kg: float | 
     steps (left, then right), or as one set alternating sides (ALTERNATE: 2× the reps)."""
     load = f" @ {kg:g} kg" if kg else ""
     warm = name in WARMUP_MOVES and secs and not reps
-    base = {"type": "interval", "zone": None, "exercise": None if warm else GARMIN_EXERCISE.get(name), "kg": kg,
+    base = {"type": "interval", "zone": None, "exercise": GARMIN_EXERCISE.get(name), "kg": kg,
             "how": "" if warm else how(name)}
     end = {"end": "time", "value": secs} if secs else {"end": "reps", "value": reps}
     what = f"{reps} reps" if reps else f"{secs}\""

@@ -54,7 +54,7 @@ def ledger(acts: list[dict], d: dt.date, tpl: dict, dist: dict, bdist: dict | No
         "hard_runs": len(hard_runs), "hard_rides": sum(_hard(a) for a in rides if a is not long_ride),
         "swims": sum(a["sport"] == "swim" for a in week),
         "strength": sum(a["sport"] == "strength" for a in week),
-        "strength_yesterday": any(a["sport"] == "strength" and a["date"] == yday for a in week),
+        "strength_yesterday": any(a["sport"] == "strength" and a["date"] == yday for a in acts),     # Sunday counts on a Monday
         # runs so far this week vs the template's runs up to today: a run done on
         # another day (e.g. moved by your note) isn't run again
         "runs": sum(a["distance_km"] >= 2 for a in runs), "runs_due": len(run_kinds),

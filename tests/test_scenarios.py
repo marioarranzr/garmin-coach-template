@@ -2191,6 +2191,10 @@ def test_a_short_jog_isnt_a_run_and_strength_done_yesterday_isnt_repeated():
     led = W.ledger([], fri, {"friday": ["strength_core"]}, {}, None)
     assert [s.kind for s in W.apply([make_strength("strength_core", ph, 1)], led, ph, {})[0]] == ["strength_core"]
     assert D._done_text(acts[0], " — ", ", ") == "Strength — 47'"
+    sun = [{"date": "2026-11-15", "sport": "strength", "name": "Strength · power", "distance_km": 0, "duration_min": 43}]
+    mon = W.ledger(sun, dt.date(2026, 11, 16), {"monday": ["strength_core"]}, {}, None)       # last week's Sunday, on a Monday
+    assert mon["strength_yesterday"]
+    assert [s.kind for s in W.apply([make_strength("strength_core", ph, 1)], mon, ph, {})[0]] == ["rest"]
     assert jog["short_run"] and not run["short_run"]
     notes = []
     kept = engine.account_for_today([make_run_for_test(ph)], [jog], ph, notes)

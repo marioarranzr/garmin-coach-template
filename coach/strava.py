@@ -97,7 +97,7 @@ def normalize(a: dict) -> dict:
     kind = a.get("sport_type") or a.get("type") or ""
     start = str(a.get("start_date_local") or "")[:19]
     return {
-        "id": None, "strava_id": a.get("id"), "source": "strava",
+        "id": None, "strava_id": str(a.get("id_str") or a.get("id") or ""), "source": "strava",
         "name": a.get("name"), "date": start[:10], "start": start,
         "type": kind.lower(), "sport": ("other" if sport_of(kind) == "run" and (a.get("distance") or 0) < 3000
                                         else sport_of(kind)),

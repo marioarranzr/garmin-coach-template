@@ -16,6 +16,7 @@ import html
 import http.server
 import json
 import logging
+import os
 import re as _re
 import threading
 import webbrowser
@@ -954,7 +955,7 @@ _PAGE = (
     '.hdr-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; }\n'
     '.hdr-ts { color: var(--muted); font-size: .74rem; }\n'
     '.stale { margin: 10px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: .8rem; }\n'
-    '.btn {\n'
+    '.btn { text-decoration: none; display: inline-block;\n'
     '  background: var(--s1); border: 1px solid var(--border); color: var(--fg);\n'
     '  border-radius: 6px; padding: 4px 10px; font-size: .77rem;\n'
     '  cursor: pointer; transition: background .15s;\n'
@@ -1212,7 +1213,7 @@ _PAGE = (
     '  <span class="hdr-pill">__PHASE__</span>\n'
     '  <div class="hdr-meta">\n'
     '    <span class="hdr-ts">__GENERATED_AT__</span>\n'
-    '    <button class="btn" onclick="location.reload()">&#8635;&nbsp;Refresh</button>\n'
+    '    __REFRESH__\n'
     '  </div>\n'
     '</header>\n'
     '\n'
@@ -1320,12 +1321,23 @@ _PAGE = (
 
 # ── render ────────────────────────────────────────────────────────────────────
 
+def _refresh_button() -> str:
+    """The page is a snapshot from the last run. On GitHub the button opens the workflow's "Run workflow"
+    menu (tick "Only refresh the dashboard": ~30 s); anywhere else it reloads the page."""
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if repo:
+        return (f'<a class="btn" target="_blank" rel="noopener" title="Run workflow, tick: Only refresh the dashboard" '
+                f'href="https://github.com/{_e(repo)}/actions/workflows/coach.yml">&#8635;&nbsp;Update data</a>')
+    return '<button class="btn" onclick="location.reload()">&#8635;&nbsp;Refresh</button>'
+
+
 def render_html(data: dict) -> str:
     return (
         _PAGE
         .replace("__PHASE__", _e(data["phase"]["name"].replace("_", " ").title()))
         .replace("__GENERATED_ISO__", _e(data["generated_at"]))
         .replace("__GENERATED_AT__", _e(data["generated_at"]))
+        .replace("__REFRESH__", _refresh_button())
         .replace("__STATUS_STRIP__", _status_strip(data))
         .replace("__WEEK_CONTENT__", _week_content(data))
         .replace("__STRENGTH__", _strength_html(data))

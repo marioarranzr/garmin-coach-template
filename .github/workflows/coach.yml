@@ -21,6 +21,10 @@ on:
         description: "Analyse only — don't upload to Garmin"
         type: boolean
         default: false
+      dashboard_only:
+        description: "Only refresh the dashboard with your latest activities (about 30 s, no planning)"
+        type: boolean
+        default: false
       replan:
         description: "Plan today again even if it was already checked and nothing is new"
         type: boolean
@@ -81,7 +85,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Daily workout
-        if: steps.guard.outputs.run == 'true'
+        if: steps.guard.outputs.run == 'true' && inputs.dashboard_only != true
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             python -m coach run --auto --dry-run       # analyze only

@@ -2197,6 +2197,20 @@ def test_an_activity_close_to_the_plan_counts_as_that_session_even_without_follo
     assert M.similarity(easy, {"sport": "bike", "duration_min": 45}) < M.THRESHOLD   # an easy ride has no main set to protect
 
 
+def test_dashboard_update_button_opens_the_workflow_on_github():
+    import os
+    from coach import dashboard as D
+    old = os.environ.pop("GITHUB_REPOSITORY", None)
+    try:
+        assert "location.reload" in D._refresh_button()
+        os.environ["GITHUB_REPOSITORY"] = "me/garmin-coach"
+        b = D._refresh_button()
+        assert "https://github.com/me/garmin-coach/actions/workflows/coach.yml" in b and "Update data" in b
+    finally:
+        os.environ.pop("GITHUB_REPOSITORY", None)
+        if old: os.environ["GITHUB_REPOSITORY"] = old
+
+
 def test_spare_strength_workouts_replace_the_old_ones_and_stay_off_the_calendar():
     from coach import garmin_api as G
 

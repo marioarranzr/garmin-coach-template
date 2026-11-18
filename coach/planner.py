@@ -674,7 +674,46 @@ BIKE_QUALITY = {
 }
 
 
+_ftp: dict = {"w": None}
+
+
+def set_ftp(cfg: dict) -> None:
+    v = (cfg.get("athlete") or {}).get("ftp_w")
+    _ftp["w"] = float(v) if v else None
+
+
+def watts(zone: int) -> str | None:
+    """Power range for a heart-rate-style zone 1-5 on the bike, from FTP (Coggan: Z1 <55 %, Z2 56-75,
+    Z3 76-90, Z4 91-105, Z5 106-120)."""
+    ftp = _ftp["w"]
+    if not ftp or zone not in (1, 2, 3, 4, 5):
+        return None
+    lo, hi = {1: (0, .55), 2: (.55, .75), 3: (.75, .90), 4: (.90, 1.05), 5: (1.05, 1.20)}[zone]
+    top = lambda x: int(ftp * x + 0.5)    # half up, as Strava's zones
+    return f"up to {top(hi)} W" if zone == 1 else f"{top(lo) + 1}-{top(hi)} W"
+
+
 def make_bike(kind: str, phase: Phase, minutes: float | None = None, wk: int = 0) -> Session:
+    """The bike session, with the watts for each zone when FTP is set (athlete.ftp_w)."""
+    s = _make_bike(kind, phase, minutes, wk)
+    if not _ftp["w"]:
+        return s
+    used: set[int] = set()
+
+    def walk(steps):
+        for st in steps:
+            if st.get("type") == "repeat":
+                walk(st["steps"])
+            elif st.get("zone") and watts(st["zone"]):
+                used.add(st["zone"])
+                st["note"] = f"Z{st['zone']} · {watts(st['zone'])}"
+    walk(s.steps)
+    if used:
+        s.detail += " Power (FTP %g W): %s." % (_ftp["w"], ", ".join(f"Z{z} {watts(z)}" for z in sorted(used)))
+    return s
+
+
+def _make_bike(kind: str, phase: Phase, minutes: float | None = None, wk: int = 0) -> Session:
     tri = phase.focus == "tri"
     cycling = phase.focus == "bike"
     hilly = bool(cycling and phase.race and phase.race.hilly)

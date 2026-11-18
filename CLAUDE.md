@@ -52,6 +52,8 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
   as left/right steps or alternating sets, Y-T-W as three exercises.
 - Spare strength workouts: two (core + the phase's heavy one) named "Coach spare · …" sit unscheduled in the watch's
   workout list, refreshed on every plan, so there's always one more than planned.
+- Bike sessions also give watts per zone from `athlete.ftp_w`: in the description and as the step note on
+  the watch (the target stays heart rate).
 - Rest days: no Garmin workout (marked in Todoist).
 
 ## Dashboard

@@ -2136,6 +2136,21 @@ def test_leftover_coach_workouts_are_removed_from_garmin():
     assert sorted(api.deleted) == [1, 3, 7] and sorted(api.unscheduled) == [30, 70] and n == 3    # old "lower" + the rest draft; not what's used or kept
 
 
+def test_bike_sessions_say_the_watts_when_ftp_is_set():
+    from coach import planner as P
+    ph = P.Phase("run", "base", "b", None, None, 1.0, False, 10)
+    try:
+        P.set_ftp({"athlete": {"ftp_w": 265}})
+        assert [P.watts(z) for z in (2, 3, 4)] == ["147-199 W", "200-239 W", "240-278 W"]   # as Strava's zones
+        q = P.make_bike("bike_quality", ph)
+        assert "Z3 200-239 W" in q.detail and "FTP 265" in q.detail
+        assert any(st.get("note") == "Z3 · 200-239 W" for x in q.steps for st in (x["steps"] if x["type"] == "repeat" else [x]))
+        P.set_ftp({})
+        assert "Power" not in P.make_bike("bike_quality", ph).detail
+    finally:
+        P.set_ftp({})
+
+
 def test_spare_strength_workouts_replace_the_old_ones_and_stay_off_the_calendar():
     from coach import garmin_api as G
 

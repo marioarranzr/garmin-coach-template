@@ -255,6 +255,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     acts, from_strava = S.merge(acts, S.fetch(since, d, **({"http": strava_http} if strava_http else {})))
     seen_today = len(todays_training(acts, d))
     set_swim_capacity(swim_capacity(acts, d))
+    from .planner import set_ftp
+    set_ftp(cfg)
     from .strength import set_loads
     set_loads(cfg)
     from .planner import set_venues

@@ -2206,6 +2206,7 @@ def test_dashboard_update_button_runs_the_workflow_from_the_page():
         os.environ["GITHUB_REPOSITORY"] = "me/garmin-coach"
         b = D._refresh_button()
         assert 'data-repo="me/garmin-coach"' in b and "Update data" in b and "dashboard_only" in b
+        assert "30*60000" in b       # one update every 30 minutes
     finally:
         os.environ.pop("GITHUB_REPOSITORY", None)
         if old: os.environ["GITHUB_REPOSITORY"] = old

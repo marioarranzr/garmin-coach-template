@@ -1360,24 +1360,42 @@ function updateData(btn){
     try{localStorage.setItem("gh_token",tok);}catch(e){}
   }
   var H={Authorization:"Bearer "+tok,Accept:"application/vnd.github+json"}, api="https://api.github.com/repos/"+repo+"/actions/";
-  var t0=new Date(Date.now()-60000).toISOString(), label=btn.innerHTML;
+  var label=btn.innerHTML, WAIT=30*60000;
   function say(m){btn.innerHTML=m;}
   function fail(m){say(m);btn.disabled=false;setTimeout(function(){say(label);},6000);}
+  function runs(){return fetch(api+"runs?event=workflow_dispatch&per_page=5",{headers:H}).then(function(x){
+    if(x.status===401||x.status===403||x.status===404){try{localStorage.removeItem("gh_token");}catch(e){} throw "token";}
+    return x.json();}).then(function(j){return j.workflow_runs||[];});}
+  function watch(id,n){            // wait for that run to finish, then reload
+    if(n>40)return fail("Taking long: reload in a minute");
+    runs().then(function(rs){
+      var run=rs.find(function(w){return w.id===id;});
+      if(run&&run.status==="completed"){say("Done, loading&hellip;");setTimeout(function(){location.reload();},6000);}
+      else setTimeout(function(){watch(id,n+1);},5000);
+    }).catch(function(e){if(e==="token")fail("Token not valid: click again");else setTimeout(function(){watch(id,n+1);},5000);});
+  }
   btn.disabled=true; say("Updating&hellip;");
-  fetch(api+"workflows/coach.yml/dispatches",{method:"POST",headers:H,
-        body:JSON.stringify({ref:"main",inputs:{dashboard_only:"true"}})}).then(function(r){
-    if(r.status===401||r.status===403||r.status===404){try{localStorage.removeItem("gh_token");}catch(e){} return fail("Token not valid: click again");}
-    if(r.status!==204)return fail("Couldn't start ("+r.status+")");
-    var n=0;
-    (function poll(){
-      if(++n>40)return fail("Taking long: reload in a minute");
-      fetch(api+"runs?event=workflow_dispatch&per_page=3",{headers:H}).then(function(x){return x.json();}).then(function(j){
-        var run=(j.workflow_runs||[]).find(function(w){return w.created_at>=t0;});
-        if(run&&run.status==="completed"){say("Done, loading&hellip;");setTimeout(function(){location.reload();},6000);}
-        else setTimeout(poll,5000);
-      }).catch(function(){setTimeout(poll,5000);});
-    })();
-  }).catch(function(){fail("No connection");});
+  runs().then(function(rs){
+    // one update every 30 minutes: a run started in that time (maybe by a double click) is the update
+    var recent=rs.find(function(w){return Date.now()-new Date(w.created_at)<WAIT;});
+    if(recent){
+      if(recent.status==="completed"){say("Updated "+Math.round((Date.now()-new Date(recent.updated_at))/60000)+" min ago");setTimeout(function(){location.reload();},1500);}
+      else watch(recent.id,0);
+      return;
+    }
+    var t0=new Date(Date.now()-60000).toISOString();
+    return fetch(api+"workflows/coach.yml/dispatches",{method:"POST",headers:H,
+          body:JSON.stringify({ref:"main",inputs:{dashboard_only:"true"}})}).then(function(r){
+      if(r.status===401||r.status===403||r.status===404){try{localStorage.removeItem("gh_token");}catch(e){} return fail("Token not valid: click again");}
+      if(r.status!==204)return fail("Couldn't start ("+r.status+")");
+      setTimeout(function wait(k){
+        runs().then(function(rs2){
+          var run=rs2.find(function(w){return w.created_at>=t0;});
+          if(run)watch(run.id,0); else if(k<10)setTimeout(function(){wait(k+1);},3000); else fail("Couldn't find the run");
+        }).catch(function(){fail("No connection");});
+      },3000,0);
+    });
+  }).catch(function(e){fail(e==="token"?"Token not valid: click again":"No connection");});
 }
 </script>"""
 

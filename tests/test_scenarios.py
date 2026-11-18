@@ -2177,6 +2177,23 @@ def test_bike_steps_target_power_with_heart_rate_second_and_fall_back():
     assert api.calls == [True, False]
 
 
+def test_an_activity_close_to_the_plan_counts_as_that_session_even_without_follow_workout():
+    from coach import match as M, week as W
+    from coach.calendar import session_from
+
+    class Cal:
+        def plan(self, day):
+            return [{"session": session_from("Bike 5×5' tempo", {"min": 60, "i": "hard"})}] if day == dt.date(2026, 11, 18) else []
+    s = session_from("Bike 5×5' tempo", {"min": 60})
+    assert M.similarity(s, {"sport": "bike", "duration_min": 57}) >= 0.9 and M.similarity(s, {"sport": "run", "duration_min": 60}) == 0
+    ride = {"date": "2026-11-18", "sport": "bike", "duration_min": 58, "distance_km": 30, "source": "strava"}
+    short = {"date": "2026-11-18", "sport": "bike", "duration_min": 20, "distance_km": 8}
+    assert M.tag_followed([ride, short], Cal(), [dt.date(2026, 11, 18)]) == 1
+    assert ride["followed"] and not short.get("followed")
+    assert ride["plan_hard"] and W._hard(ride)      # the planned hard ride counts as the week's hard session
+    assert M.similarity(s, {"sport": "bike", "duration_min": 40}) < M.THRESHOLD
+
+
 def test_spare_strength_workouts_replace_the_old_ones_and_stay_off_the_calendar():
     from coach import garmin_api as G
 

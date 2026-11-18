@@ -254,6 +254,11 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     from . import strava as S
     acts, from_strava = S.merge(acts, S.fetch(since, d, **({"http": strava_http} if strava_http else {})))
     seen_today = len(todays_training(acts, d))
+    try:    # activities that match what was planned count as that session, recorded as a workout or not
+        from .match import tag_followed
+        tag_followed(acts, calendar, [d - dt.timedelta(days=i) for i in range(1, 15)] + [d])
+    except Exception as e:  # noqa: BLE001
+        log.warning("Couldn't compare your activities with the plan: %s", e)
     set_swim_capacity(swim_capacity(acts, d))
     from .planner import set_ftp
     set_ftp(cfg)

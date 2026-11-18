@@ -54,6 +54,9 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
   workout list, refreshed on every plan, so there's always one more than planned.
 - Bike sessions also give watts per zone from `athlete.ftp_w`: in the description and as the step note on
   the watch (the target stays heart rate).
+- Followed without "Follow workout" (Strava, or Garmin without the workout): `coach/match.py` counts an
+  activity as the day's planned session when sport and duration/distance match ≥85 % (hard session → counts as
+  the week's hard one); the Week tab shows "as planned (92%)".
 - Rest days: no Garmin workout (marked in Todoist).
 
 ## Dashboard

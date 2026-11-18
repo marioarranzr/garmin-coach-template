@@ -20,7 +20,7 @@ from .planner import WEEKDAYS, Session, make_bike, make_rest, make_run, monday_o
 
 
 def _hard(a: dict) -> bool:
-    return (a.get("aerobic_te") or 0) >= 3.8 or (a.get("anaerobic_te") or 0) >= 2.5
+    return (a.get("aerobic_te") or 0) >= 3.8 or (a.get("anaerobic_te") or 0) >= 2.5 or bool(a.get("plan_hard"))
 
 
 def ledger(acts: list[dict], d: dt.date, tpl: dict, dist: dict, bdist: dict | None,

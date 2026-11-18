@@ -192,7 +192,8 @@ def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today:
 def _done_text(a: dict, sep: str, sep2: str) -> str:
     """"Name — 5.6 km, 33'" (no km for strength and the like)."""
     km = f"{a['distance_km']:g} km{sep2}" if (a.get("distance_km") or 0) > 0 else ""
-    return f"{a.get('name') or a['sport']}{sep}{km}{a['duration_min']:.0f}'"
+    mark = f"{sep}as planned ({a['match']:.0%})" if a.get("followed") else ""
+    return f"{a.get('name') or a['sport']}{sep}{km}{a['duration_min']:.0f}'{mark}"
 
 
 def _strength_workouts(cal: Calendar, today: dt.date) -> list[dict]:
@@ -261,6 +262,11 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
     chart_start = monday_of(today) - dt.timedelta(weeks=12)
     acts = G.fetch_activities(api, chart_start, today)
     acts = S.merge(acts, S.fetch(chart_start, today))[0]
+    try:
+        from .match import tag_followed
+        tag_followed(acts, Calendar(api, cfg), [today - dt.timedelta(days=i) for i in range(0, 21)])
+    except Exception as e:  # noqa: BLE001
+        log.warning("Couldn't compare your activities with the plan: %s", e)
     learned = {s: day for s in ("run", "bike") if (day := learn_long_day(acts, today, s))}
     cfg = dict(cfg, _learned_days=learned)
     wt = compute_week_target(acts, today, cfg)

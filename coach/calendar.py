@@ -143,6 +143,7 @@ class Calendar:
         self.draft_prefix = base + " draft ·"
         self._months: dict[tuple[int, int], list[dict]] = {}
         self._details: dict[str, tuple[dict, float | None]] = {}
+        self.failed: set[tuple[int, int]] = set()      # months Garmin wouldn't give: an empty list there means "unknown"
 
     def _month(self, y: int, m: int) -> list[dict]:
         if (y, m) not in self._months:
@@ -152,6 +153,7 @@ class Calendar:
             except Exception as e:  # noqa: BLE001
                 log.warning("Couldn't read the Garmin calendar for %d-%02d: %s", y, m, e)
                 items = []
+                self.failed.add((y, m))
             self._months[(y, m)] = [i for i in items if i.get("itemType") == "workout"]
         return self._months[(y, m)]
 

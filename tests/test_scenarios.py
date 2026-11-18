@@ -2243,6 +2243,20 @@ def test_planned_length_comes_from_the_garmin_workout_not_the_title():
     assert e["session"]["duration_min"] == 65
 
 
+def test_cleanup_deletes_nothing_when_the_calendar_cant_be_read():
+    from coach import garmin_api as G
+    from coach.calendar import Calendar
+
+    class Api:
+        deleted = []
+        def get_scheduled_workouts(self, y, m): raise RuntimeError("429")
+        def get_workouts(self, start, limit): return [{"workoutId": 1, "workoutName": "Coach · Easy run 5 km"}]
+        def delete_workout(self, wid): self.deleted.append(wid)
+        def unschedule_workout(self, sid): pass
+    api = Api()
+    assert G.purge_leftovers(api, Calendar(api, {}), dt.date(2026, 11, 18)) == 0 and api.deleted == []
+
+
 def test_spare_strength_workouts_replace_the_old_ones_and_stay_off_the_calendar():
     from coach import garmin_api as G
 

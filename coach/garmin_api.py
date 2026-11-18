@@ -415,6 +415,11 @@ def purge_leftovers(api, cal, today: dt.date, keep: set | None = None) -> int:
             if title.startswith(cal.draft_prefix) and (day < today.isoformat() or "rest / mobility" in title.lower()):
                 rest.append({"workoutId": wid, "scheduleId": item.get("id") or find_key(item, "workoutScheduleId")})
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    if getattr(cal, "failed", None) or not (used - {str(k) for k in (keep or ())}):
+        # a month of the calendar couldn't be read, or it shows none of the coach's workouts: we can't tell
+        # which workouts are in use, so delete nothing (a wrong guess would wipe the plan)
+        log.warning("Not cleaning up Garmin workouts: the calendar couldn't be read reliably.")
+        return 0
     remove_uploaded(api, rest)
     gone = len(rest)
     for w in _safe(api.get_workouts, 0, 200, default=[]) or []:

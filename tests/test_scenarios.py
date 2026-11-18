@@ -2192,6 +2192,9 @@ def test_an_activity_close_to_the_plan_counts_as_that_session_even_without_follo
     assert ride["followed"] and not short.get("followed")
     assert ride["plan_hard"] and W._hard(ride)      # the planned hard ride counts as the week's hard session
     assert M.similarity(s, {"sport": "bike", "duration_min": 40}) < M.THRESHOLD
+    assert M.similarity(s, {"sport": "bike", "duration_min": 52}) >= M.THRESHOLD     # cool-down skipped: still done
+    easy = session_from("Easy ride 60'", {"min": 60})
+    assert M.similarity(easy, {"sport": "bike", "duration_min": 45}) < M.THRESHOLD   # an easy ride has no main set to protect
 
 
 def test_spare_strength_workouts_replace_the_old_ones_and_stay_off_the_calendar():

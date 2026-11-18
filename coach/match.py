@@ -13,11 +13,20 @@ def _ratio(done: float | None, planned: float | None) -> float | None:
     return min(done, planned) / max(done, planned)
 
 
+COOLDOWN_SLACK_MIN = 10     # a cool-down cut short doesn't matter: the main set is the session
+
+
 def similarity(plan: dict, a: dict) -> float:
-    """0..1: same sport, then how close the duration (and the distance, for runs and swims) is."""
+    """0..1: same sport, then how close the duration (and the distance, for runs and swims) is.
+    A session with a main set (quality, long) can end up to 10' early: the cool-down is optional."""
     if plan.get("sport") != a.get("sport"):
         return 0.0
-    parts = [r for r in (_ratio(a.get("duration_min"), plan.get("duration_min")),
+    want = plan.get("duration_min")
+    if want and plan.get("intensity") in ("hard", "moderate") and (a.get("duration_min") or 0) < want:
+        want = max(want - COOLDOWN_SLACK_MIN, want * 0.5)
+        if a["duration_min"] >= want:
+            want = a["duration_min"]            # ended inside the cool-down: nothing missing
+    parts = [r for r in (_ratio(a.get("duration_min"), want),
                          _ratio(a.get("distance_km"), plan.get("distance_km"))
                          if plan.get("sport") in ("run", "swim") else None) if r is not None]
     return round(sum(parts) / len(parts), 2) if parts else 0.0

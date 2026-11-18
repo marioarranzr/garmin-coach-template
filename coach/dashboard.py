@@ -199,6 +199,14 @@ def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today:
     return out
 
 
+def _marked(text: str) -> str:
+    """Escaped done text with its plan match coloured: green "as planned", amber "52% of the plan"."""
+    import re
+    t = _e(text)
+    t = re.sub(r"(as planned \(\d+%\))", r'<span class="m-ok">\1</span>', t)
+    return re.sub(r"(\d+% of the plan)", r'<span class="m-part">\1</span>', t)
+
+
 def _done_text(a: dict, sep: str, sep2: str) -> str:
     """"Name — 5.6 km, 33'" (no km for strength and the like)."""
     km = f"{a['distance_km']:g} km{sep2}" if (a.get("distance_km") or 0) > 0 else ""
@@ -471,15 +479,13 @@ def _day_card(d: dict, compact: bool = False) -> str:
         row_cls = ""
         badge = ""
 
-    if d.get("status"):
-        row_cls += f" st-{d['status']}"
     if compact:
         row_cls += " day-compact"
 
     # Done activities
     done_html = ""
     if d["done"]:
-        items = " &nbsp;·&nbsp; ".join(_e(x) for x in d["done"])
+        items = " &nbsp;·&nbsp; ".join(_marked(x) for x in d["done"])
         done_html = f'<div class="done-row">&#10003;&nbsp;{items}</div>'
     elif d["is_past"] and not d["planned"]:
         done_html = '<div class="rest-row">Rest</div>'
@@ -860,14 +866,12 @@ def _day_parts(d: dict) -> tuple[str, str, str, str]:
     else:
         cls, badge = "", ""
     planned = " + ".join(_e(p) for p in d["planned"]) or "Rest"
-    if d.get("status"):
-        cls += f" st-{d['status']}"
     if d.get("projected"):
         planned += ' <span class="proj-tag">projected</span>'
         cls += " projected"
     done_html = ""
     if d["done"]:
-        items = " &nbsp;·&nbsp; ".join(_e(x) for x in d["done"])
+        items = " &nbsp;·&nbsp; ".join(_marked(x) for x in d["done"])
         done_html = f'<div class="done-row">&#10003;&nbsp;{items}</div>'
     elif d["is_past"] and not d["planned"]:
         done_html = '<div class="rest-row">Rest</div>'
@@ -1037,11 +1041,8 @@ _PAGE = (
     '  padding: 13px 0; border-bottom: 1px solid var(--border);\n'
     '}\n'
     '.day-row.day-past { opacity: .72; }\n'
-    '.st-ok { box-shadow: inset 3px 0 0 var(--ok); padding-left: 10px; }\n'
-    '.st-partial { box-shadow: inset 3px 0 0 var(--warn); padding-left: 10px; }\n'
-    '.st-ok .done-row { color: var(--ok); }\n'
-    '.st-partial .done-row { color: var(--warn); }\n'
-    '.st-ok.day-past, .st-partial.day-past { opacity: 1; }\n'
+    '.m-ok { color: var(--ok); font-weight: 600; }\n'
+    '.m-part { color: var(--warn); font-weight: 600; }\n'
     '.day-row.day-today {\n'
     '  background: color-mix(in srgb,var(--accent) 7%,transparent);\n'
     '  border-radius: 8px; padding: 13px 10px; margin: 0 -10px;\n'
@@ -1340,13 +1341,46 @@ _PAGE = (
 
 # ── render ────────────────────────────────────────────────────────────────────
 
+_UPDATE_JS = """<script>
+function updateData(btn){
+  var repo=btn.dataset.repo, tok="";
+  try{tok=localStorage.getItem("gh_token")||"";}catch(e){}
+  if(!tok){
+    tok=(prompt("One-time setup. Paste a GitHub fine-grained token with Actions: Read and write on "+repo+" (it stays in this browser only).")||"").trim();
+    if(!tok)return;
+    try{localStorage.setItem("gh_token",tok);}catch(e){}
+  }
+  var H={Authorization:"Bearer "+tok,Accept:"application/vnd.github+json"}, api="https://api.github.com/repos/"+repo+"/actions/";
+  var t0=new Date(Date.now()-60000).toISOString(), label=btn.innerHTML;
+  function say(m){btn.innerHTML=m;}
+  function fail(m){say(m);btn.disabled=false;setTimeout(function(){say(label);},6000);}
+  btn.disabled=true; say("Updating&hellip;");
+  fetch(api+"workflows/coach.yml/dispatches",{method:"POST",headers:H,
+        body:JSON.stringify({ref:"main",inputs:{dashboard_only:"true"}})}).then(function(r){
+    if(r.status===401||r.status===403||r.status===404){try{localStorage.removeItem("gh_token");}catch(e){} return fail("Token not valid: click again");}
+    if(r.status!==204)return fail("Couldn't start ("+r.status+")");
+    var n=0;
+    (function poll(){
+      if(++n>40)return fail("Taking long: reload in a minute");
+      fetch(api+"runs?event=workflow_dispatch&per_page=3",{headers:H}).then(function(x){return x.json();}).then(function(j){
+        var run=(j.workflow_runs||[]).find(function(w){return w.created_at>=t0;});
+        if(run&&run.status==="completed"){say("Done, loading&hellip;");setTimeout(function(){location.reload();},6000);}
+        else setTimeout(poll,5000);
+      }).catch(function(){setTimeout(poll,5000);});
+    })();
+  }).catch(function(){fail("No connection");});
+}
+</script>"""
+
+
 def _refresh_button() -> str:
-    """The page is a snapshot from the last run. On GitHub the button opens the workflow's "Run workflow"
-    menu (tick "Only refresh the dashboard": ~30 s); anywhere else it reloads the page."""
+    """The page is a snapshot from the last run. On GitHub, the button starts a dashboard-only run
+    (needs a GitHub token you paste once; it stays in your browser), waits for it and reloads.
+    Anywhere else it reloads the page."""
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     if repo:
-        return (f'<a class="btn" target="_blank" rel="noopener" title="Run workflow, tick: Only refresh the dashboard" '
-                f'href="https://github.com/{_e(repo)}/actions/workflows/coach.yml">&#8635;&nbsp;Update data</a>')
+        return (f'<button class="btn" data-repo="{_e(repo)}" onclick="updateData(this)">&#8635;&nbsp;Update data</button>'
+                + _UPDATE_JS)
     return '<button class="btn" onclick="location.reload()">&#8635;&nbsp;Refresh</button>'
 
 

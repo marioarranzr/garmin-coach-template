@@ -67,8 +67,9 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
   activity list), Upcoming (this week + next week with full descriptions).
 - Week tab: a day is green when its planned sessions were followed (≥85 %), yellow when planned but done
   less/differently or not at all (past days); today stays neutral until something is done.
-- The page is a snapshot from the last run. "Update data" opens the workflow's Run workflow menu on GitHub
-  (input `dashboard_only`: refreshes the dashboard only, ~30 s, no planning).
+- The page is a snapshot from the last run. "Update data" starts the workflow with input `dashboard_only`
+  (dashboard only, ~30 s, no planning) straight from the page, waits and reloads. One-time setup: the page asks
+  for a GitHub fine-grained token (Actions: read and write on this repo), kept in the browser's localStorage only.
 - `/api/data` returns the raw JSON for debugging.
 - Design tokens and schema: `docs/DESIGN_BRIEF.md`, `docs/BACKEND_SCHEMA.md`.
 

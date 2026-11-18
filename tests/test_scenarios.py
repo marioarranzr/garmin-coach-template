@@ -2197,7 +2197,7 @@ def test_an_activity_close_to_the_plan_counts_as_that_session_even_without_follo
     assert M.similarity(easy, {"sport": "bike", "duration_min": 45}) < M.THRESHOLD   # an easy ride has no main set to protect
 
 
-def test_dashboard_update_button_opens_the_workflow_on_github():
+def test_dashboard_update_button_runs_the_workflow_from_the_page():
     import os
     from coach import dashboard as D
     old = os.environ.pop("GITHUB_REPOSITORY", None)
@@ -2205,7 +2205,7 @@ def test_dashboard_update_button_opens_the_workflow_on_github():
         assert "location.reload" in D._refresh_button()
         os.environ["GITHUB_REPOSITORY"] = "me/garmin-coach"
         b = D._refresh_button()
-        assert "https://github.com/me/garmin-coach/actions/workflows/coach.yml" in b and "Update data" in b
+        assert 'data-repo="me/garmin-coach"' in b and "Update data" in b and "dashboard_only" in b
     finally:
         os.environ.pop("GITHUB_REPOSITORY", None)
         if old: os.environ["GITHUB_REPOSITORY"] = old
@@ -2228,7 +2228,19 @@ def test_week_days_are_green_when_the_plan_was_followed_and_yellow_when_not():
     assert rows["2026-11-18"]["status"] == "ok" and rows["2026-11-17"]["status"] == "partial"
     assert rows["2026-11-16"]["status"] == "partial" and rows["2026-11-19"]["status"] == ""    # planned, nothing done / still to come
     assert any("of the plan" in x for x in rows["2026-11-17"]["done"]) and any("as planned" in x for x in rows["2026-11-18"]["done"])
-    assert "st-ok" in D._week_row(rows["2026-11-18"]) and "st-partial" in D._week_row(rows["2026-11-17"])
+    assert 'class="m-ok"' in D._week_row(rows["2026-11-18"]) and 'class="m-part"' in D._week_row(rows["2026-11-17"])
+    assert "5×5' tempo" and session_from("Bike 5×5' tempo")["duration_min"] is None       # not 5 minutes
+
+
+def test_planned_length_comes_from_the_garmin_workout_not_the_title():
+    from coach.calendar import Calendar
+
+    class Api:
+        def get_scheduled_workouts(self, y, m):
+            return {"calendarItems": [{"itemType": "workout", "date": "2026-11-18", "title": "Coach · Bike 5×5' tempo", "workoutId": 9}]} if (y, m) == (2026, 11) else {}
+        def get_workout_by_id(self, wid): return {"description": "x", "estimatedDurationInSecs": 3900}
+    e = Calendar(Api(), {}).plan(dt.date(2026, 11, 18))[0]
+    assert e["session"]["duration_min"] == 65
 
 
 def test_spare_strength_workouts_replace_the_old_ones_and_stay_off_the_calendar():

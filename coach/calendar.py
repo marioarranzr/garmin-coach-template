@@ -126,7 +126,7 @@ def session_from(title: str, meta: dict | None = None, km: float | None = None) 
     if km is None and sport == "run":
         found = re.findall(r"(\d+(?:\.\d+)?)\s*km", title)   # the last one: "Quality · 5×1 km, 8 km"
         km = float(found[-1]) if found else None
-    mins = re.search(r"(\d+)'", title)
+    mins = re.search(r"(?<![\d×x])(\d+)'", title)       # "Strength 46'", not the "5'" of "5×5' tempo"
     return {"kind": kind, "sport": sport, "title": title, "intensity": "easy" if optional else intensity,
             "optional": optional,
             "distance_km": km if sport in ("run", "swim") else None,
@@ -161,8 +161,11 @@ class Calendar:
             try:
                 w = self.api.get_workout_by_id(workout_id) or {}
                 dist = w.get("estimatedDistanceInMeters")
-                self._details[key] = (read_description(w.get("description")),
-                                      round(dist / 1000, 2) if dist else None)
+                meta = dict(read_description(w.get("description")))
+                secs = w.get("estimatedDurationInSecs")
+                if secs and not meta.get("min"):
+                    meta["min"] = round(secs / 60)          # the workout's own length ("5×5'" isn't 5 minutes)
+                self._details[key] = (meta, round(dist / 1000, 2) if dist else None)
             except Exception as e:  # noqa: BLE001
                 log.warning("Couldn't read Garmin workout %s: %s", workout_id, e)
                 self._details[key] = ({}, None)

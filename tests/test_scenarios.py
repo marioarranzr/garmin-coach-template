@@ -2227,8 +2227,9 @@ def test_week_days_are_green_when_the_plan_was_followed_and_yellow_when_not():
     rows = {r["date"]: r for r in D._day_rows(Cal(), acts, dt.date(2026, 11, 16), 4, dt.date(2026, 11, 18))}
     assert rows["2026-11-18"]["status"] == "ok" and rows["2026-11-17"]["status"] == "partial"
     assert rows["2026-11-16"]["status"] == "partial" and rows["2026-11-19"]["status"] == ""    # planned, nothing done / still to come
-    assert any("of the plan" in x for x in rows["2026-11-17"]["done"]) and any("as planned" in x for x in rows["2026-11-18"]["done"])
-    assert 'class="m-ok"' in D._week_row(rows["2026-11-18"]) and 'class="m-part"' in D._week_row(rows["2026-11-17"])
+    assert rows["2026-11-18"]["done_status"] == ["ok"] and rows["2026-11-17"]["done_status"] == ["part"]
+    assert 'class="a-ok"' in D._week_row(rows["2026-11-18"]) and 'class="a-part"' in D._week_row(rows["2026-11-17"])
+    assert D._act_status({"sport": "run"}) == "" and D._act_status({"plan_score": 0.2}) == ""      # not planned / not what was asked
     assert "5×5' tempo" and session_from("Bike 5×5' tempo")["duration_min"] is None       # not 5 minutes
 
 

@@ -171,6 +171,7 @@ def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today:
         entries = cal.plan(day) or (cal.plan(day, draft=True) if drafts or day >= today else [])
         done = [a for a in acts if a["date"] == day.isoformat()]
         planned = [e["session"]["title"] for e in entries]
+        shown = [a for a in done if (a.get("distance_km") or 0) > 0 or (a.get("duration_min") or 0) >= 10]
         projected = False
         if not entries and project and horizon and day > horizon:
             planned, projected = project(day), True
@@ -193,26 +194,32 @@ def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today:
             "description": (_merge_descriptions([(e["session"]["title"], _full_description(cal, e))
                                                  for e in entries if e.get("workoutId")])
                             if full_text and entries else ""),
-            "done": [_done_text(a, " — ", ", ") for a in done
-                     if (a.get("distance_km") or 0) > 0 or (a.get("duration_min") or 0) >= 10],
+            "done": [_done_text(a, " — ", ", ") for a in shown],
+            "done_status": [_act_status(a) for a in shown],
         })
     return out
 
 
-def _marked(text: str) -> str:
-    """Escaped done text with its plan match coloured: green "as planned", amber "52% of the plan"."""
-    import re
-    t = _e(text)
-    t = re.sub(r"(as planned \(\d+%\))", r'<span class="m-ok">\1</span>', t)
-    return re.sub(r"(\d+% of the plan)", r'<span class="m-part">\1</span>', t)
+PARTIAL_FROM = 0.35      # below this it's not what the day asked for at all
+
+
+def _act_status(a: dict) -> str:
+    """green: did what was planned; yellow: part of it; none: not planned that day, or not what it asked."""
+    if a.get("followed"):
+        return "ok"
+    return "part" if (a.get("plan_score") or 0) >= PARTIAL_FROM else ""
+
+
+def _done_items(d: dict, sep: str) -> str:
+    """The day's activities, each coloured by how it matches the plan."""
+    marks = d.get("done_status") or [""] * len(d["done"])
+    return sep.join(f'<span class="a-{m or "none"}">{_e(x)}</span>' for x, m in zip(d["done"], marks))
 
 
 def _done_text(a: dict, sep: str, sep2: str) -> str:
     """"Name — 5.6 km, 33'" (no km for strength and the like)."""
     km = f"{a['distance_km']:g} km{sep2}" if (a.get("distance_km") or 0) > 0 else ""
-    mark = (f"{sep}as planned ({a['match']:.0%})" if a.get("followed")
-            else f"{sep}{a['plan_score']:.0%} of the plan" if a.get("plan_score") else "")
-    return f"{a.get('name') or a['sport']}{sep}{km}{a['duration_min']:.0f}'{mark}"
+    return f"{a.get('name') or a['sport']}{sep}{km}{a['duration_min']:.0f}'"
 
 
 def _strength_workouts(cal: Calendar, today: dt.date) -> list[dict]:
@@ -361,6 +368,7 @@ def build_data(api, cfg: dict, today: dt.date | None = None) -> dict:
             "planned": planned_titles,
             "description": desc,
             "done": [_done_text(a, " · ", " · ") for a in day_acts],
+            "done_status": [_act_status(a) for a in day_acts],
         })
 
     # Current week aggregates — include all bike-type sports
@@ -485,7 +493,7 @@ def _day_card(d: dict, compact: bool = False) -> str:
     # Done activities
     done_html = ""
     if d["done"]:
-        items = " &nbsp;·&nbsp; ".join(_marked(x) for x in d["done"])
+        items = _done_items(d, " &nbsp;·&nbsp; ")
         done_html = f'<div class="done-row">&#10003;&nbsp;{items}</div>'
     elif d["is_past"] and not d["planned"]:
         done_html = '<div class="rest-row">Rest</div>'
@@ -771,7 +779,7 @@ def _decision_card(d: dict) -> str:
     planned = " + ".join(_e(p) for p in d["planned"])
     done_html = ""
     if d["done"]:
-        items = "".join(f'<span class="done-item">{_e(x)}</span>' for x in d["done"])
+        items = _done_items(d, " ")
         done_html = f'<div class="dec-done">&#10003; {items}</div>'
     elif d["is_past"]:
         done_html = '<div class="dec-rest">&#8212;</div>'
@@ -871,7 +879,7 @@ def _day_parts(d: dict) -> tuple[str, str, str, str]:
         cls += " projected"
     done_html = ""
     if d["done"]:
-        items = " &nbsp;·&nbsp; ".join(_marked(x) for x in d["done"])
+        items = _done_items(d, " &nbsp;·&nbsp; ")
         done_html = f'<div class="done-row">&#10003;&nbsp;{items}</div>'
     elif d["is_past"] and not d["planned"]:
         done_html = '<div class="rest-row">Rest</div>'
@@ -1041,8 +1049,9 @@ _PAGE = (
     '  padding: 13px 0; border-bottom: 1px solid var(--border);\n'
     '}\n'
     '.day-row.day-past { opacity: .72; }\n'
-    '.m-ok { color: var(--ok); font-weight: 600; }\n'
-    '.m-part { color: var(--warn); font-weight: 600; }\n'
+    '.a-ok { color: var(--ok); }\n'
+    '.a-part { color: var(--warn); }\n'
+    '.a-none { color: var(--fg); }\n'
     '.day-row.day-today {\n'
     '  background: color-mix(in srgb,var(--accent) 7%,transparent);\n'
     '  border-radius: 8px; padding: 13px 10px; margin: 0 -10px;\n'
@@ -1059,7 +1068,7 @@ _PAGE = (
     '}\n'
     '.day-body { min-width: 0; }\n'
     '.day-session { font-weight: 500; font-size: .93rem; line-height: 1.35; margin-bottom: 4px; }\n'
-    '.done-row { color: var(--ok); font-size: .78rem; margin-bottom: 4px; }\n'
+    '.done-row { color: var(--fg); font-size: .78rem; margin-bottom: 4px; }\n'
     '.rest-row { color: var(--dim); font-size: .78rem; margin-bottom: 4px; }\n'
     '.day-reason {\n'
     '  color: var(--muted); font-size: .78rem; line-height: 1.6;\n'
@@ -1191,7 +1200,7 @@ _PAGE = (
     '.dec-hd { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }\n'
     '.dec-date { color: var(--muted); font-size: .72rem; min-width: 78px; flex-shrink: 0; font-variant-numeric: tabular-nums; }\n'
     '.dec-plan { font-weight: 500; font-size: .85rem; min-width: 0; }\n'
-    '.dec-done { font-size: .77rem; color: var(--ok); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 6px; }\n'
+    '.dec-done { font-size: .77rem; color: var(--fg); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 6px; }\n'
     '.dec-rest { color: var(--dim); font-size: .77rem; margin-top: 3px; }\n'
     '.done-item { }\n'
     '.desc-toggle { margin-top: 6px; }\n'

@@ -2151,6 +2151,32 @@ def test_bike_sessions_say_the_watts_when_ftp_is_set():
         P.set_ftp({})
 
 
+def test_bike_steps_target_power_with_heart_rate_second_and_fall_back():
+    from coach import planner as P, workouts as WK, garmin_api as G
+    ph = P.Phase("run", "base", "b", None, None, 1.0, False, 10)
+    try:
+        P.set_ftp({"athlete": {"ftp_w": 265}})
+        wj = WK.to_garmin(P.make_bike("bike_quality", ph), {}, "d")
+        st = [x for x in wj["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"]][0]
+        assert st["targetType"]["workoutTargetTypeKey"] == "power.zone" and (st["targetValueOne"], st["targetValueTwo"]) == (200.0, 239.0)
+        assert st["secondaryTargetType"]["workoutTargetTypeKey"] == "heart.rate.zone" and st["secondaryZoneNumber"] == 3
+        P.set_ftp({})
+        wj2 = WK.to_garmin(P.make_bike("bike_quality", ph), {}, "d")
+        assert "secondaryTargetType" not in str(wj2) and "heart.rate.zone" in str(wj2)     # no FTP: heart rate only
+    finally:
+        P.set_ftp({})
+
+    class Api:
+        calls = []
+        def upload_workout(self, w):
+            self.calls.append("secondaryTargetType" in str(w))
+            if self.calls[-1]: raise RuntimeError("400")
+            return {"workoutId": 5}
+    api = Api()
+    G._upload(api, wj)
+    assert api.calls == [True, False]
+
+
 def test_spare_strength_workouts_replace_the_old_ones_and_stay_off_the_calendar():
     from coach import garmin_api as G
 

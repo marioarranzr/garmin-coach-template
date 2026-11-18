@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 import getpass
+import json
 import logging
 import os
 from pathlib import Path
@@ -346,8 +347,28 @@ def fetch_wellness(api, d: dt.date) -> dict:
 
 
 # ── calendar ────────────────────────────────────────────────────────────────
+def _strip_secondary(steps: list) -> None:
+    for st in steps:
+        for k in ("secondaryTargetType", "secondaryZoneNumber"):
+            st.pop(k, None)
+        _strip_secondary(st.get("workoutSteps") or [])
+
+
+def _upload(api, workout_json: dict):
+    """Power + heart-rate targets; if Garmin refuses the second target, upload with power only."""
+    try:
+        return api.upload_workout(workout_json)
+    except Exception as e:  # noqa: BLE001
+        if "secondaryTargetType" not in json.dumps(workout_json):
+            raise
+        log.warning("Garmin refused the heart-rate second target (%s); uploading power only.", e)
+        for seg in workout_json.get("workoutSegments") or []:
+            _strip_secondary(seg.get("workoutSteps") or [])
+        return api.upload_workout(workout_json)
+
+
 def upload_and_schedule(api, workout_json: dict, date_str: str) -> dict:
-    res = api.upload_workout(workout_json)
+    res = _upload(api, workout_json)
     wid = find_key(res, "workoutId")
     sched = api.schedule_workout(wid, date_str)
     sid = find_key(sched, "workoutScheduleId") or find_key(sched, "scheduledWorkoutId")

@@ -52,6 +52,9 @@ def _steps(steps: list[dict], counter: list[int], swim: bool) -> list[dict]:
         pt = None if swim or not st.get("pace") else _pace_target(st["pace"])
         if pt:
             tgt, zn = pt[0], None
+        pw = st.get("watts") if not swim else None
+        if pw and zone:     # bike with FTP: power is the target, heart-rate zone the second one
+            tgt, zn = {"workoutTargetTypeId": 2, "workoutTargetTypeKey": "power.zone", "displayOrder": 2}, None
         step = {
             "type": "ExecutableStepDTO", "stepOrder": order,
             "stepType": {"stepTypeId": sid, "stepTypeKey": skey, "displayOrder": sid},
@@ -61,6 +64,10 @@ def _steps(steps: list[dict], counter: list[int], swim: bool) -> list[dict]:
         }
         if zn:
             step["zoneNumber"] = zn
+        if pw and zone:
+            step["targetValueOne"], step["targetValueTwo"] = float(pw[0]), float(pw[1])
+            step["secondaryTargetType"] = {"workoutTargetTypeId": 4, "workoutTargetTypeKey": "heart.rate.zone", "displayOrder": 4}
+            step["secondaryZoneNumber"] = zone
         if pt:
             step["targetValueOne"], step["targetValueTwo"] = round(pt[1], 4), round(pt[2], 4)
         if st.get("how") and st.get("exercise"):   # strength: the watch shows the name; the note says how

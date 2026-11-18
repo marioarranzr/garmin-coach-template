@@ -376,8 +376,8 @@ def purge_leftovers(api, cal, today: dt.date, keep: set | None = None) -> int:
             if wid:
                 used.add(str(wid))
             title = str(item.get("title") or "")
-            if title.startswith(cal.draft_prefix) and "rest / mobility" in title.lower() \
-                    and str(item.get("date") or "")[:10] >= today.isoformat():
+            day = str(item.get("date") or "")[:10]
+            if title.startswith(cal.draft_prefix) and (day < today.isoformat() or "rest / mobility" in title.lower()):
                 rest.append({"workoutId": wid, "scheduleId": item.get("id") or find_key(item, "workoutScheduleId")})
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
     remove_uploaded(api, rest)

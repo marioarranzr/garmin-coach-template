@@ -174,8 +174,17 @@ def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today:
         projected = False
         if not entries and project and horizon and day > horizon:
             planned, projected = project(day), True
+        required = [e["session"]["title"] for e in entries if not e["session"].get("optional")]
+        followed = {a["followed"] for a in done if a.get("followed")}
+        status = ""      # green: did what was planned; yellow: planned but done differently, less or not at all
+        if required and day <= today:
+            if all(t in followed for t in required):
+                status = "ok"
+            elif day < today or done:
+                status = "partial"
         out.append({
             "date": day.isoformat(),
+            "status": status,
             "weekday": day.strftime("%A"),
             "is_today": day == today,
             "is_past": day < today,
@@ -193,7 +202,8 @@ def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today:
 def _done_text(a: dict, sep: str, sep2: str) -> str:
     """"Name — 5.6 km, 33'" (no km for strength and the like)."""
     km = f"{a['distance_km']:g} km{sep2}" if (a.get("distance_km") or 0) > 0 else ""
-    mark = f"{sep}as planned ({a['match']:.0%})" if a.get("followed") else ""
+    mark = (f"{sep}as planned ({a['match']:.0%})" if a.get("followed")
+            else f"{sep}{a['plan_score']:.0%} of the plan" if a.get("plan_score") else "")
     return f"{a.get('name') or a['sport']}{sep}{km}{a['duration_min']:.0f}'{mark}"
 
 
@@ -461,6 +471,8 @@ def _day_card(d: dict, compact: bool = False) -> str:
         row_cls = ""
         badge = ""
 
+    if d.get("status"):
+        row_cls += f" st-{d['status']}"
     if compact:
         row_cls += " day-compact"
 
@@ -848,6 +860,8 @@ def _day_parts(d: dict) -> tuple[str, str, str, str]:
     else:
         cls, badge = "", ""
     planned = " + ".join(_e(p) for p in d["planned"]) or "Rest"
+    if d.get("status"):
+        cls += f" st-{d['status']}"
     if d.get("projected"):
         planned += ' <span class="proj-tag">projected</span>'
         cls += " projected"
@@ -1023,6 +1037,11 @@ _PAGE = (
     '  padding: 13px 0; border-bottom: 1px solid var(--border);\n'
     '}\n'
     '.day-row.day-past { opacity: .72; }\n'
+    '.st-ok { box-shadow: inset 3px 0 0 var(--ok); padding-left: 10px; }\n'
+    '.st-partial { box-shadow: inset 3px 0 0 var(--warn); padding-left: 10px; }\n'
+    '.st-ok .done-row { color: var(--ok); }\n'
+    '.st-partial .done-row { color: var(--warn); }\n'
+    '.st-ok.day-past, .st-partial.day-past { opacity: 1; }\n'
     '.day-row.day-today {\n'
     '  background: color-mix(in srgb,var(--accent) 7%,transparent);\n'
     '  border-radius: 8px; padding: 13px 10px; margin: 0 -10px;\n'

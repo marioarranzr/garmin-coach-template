@@ -65,6 +65,8 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
   exercises, sets, weights, short cue and a picture from free-exercise-db). Older notes: Status (race countdown, phase, week progress, 12-week chart), Why
   (training logic), Decisions (14-day coach reasoning log), Training (filterable
   activity list), Upcoming (this week + next week with full descriptions).
+- Week tab: a day is green when its planned sessions were followed (≥85 %), yellow when planned but done
+  less/differently or not at all (past days); today stays neutral until something is done.
 - The page is a snapshot from the last run. "Update data" opens the workflow's Run workflow menu on GitHub
   (input `dashboard_only`: refreshes the dashboard only, ~30 s, no planning).
 - `/api/data` returns the raw JSON for debugging.

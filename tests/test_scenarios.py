@@ -2211,6 +2211,26 @@ def test_dashboard_update_button_opens_the_workflow_on_github():
         if old: os.environ["GITHUB_REPOSITORY"] = old
 
 
+def test_week_days_are_green_when_the_plan_was_followed_and_yellow_when_not():
+    from coach import dashboard as D, match as M
+    from coach.calendar import session_from
+    plans = {"2026-11-17": "Easy run 6.5 km", "2026-11-18": "Bike 5×5' tempo", "2026-11-16": "Easy run 5 km", "2026-11-19": "Easy run 5 km"}
+    mins = {"2026-11-17": 40, "2026-11-18": 60, "2026-11-16": 30, "2026-11-19": 30}
+
+    class Cal:
+        def plan(self, day, draft=False):
+            t = plans.get(day.isoformat())
+            return [{"session": session_from(t, {"min": mins[day.isoformat()]}, 6.5 if "6.5" in t else None), "workoutId": None}] if t and not draft else []
+    acts = [{"date": "2026-11-17", "sport": "run", "distance_km": 3.38, "duration_min": 20, "name": "Run"},
+            {"date": "2026-11-18", "sport": "bike", "distance_km": 30, "duration_min": 58, "name": "Ride"}]
+    M.tag_followed(acts, Cal(), [dt.date(2026, 11, 16) + dt.timedelta(days=i) for i in range(3)])
+    rows = {r["date"]: r for r in D._day_rows(Cal(), acts, dt.date(2026, 11, 16), 4, dt.date(2026, 11, 18))}
+    assert rows["2026-11-18"]["status"] == "ok" and rows["2026-11-17"]["status"] == "partial"
+    assert rows["2026-11-16"]["status"] == "partial" and rows["2026-11-19"]["status"] == ""    # planned, nothing done / still to come
+    assert any("of the plan" in x for x in rows["2026-11-17"]["done"]) and any("as planned" in x for x in rows["2026-11-18"]["done"])
+    assert "st-ok" in D._week_row(rows["2026-11-18"]) and "st-partial" in D._week_row(rows["2026-11-17"])
+
+
 def test_spare_strength_workouts_replace_the_old_ones_and_stay_off_the_calendar():
     from coach import garmin_api as G
 

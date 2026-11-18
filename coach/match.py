@@ -19,7 +19,8 @@ COOLDOWN_SLACK_MIN = 10     # a cool-down cut short doesn't matter: the main set
 def similarity(plan: dict, a: dict) -> float:
     """0..1: same sport, then how close the duration (and the distance, for runs and swims) is.
     A session with a main set (quality, long) can end up to 10' early: the cool-down is optional."""
-    if plan.get("sport") != a.get("sport"):
+    sport = lambda x: "strength" if x == "strength_training" else x
+    if sport(plan.get("sport")) != sport(a.get("sport")):
         return 0.0
     want = plan.get("duration_min")
     if want and plan.get("intensity") in ("hard", "moderate") and (a.get("duration_min") or 0) < want:
@@ -45,6 +46,8 @@ def tag_followed(acts: list[dict], cal, days: list[dt.date], threshold: float = 
         for e in entries:
             plan = e["session"]
             best = max(((similarity(plan, a), i) for i, a in enumerate(today_acts)), default=(0, -1))
+            if best[1] >= 0 and best[0] > 0 and not today_acts[best[1]].get("plan_score"):
+                today_acts[best[1]]["plan_score"] = best[0]          # for "52 % of the plan" on the Week tab
             if best[0] >= threshold:
                 a = today_acts.pop(best[1])
                 a["followed"], a["match"] = plan["title"], best[0]

@@ -2183,8 +2183,8 @@ def test_an_activity_close_to_the_plan_counts_as_that_session_even_without_follo
 
     class Cal:
         def plan(self, day):
-            return [{"session": session_from("Bike 5×5' tempo", {"min": 60, "i": "hard"})}] if day == dt.date(2026, 11, 18) else []
-    s = session_from("Bike 5×5' tempo", {"min": 60})
+            return [{"session": session_from("Bike 4×8' threshold", {"min": 60})}] if day == dt.date(2026, 11, 18) else []
+    s = session_from("Bike 4×8' threshold", {"min": 60})
     assert M.similarity(s, {"sport": "bike", "duration_min": 57}) >= 0.9 and M.similarity(s, {"sport": "run", "duration_min": 60}) == 0
     ride = {"date": "2026-11-18", "sport": "bike", "duration_min": 58, "distance_km": 30, "source": "strava"}
     short = {"date": "2026-11-18", "sport": "bike", "duration_min": 20, "distance_km": 8}

@@ -362,6 +362,20 @@ def remove_uploaded(api, uploads: list[dict]) -> None:
             _safe(api.delete_workout, u["workoutId"])
 
 
+def refresh_spares(api, base: str, workouts: list[dict]) -> list[str]:
+    """Spare workouts for the watch's list (not on any day): the old ones go, the new ones are
+    uploaded without a date, so there's always one more than planned to pick."""
+    prefix = f"{base} spare ·"
+    for w in _safe(api.get_workouts, 0, 200, default=[]) or []:
+        if str(w.get("workoutName") or "").startswith(prefix) and w.get("workoutId"):
+            _safe(api.delete_workout, w["workoutId"])
+    ids = []
+    for wj in workouts:
+        res = api.upload_workout(wj)
+        ids.append(str(find_key(res, "workoutId")))
+    return ids
+
+
 def purge_leftovers(api, cal, today: dt.date, keep: set | None = None) -> int:
     """Delete the coach's workouts that no calendar day uses any more (a draft whose delete
     failed would still show on the watch, e.g. last week's "Strength · lower body"), and any

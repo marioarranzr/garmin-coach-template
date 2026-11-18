@@ -28,6 +28,7 @@ log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent
 
 
+SPARE_LINE = "Spare workout: for one more strength day if you feel like it (not planned)."
 DRAFT_LINE = ("Draft: the coach plans this day the evening before and checks it that morning "
               "with your sleep, recovery and notes.")
 COACH_ACTIVE_DAYS = 14  # if the coach put workouts in your calendar recently, an empty day was a rest day
@@ -501,6 +502,17 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                     kept_ids.add(str(G.upload_and_schedule(api, to_garmin(s, draft_cfg, fit(body, "")), day.isoformat())["workoutId"]))
                 except Exception as e:  # noqa: BLE001
                     log.error("Could not upload the draft for %s to Garmin: %s", day, e)
+
+    if upload and ahead:     # spare strength workouts in the watch's list: one more than planned to pick from
+        try:
+            from .strength import make_strength
+            base = (cfg.get("garmin") or {}).get("workout_prefix", "Coach")
+            spare_cfg = dict(cfg, garmin=dict(cfg.get("garmin") or {}, workout_prefix=base + " spare"))
+            ph0 = ahead[0][1]
+            spares = [make_strength(k, ph0, week_index(d, cfg)) for k in ("strength_core", "strength")]
+            G.refresh_spares(api, base, [to_garmin(s, spare_cfg, fit(SPARE_LINE + "\n\n" + s.detail, "")) for s in spares])
+        except Exception as e:  # noqa: BLE001
+            log.warning("Couldn't prepare the spare strength workouts: %s", e)
 
     if upload:       # leftovers that would still show on the watch
         try:

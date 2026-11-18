@@ -2136,6 +2136,22 @@ def test_leftover_coach_workouts_are_removed_from_garmin():
     assert sorted(api.deleted) == [1, 3, 7] and sorted(api.unscheduled) == [30, 70] and n == 3    # old "lower" + the rest draft; not what's used or kept
 
 
+def test_spare_strength_workouts_replace_the_old_ones_and_stay_off_the_calendar():
+    from coach import garmin_api as G
+
+    class Api:
+        deleted, uploaded = [], []
+        def get_workouts(self, start, limit):
+            return [{"workoutId": 1, "workoutName": "Coach spare · Strength & core 30'"},
+                    {"workoutId": 2, "workoutName": "Coach · Easy run 5 km"}]
+        def delete_workout(self, wid): self.deleted.append(wid)
+        def upload_workout(self, wj):
+            self.uploaded.append(wj); return {"workoutId": 100 + len(self.uploaded)}
+    api = Api()
+    ids = G.refresh_spares(api, "Coach", [{"workoutName": "Coach spare · A"}, {"workoutName": "Coach spare · B"}])
+    assert api.deleted == [1] and ids == ["101", "102"]
+
+
 def test_strength_tab_also_shows_library_workouts_no_calendar_day_has():
     from coach import dashboard as D, strength as ST, workouts as WK
     from coach.calendar import Calendar

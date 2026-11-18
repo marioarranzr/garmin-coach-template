@@ -50,6 +50,8 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
 - Strength: home gym (50 cm box, bar up to 48 kg, 10 kg dumbbell); Garmin exercise
   names on the watch, one-line how-to per exercise, warm-up 30" per exercise, sides
   as left/right steps or alternating sets, Y-T-W as three exercises.
+- Spare strength workouts: two (core + the phase's heavy one) named "Coach spare · …" sit unscheduled in the watch's
+  workout list, refreshed on every plan, so there's always one more than planned.
 - Rest days: no Garmin workout (marked in Todoist).
 
 ## Dashboard

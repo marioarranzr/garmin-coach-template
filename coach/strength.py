@@ -192,6 +192,17 @@ def es_line(line: str) -> str:
     return f"{name} · {rest}" if rest else name
 
 
+def _short(line: str) -> str:
+    """"Single-arm snatch · 20 reps, alternating hands (switch at the floor) @ 10 kg" → "Single-arm snatch 20 alt. @ 10 kg"."""
+    import re
+    name, _, rest = line.partition(" · ")
+    rest = re.sub(r"\d+ (?:reps|steps): (\d+) one (?:side|way),(?: then)? \d+ (?:the other|back)", r"\1+\1", rest)
+    rest = re.sub(r"(\d+) reps, alternating \w+(?: \([^)]*\))?", r"\1 alt.", rest)
+    rest = re.sub(r"(\d+) reps", r"\1", rest)
+    rest = re.sub(r"each (?:leg|side|hand), left then right", "each side", rest)
+    return f"{name} {rest}".strip()
+
+
 def how(name: str) -> str:
     return (HOW_ES if _language[0] == "es" else HOW).get(name, "")
 
@@ -351,22 +362,26 @@ def make_strength(kind: str, phase: Phase, wk: int = 0, spare_shoulders: bool = 
     es = _language[0] == "es"
     spare = spare_shoulders and kind == "strength_core"
     moves = "walking lunge, leg swings" if spare else "walking lunge, bear crawl, leg swings, press-up walk-out"
-    lines = [f"Calentamiento, 2 rondas de 30\" cada uno: {moves}" if es
-             else f"Warm-up, 2 rounds of 30\" each: {moves}"]
+    # The written session is always English (only what the watch says per exercise follows `strength.language`).
+    # `detail`: line by line (Todoist, notification); `brief`: compact, for the Garmin description, which
+    # keeps only ~1000 characters for everything.
+    lines = [f"Warm-up, 2 rounds of 30\" each: {moves}"]
     for b in blocks:
         rest_s = next((x["value"] for x in b["steps"] if x["type"] == "rest"), 0)
-        lines.append(f"{b['iterations']} rondas ({rest_s}\" de descanso tras cada una):" if es
-                     else f"{b['iterations']} rounds ({rest_s}\" rest after each):")
-        lines += [f"• {es_line(x) if es else x}"
-                  for x in dict.fromkeys(x["line"] for x in b["steps"] if x["type"] == "interval")]
-    detail = "\n".join(lines + [TIP_ES.get(tip, tip) if es else tip])
+        lines.append(f"{b['iterations']} rounds ({rest_s}\" rest after each):")
+        lines += [f"• {x}" for x in dict.fromkeys(x["line"] for x in b["steps"] if x["type"] == "interval")]
+    detail = "\n".join(lines + [tip])
+    brief = "\n".join([f"Warm-up 2×30\": {moves}"] + [
+        f"{b['iterations']}× ({next((x['value'] for x in b['steps'] if x['type'] == 'rest'), 0)}\" rest): " + " · ".join(
+            _short(x) for x in dict.fromkeys(x["line"] for x in b["steps"] if x["type"] == "interval"))
+        for b in blocks] + [tip])
     names = dict.fromkeys(x["line"].split(" · ")[0] for b in [steps[0]] + blocks for x in b["steps"]
                           if x["type"] == "interval")
     head = "Cómo hacerlo:\n" if _language[0] == "es" else "How to:\n"
     how_text = head + "\n".join(f"• {n}: {how(n).split(': ', 1)[-1]}"
                                 for n in names if how(n))
     return Session(kind, "strength", f"{title} {m}'", "moderate" if kind == "strength" else "easy",
-                   None, m, detail, steps, how=how_text)
+                   None, m, detail, steps, how=how_text, brief=brief)
 
 
 # A picture per exercise for the dashboard: the free-exercise-db collection (public domain),

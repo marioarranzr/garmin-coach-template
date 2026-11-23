@@ -100,6 +100,7 @@ class Session:
     priority: bool = False           # e.g. swimming when you've been skipping it
     optional: bool = False           # e.g. swims while the next goals are running races
     how: str = ""                    # how to do each exercise (strength), for the Todoist plan
+    brief: str = ""                  # a compact `detail` for the Garmin description (strength)
 
     def to_dict(self) -> dict:
         return asdict(self)

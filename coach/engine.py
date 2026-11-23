@@ -508,7 +508,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
             for s in sess:
                 if not s.steps:
                     continue
-                body = "\n\n".join(x for x in (DRAFT_LINE, s.detail, " ".join(wnotes), ph.describe()) if x)
+                body = "\n\n".join(x for x in (DRAFT_LINE, s.brief or s.detail, " ".join(wnotes), ph.describe()) if x)
                 try:
                     kept_ids.add(str(G.upload_and_schedule(api, to_garmin(s, draft_cfg, fit(body, "")), day.isoformat())["workoutId"]))
                 except Exception as e:  # noqa: BLE001
@@ -521,7 +521,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
             spare_cfg = dict(cfg, garmin=dict(cfg.get("garmin") or {}, workout_prefix=base + " spare"))
             ph0 = ahead[0][1]
             spares = [make_strength(k, ph0, week_index(d, cfg)) for k in ("strength_core", "strength")]
-            G.refresh_spares(api, base, [to_garmin(s, spare_cfg, fit(SPARE_LINE + "\n\n" + s.detail, "")) for s in spares])
+            G.refresh_spares(api, base, [to_garmin(s, spare_cfg, fit(SPARE_LINE + "\n\n" + (s.brief or s.detail), "")) for s in spares])
         except Exception as e:  # noqa: BLE001
             log.warning("Couldn't prepare the spare strength workouts: %s", e)
 
@@ -725,7 +725,7 @@ def _workout_description(s: Session, r: dict, notes: list[str], why: str = "", c
     """What you read on the watch and in Garmin Connect: the why first, then
     the advice, the session, readiness with its main reasons, and the rules'
     changes (only when no AI coach made the final call)."""
-    blocks = [why, coach_note, s.detail]
+    blocks = [why, coach_note, s.brief or s.detail]
     if r["score"] is not None:        # the evening plan has no sleep data yet: the morning check adds readiness
         level = r["label"][2:].split(":")[0].strip()
         blocks.append("\n".join([f"Readiness {r['score']}/100 · {level}"] + [f"• {x}" for x in r["reasons"][:3]]))

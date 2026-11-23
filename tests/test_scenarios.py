@@ -1504,7 +1504,7 @@ def test_strength_sessions_for_a_home_gym():
     S.set_loads({"strength": {"loads": {"front_squat": 32, "hip_thrust": 12, "dumbbell": 10}, "max_bar_kg": 48}})
     base = Phase("short", "base", "x", None, None, 1, False, 14)
     s = S.make_strength("strength", base, 0)
-    assert s.sport == "strength" and "Front squat · 8 reps @ 32 kg" in s.detail and 25 <= s.duration_min <= 65
+    assert s.sport == "strength" and "Front squat · 8 reps @ 32 kg" in s.detail and "Front squat 8 @ 32 kg" in s.brief and 25 <= s.duration_min <= 65
     assert "Front squat · 8 reps @ 36 kg" in S.make_strength("strength", base, 2).detail      # +2 kg a week
     assert "@ 32 kg" in S.make_strength("strength", base, 3).detail                           # deload week
     S.set_loads({"strength": {"loads": {"front_squat": 46}, "max_bar_kg": 48}})
@@ -1529,9 +1529,9 @@ def test_strength_sessions_for_a_home_gym():
     calf = [x for st in s.steps for x in st.get("steps", []) if x.get("note", "").startswith("Single-leg calf")]
     assert [x["note"] for x in calf] == ["Single-leg calf raise · 30 reps: 15 one side, then 15 the other @ 10 kg"]
     assert all(x["value"] == 30 and x["how"].startswith("15+15 · 10 kg · ") for x in calf)      # one step, 15 + 15
-    assert "• Single-leg calf raise · 30 reps: 15 one side, then 15 the other @ 10 kg" in s.detail
+    assert "• Single-leg calf raise · 30 reps: 15 one side, then 15 the other @ 10 kg" in s.detail and "Single-leg calf raise 15+15 @ 10 kg" in s.brief
     assert [x["value"] for st in s.steps for x in st.get("steps", []) if x.get("note", "").startswith("Side plank")] == [40, 40]   # timed: still one step per side
-    assert "• Single-arm snatch · 20 reps, alternating hands (switch at the floor) @ 10 kg" in core.detail
+    assert "• Single-arm snatch · 20 reps, alternating hands (switch at the floor) @ 10 kg" in core.detail and "Single-arm snatch 20 alt. @ 10 kg" in core.brief
     from coach.strength import GARMIN_EXERCISE
     from garminconnect.exercises import _RAW
     known = {(c, e) for _, c, e in _RAW}
@@ -1909,10 +1909,9 @@ def test_strength_cues_are_short_spanish_and_the_warmup_is_plain_timed_steps():
                        and x["description"].startswith("Paso largo") for x in steps)   # timed, with its Garmin exercise and cue (as before)
             assert all("exerciseName" in x for x in steps if x["endCondition"]["conditionTypeKey"] == "reps")
             assert s.how.startswith("Cómo hacerlo")
-            # the written description is Spanish too (no English left over)
-            for word in ("rounds", "rest after", "each leg", "Warm-up", "full hang", "left then right"):
-                assert word not in s.detail and word not in s.how, (word, s.detail)
-            assert "rondas" in s.detail and "descanso" in s.detail
+            # the written description stays English (web, Todoist); only the watch's cues are Spanish
+            assert "rounds" in s.detail and "rondas" not in s.detail and "descanso" not in s.brief
+            assert len(s.brief) < 700 and len(s.brief) < len(s.detail)
             assert "Pull-up" in s.detail or kind == "strength"                        # names stay in English
     finally:
         S.set_loads({})

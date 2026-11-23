@@ -50,7 +50,9 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
   workout; past days are never touched.
 - Strength: home gym (50 cm box, bar up to 48 kg, 10 kg dumbbell); Garmin exercise
   names on the watch, one-line how-to per exercise, warm-up 30" per exercise, sides
-  as left/right steps or alternating sets, Y-T-W as three exercises.
+  as left/right steps or alternating sets, Y-T-W as three exercises. Everything written is English (web,
+  Todoist, Garmin description: compact `Session.brief`, so it isn't cut at Garmin's 1000 characters); only
+  the per-exercise cues on the watch follow `strength.language`.
 - Spare strength workouts: two (core + the phase's heavy one) named "Coach spare · …" sit unscheduled in the watch's
   workout list, refreshed on every plan, so there's always one more than planned.
 - Bike sessions also give watts per zone from `athlete.ftp_w`: in the description and as the step note on

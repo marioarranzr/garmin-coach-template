@@ -363,6 +363,7 @@ SCHEDULE_SCHEMA = {
             "properties": {"kind": {"type": "string", "enum": SCHEDULE_KINDS}, "date": {"type": "string"}},
             "required": ["kind", "date"], "additionalProperties": False}},
         "no_swim_until": {"type": "string"},                                      # YYYY-MM-DD or ""
+        "no_run_until": {"type": "string"},                                       # YYYY-MM-DD or ""
         "day_plan": {"type": "array", "items": {
             "type": "object",
             "properties": {"date": {"type": "string"},
@@ -374,15 +375,16 @@ SCHEDULE_SCHEMA = {
         "preferences": {"type": "array", "items": {"type": "string"}},
         "notes_used": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["unavailable", "moves", "no_swim_until", "day_plan", "summary", "preferences", "notes_used"],
+    "required": ["unavailable", "moves", "no_swim_until", "no_run_until", "day_plan", "summary", "preferences", "notes_used"],
     "additionalProperties": False,
 }
 SCHEDULE_SYSTEM = """You read an athlete's short notes and pick out what they say about their training SCHEDULE for the coming days, so a coach can rearrange the plan. Only the schedule: how they feel is handled elsewhere.
 
 Return:
-- "unavailable": dates (YYYY-MM-DD) they can't train at all ("I can't train on Sunday", "travelling Friday and Saturday"). Only for days with NO training of any kind. "No running" (an injury, a sore tendon) is not unavailable: the coach handles pain elsewhere, so leave it out.
+- "unavailable": dates (YYYY-MM-DD) they can't train at all ("I can't train on Sunday", "travelling Friday and Saturday"). Only for days with NO training of any kind. Not running (an injury, a sore tendon) is not unavailable: that's "no_run_until".
 - "moves": where they want a key session: {"kind": "run_long" | "run_quality" | "bike_long" | "bike_quality" | "swim", "date"} ("long run on Saturday this week", "intervals on Thursday"). "kind": "run" means they want or can go for a run that day, any run ("tomorrow I can go for a run", "I haven't run since Tuesday, I'd like to run Thursday"): the next run of the week moves there, even onto a rest day.
 - "no_swim_until": the last date with no swims if they don't want to swim ("no swimming this week" → that week's Sunday), else "".
+- "no_run_until": the LAST date with no running, when they say they won't run for some days ("I won't run until Friday 27 because of my Achilles" → Thursday 26, the day before they run again; "no running this week" → that week's Sunday; "no running through Friday" → Friday), else "". Other training (rides, swims, strength) stays. If a later note says they can run again, the later note wins ("" or the new date).
 - "day_plan": when they say which sports they want to DO on a specific day ("tomorrow swim and run", "tomorrow just an easy ride", "Thursday swim only"), return {"date", "sports": [...]} with the sports they named ("run", "bike", "swim", "strength", "rest"). Those sports become that day's WHOLE plan: anything else the coach had that day (a ride, strength…) is dropped, and a sport they named that wasn't planned is added. This is for a day they are deciding the sports of — usually the next day, planned the evening before. Use "day_plan" for this, NOT "moves": "moves" only relocates one key session and keeps the rest of the day. If they name one sport only ("tomorrow I'll just run"), that is the whole day. Only include a day they actually listed sports for; don't infer it from "I can run tomorrow" (that's a "moves" run) or from how they feel.
 - "summary": one short sentence of what changes, for the athlete, or "" if nothing.
 - "preferences": the athlete's LASTING preferences and feedback about how they like to train or how sessions should be built ("give me 1' of walking before the strides", "I prefer long runs on Saturday", "I don't like the treadmill"), as short imperative lines for a coach. Start from "current_preferences" and return the full updated list: keep them unless a note changes or cancels one, add new lasting ones from "open_notes", merge duplicates. One-off things are NOT preferences: anything about a particular day or date (today, tomorrow, Friday, this week, "I can run tomorrow"), when they can or can't train, how they feel, the weather. Those go in "unavailable"/"moves" or nowhere; also drop any such entry already in "current_preferences".
@@ -422,12 +424,13 @@ def schedule_changes(cfg: dict, context: dict, client=None, prov: str | None = N
                "moves": [(m["kind"], day(m.get("date"))) for m in data.get("moves") or []
                          if m.get("kind") in SCHEDULE_KINDS and day(m.get("date"))],
                "no_swim_until": day(data.get("no_swim_until")) if data.get("no_swim_until") else None,
+               "no_run_until": day(data.get("no_run_until")) if data.get("no_run_until") else None,
                "day_plan": day_plan,
                "summary": (data.get("summary") or "").strip()[:300],
                "preferences": [str(x).strip()[:200] for x in data.get("preferences") or [] if str(x).strip()][:20],
                "notes_used": [str(n) for n in data.get("notes_used") or [] if str(n) in known][:10]}
-        return out if (out["unavailable"] or out["moves"] or out["no_swim_until"] or out["day_plan"]
-                       or out["notes_used"] or out["preferences"]) else {}
+        return out if (out["unavailable"] or out["moves"] or out["no_swim_until"] or out["no_run_until"]
+                       or out["day_plan"] or out["notes_used"] or out["preferences"]) else {}
     except Exception as e:  # noqa: BLE001 — the plan works without it
         log.warning("Couldn't read your schedule notes: %s", e)
         return {"error": str(e)[:200]}

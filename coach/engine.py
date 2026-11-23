@@ -122,6 +122,8 @@ def _notes_line(sc: dict) -> str:
         parts.append("no training " + ", ".join(d(x) for x in sorted(sc["unavailable"])))
     if sc.get("no_swim_until"):
         parts.append(f"no swims until {d(sc['no_swim_until'])}")
+    if sc.get("no_run_until"):
+        parts.append(f"no running until {d(sc['no_run_until'] + dt.timedelta(days=1))}")
     return ("From your notes: " + "; ".join(parts) + ".") if parts else ""
 
 
@@ -298,7 +300,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                     sched["prefs_saved"] = [x for x in new_prefs if x not in prefs]
                 prefs = new_prefs
             if (sched.get("unavailable") or sched.get("moves") or sched.get("no_swim_until")
-                    or sched.get("day_plan")):
+                    or sched.get("no_run_until") or sched.get("day_plan")):
                 cfg = dict(cfg, _constraints=sched, _today=d)
 
     wt = week_target(past, d, cfg)
@@ -807,7 +809,8 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
             "- (They're in the “📌 Coach preferences” task in your Todoist “Training plan” project: edit it there.)"]
     if sc.get("error"):
         L += ["", "## Your notes about the week", "- ⚠️ Couldn't read them this time (" + str(sc["error"])[:120] + ")."]
-    if sc.get("unavailable") or sc.get("moves") or sc.get("no_swim_until") or sc.get("day_plan"):
+    if (sc.get("unavailable") or sc.get("moves") or sc.get("no_swim_until") or sc.get("no_run_until")
+            or sc.get("day_plan")):
         L += ["", "## Your notes about the week"]
         for e in sc.get("day_plan") or []:
             L.append(f"- {e['date']:%a %d/%m}: " + " + ".join(e["sports"]))
@@ -817,6 +820,8 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
             L.append(f"- {kind.replace('run_', '').replace('bike_', 'bike ').replace('_', ' ')} on {day:%a %d/%m}")
         if sc.get("no_swim_until"):
             L.append(f"- No swims until {sc['no_swim_until']:%a %d/%m}")
+        if sc.get("no_run_until"):
+            L.append(f"- No running until {sc['no_run_until'] + dt.timedelta(days=1):%a %d/%m}")
     L += coach_section(coach or {}, cfg or {})
     L += ["", "## Garmin"]
     if upload:

@@ -35,7 +35,8 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
 - Strava (`coach/strava.py`): activities only in Strava (MyWhoosh rides) count.
 - AI coach (OpenAI) decides the day within limits (`ai.apply_limits`); a second call
   reads schedule notes (`ai.schedule_changes`): relative days are resolved from the
-  date each note was written; one-offs are never preferences.
+  date each note was written; one-offs are never preferences. "I won't run until Friday" → `no_run_until`
+  (the day before): runs are dropped from the template until then, other training stays.
 
 ## Mario's rules and preferences (already in code/config)
 - Races: Zürcher Silvesterlauf 8.5 km (2026-12-13), Zürich half (2027-04-11),

@@ -106,6 +106,7 @@ _KINDS = [
     (r"^Swim .*hard", ("swim_css", "swim", "hard")),
     (r"^Endurance swim", ("swim_endurance", "swim", "moderate")),
     (r"^Technique swim", ("swim_technique", "swim", "easy")),
+    (r"^Build-up swim", ("swim_technique", "swim", "easy")),
     (r"^Strength & core", ("strength_core", "strength", "easy")),
     (r"^Strength", ("strength", "strength", "moderate")),
     (r"^Rest", ("rest", "other", "rest")),
@@ -126,6 +127,9 @@ def session_from(title: str, meta: dict | None = None, km: float | None = None) 
     if km is None and sport == "run":
         found = re.findall(r"(\d+(?:\.\d+)?)\s*km", title)   # the last one: "Quality · 5×1 km, 8 km"
         km = float(found[-1]) if found else None
+    if km is None and sport == "swim":
+        metres = re.search(r"(\d+)\s*m\b", title)          # "Build-up swim 1100 m"
+        km = int(metres.group(1)) / 1000 if metres else None
     mins = re.search(r"(?<![\d×x])(\d+)'", title)       # "Strength 46'", not the "5'" of "5×5' tempo"
     return {"kind": kind, "sport": sport, "title": title, "intensity": "easy" if optional else intensity,
             "optional": optional,

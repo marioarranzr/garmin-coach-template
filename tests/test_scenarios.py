@@ -2259,6 +2259,27 @@ def test_cleanup_deletes_nothing_when_the_calendar_cant_be_read():
     assert G.purge_leftovers(api, Calendar(api, {}), dt.date(2026, 11, 18)) == 0 and api.deleted == []
 
 
+def test_a_swim_done_as_two_blocks_still_counts_when_the_distance_matches():
+    from coach import match as M
+    from coach.calendar import session_from
+    s = session_from("Build-up swim 1100 m (optional)", {"min": 45})
+    assert s["sport"] == "swim" and s["distance_km"] == 1.1
+    assert M.similarity(s, {"sport": "swim", "distance_km": 1.1, "duration_min": 23}) == 1.0     # 600 + 500 m, no rests
+    assert M.similarity(s, {"sport": "swim", "distance_km": 0.5, "duration_min": 12}) < 0.5
+
+
+def test_no_running_until_a_date_drops_the_runs_and_keeps_the_rest():
+    from coach import planner as P
+    mon = dt.date(2026, 11, 23)
+    tpl = {"mon": ["swim_technique"], "tue": ["run_strides", "bike_spin"], "wed": ["bike_quality"], "thu": ["rest"],
+           "fri": ["run_strides", "strength_core"], "sat": ["bike_long"], "sun": ["run_long"]}
+    out = P.apply_constraints(tpl, mon, {"no_run_until": dt.date(2026, 11, 26)}, dt.date(2026, 11, 23))
+    assert out["tue"] == ["bike_spin"] and out["fri"] == ["run_strides", "strength_core"] and out["sun"] == ["run_long"]
+    out2 = P.apply_constraints({"tue": ["run_easy"]} | {d: [] for d in ("mon", "wed", "thu", "fri", "sat", "sun")}, mon,
+                               {"no_run_until": dt.date(2026, 11, 26)}, dt.date(2026, 11, 23))
+    assert out2["tue"] == ["rest"]
+
+
 def test_spare_strength_workouts_replace_the_old_ones_and_stay_off_the_calendar():
     from coach import garmin_api as G
 

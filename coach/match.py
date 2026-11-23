@@ -27,6 +27,8 @@ def similarity(plan: dict, a: dict) -> float:
         want = max(want - COOLDOWN_SLACK_MIN, want * 0.5)
         if a["duration_min"] >= want:
             want = a["duration_min"]            # ended inside the cool-down: nothing missing
+    if plan.get("sport") == "swim" and plan.get("distance_km") and a.get("distance_km"):
+        return round(_ratio(a["distance_km"], plan["distance_km"]) or 0, 2)    # rests make the planned time meaningless
     parts = [r for r in (_ratio(a.get("duration_min"), want),
                          _ratio(a.get("distance_km"), plan.get("distance_km"))
                          if plan.get("sport") in ("run", "swim") else None) if r is not None]

@@ -870,7 +870,8 @@ def apply_constraints(tpl: dict, mon: dt.date, c: dict, today: dt.date | None = 
     - moves: [(kind, date)]: that session goes to that day, swapping days;
     - unavailable: {dates}: no training; its long run/quality session moves to
       the nearest free day (preferably earlier, not next to another hard day);
-    - no_swim_until: date: swims are dropped until then."""
+    - no_swim_until: date: swims are dropped until then;
+    - no_run_until: date: no runs until then (an injury): the rest of the day stays."""
     days = {wd: list(tpl.get(wd) or []) for wd in WEEKDAYS}
     first = max(0, ((today or mon) - mon).days)
     if first > 6:
@@ -962,6 +963,12 @@ def apply_constraints(tpl: dict, mon: dt.date, c: dict, today: dt.date | None = 
             if mon + dt.timedelta(days=i) <= until:
                 wd = WEEKDAYS[i]
                 days[wd] = [k for k in days[wd] if not k.startswith("swim_")] or ["rest"]
+    until = c.get("no_run_until")
+    if until:
+        for i in range(first, 7):
+            if mon + dt.timedelta(days=i) <= until:
+                wd = WEEKDAYS[i]
+                days[wd] = [k for k in days[wd] if not k.startswith("run_")] or ["rest"]
     return days
 
 

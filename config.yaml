@@ -146,6 +146,7 @@ ai:
   openai_model: gpt-5.5
   openai_day_model: gpt-5.5
   anthropic_model: claude-sonnet-5-5
+  weekly_review: false             # true: every new week the coach reviews the week before (one AI call)
   week_design: false               # true: the AI coach designs each week (see docs/COACH_DESIGN.md); try it first with the "design_preview" run
 
 # Your own notes on how you feel, read from Todoist: anything added to this

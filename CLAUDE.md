@@ -63,6 +63,7 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
   activity as the day's planned session when sport and duration/distance match ≥85 % (hard session → counts as
   the week's hard one); the Week tab colours it green.
 - Week design (`coach/design.py`, config `ai.week_design`, off until Mario turns it on): once per week the AI picks which session kinds go on which day (same kinds as the template); `validate` enforces the hard limits, one repair try, else the template. Saved in `data/coach_log/` (committed by the workflow). Preview without saving: workflow input `design_preview` / `python -m coach design`.
+- Weekly review (`coach/review.py`, config `ai.weekly_review`): the first run of a new week reviews the week before (planned vs done from the Garmin calendar, load change, notes); saved in `data/coach_log/review-<monday>.json`, shown in the run report and read by the next week's design and the daily check.
 - `run_override: {YYYY-MM-DD: km}` (config): that day's run is exactly an easy run of that km, added if none (careful return from injury; remove when done).
 - Rest days: no Garmin workout (marked in Todoist).
 

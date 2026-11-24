@@ -2497,6 +2497,49 @@ def test_week_design_is_saved_used_for_the_plan_and_falls_back_when_unsafe(tmp_p
     cl = Client(mine)
     assert DS.ensure(CFG, Path("/nonexistent"), d, {}, [], [], [], {}, client=cl, prov="anthropic")[1] is None and cl.n == 0
 
+def test_week_review_is_written_once_saved_and_fed_to_the_next_design():
+    import tempfile, os
+    from pathlib import Path
+    from types import SimpleNamespace as NS
+    from coach import review as RV, design as DS
+    os.environ["ANTHROPIC_API_KEY"] = "x"
+    cfg = dict(_design_cfg(), ai=dict(_design_cfg()["ai"], weekly_review=True))
+    d = dt.date(2026, 11, 23)                                   # the week after the one reviewed
+    acts = [{"date": "2026-11-17", "sport": "bike", "name": "Ride", "distance_km": 30, "duration_min": 60, "avg_hr": 140},
+            {"date": "2026-11-21", "sport": "run", "name": "Run", "distance_km": 6, "duration_min": 36, "avg_hr": 150}]
+    seen = []
+
+    class Client:
+        provider = "anthropic"
+        @property
+        def messages(self):
+            def create(**kw):
+                seen.append(kw)
+                body = {"verdict": "mixed", "summary": "Rode well, one run.", "went_well": ["ride"], "concerns": ["only 1 run"],
+                        "next_week": ["easy 4 km first"], "load_comment": "ctl low"}
+                return NS(content=[NS(type="text", text=json.dumps(body))])
+            return NS(create=create)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        planned = lambda day: [{"title": "Easy run", "kind": "run_easy"}] if day.weekday() == 5 else []   # noqa: E731
+        rec = RV.ensure(cfg, root, d, acts, planned, [{"date": "2026-11-19", "text": "heel hurts"}], lambda m: None,
+                        client=Client(), prov="anthropic")
+        assert rec and rec["verdict"] == "mixed" and (root / "data/coach_log/review-2026-11-16.json").exists()
+        ctx = json.loads(seen[0]["messages"][0]["content"].split("(JSON):\n", 1)[1])
+        assert ctx["week_of"] == "2026-11-16" and ctx["totals"]["run"]["km"] == 6.0
+        assert any(day["planned"] == ["Easy run"] for day in ctx["days"])
+        assert RV.ensure(cfg, root, d, acts, planned, [], lambda m: None, client=Client(), prov="anthropic") is None
+        assert len(seen) == 1                                    # once per week
+        # nothing happened that week: no review
+        assert RV.ensure(cfg, Path(tmp) / "x", d, [], planned, [], lambda m: None, client=Client(), prov="anthropic") is None
+        # the next design reads it
+        ctx2 = DS._context(cfg, d, {}, __import__("coach.planner", fromlist=["x"]).phase_for(d, cfg), acts, {}, [], [], {},
+                           review=RV.read(root, dt.date(2026, 11, 16)))
+        assert ctx2["last_week_review"]["next_week"] == ["easy 4 km first"]
+    # off by default
+    assert RV.ensure(_design_cfg(), Path("/nonexistent"), d, acts, planned, [], lambda m: None) is None
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

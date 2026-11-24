@@ -306,11 +306,21 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                 cfg = dict(cfg, _constraints=sched, _today=d)
 
     wt = week_target(past, d, cfg)
-    # the week as the AI coach designed it (once a week); the daily check follows it
+    # last week's review first (once a week): the new week's design reads it
     from . import design as week_design
+    from . import review as week_review
+    last_review = week_review.ensure(
+        cfg, ROOT, d, acts,
+        lambda day: planned_on(day, calendar, calendar.active_since(day - dt.timedelta(days=14), day), acts, cfg),
+        diary(cfg, monday_of(d) - dt.timedelta(weeks=1), monday_of(d) - dt.timedelta(days=1), now, api=notes_api),
+        lambda mon: week_design.read(ROOT, mon), save=upload, client=ai_client,
+        prov=getattr(ai_client, "provider", None)) if week_review.enabled(cfg) else None
+    prev_review = week_review.read(ROOT, monday_of(d) - dt.timedelta(weeks=1))
+    # the week as the AI coach designed it (once a week); the daily check follows it
     cfg, new_design = week_design.ensure(
         cfg, ROOT, d, wt, acts, [n.get("text", "") for n in open_notes + list(earlier or [])], prefs,
-        cfg.get("_constraints") or {}, save=upload, client=ai_client, prov=getattr(ai_client, "provider", None))
+        cfg.get("_constraints") or {}, save=upload, client=ai_client, prov=getattr(ai_client, "provider", None),
+        review=prev_review)
     saved_design = week_design.read(ROOT, monday_of(d)) if (cfg.get("_designs") or {}).get(monday_of(d).isoformat()) else None
     # today's training paces, from Garmin's race predictor (your current fitness)
     pace_set = P.estimate(cfg, G.fetch_race_predictions(api), wt.get("chronic_km"))
@@ -419,7 +429,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
 
     # ── AI coach: final call within the rule-based limits ──
     coach = {"used": False, "configured": ai_client is not None or ai.enabled(cfg), "evening": evening,
-             "week_design": new_design}
+             "week_design": new_design, "week_review": last_review}
     history: list[dict] = []
     if coach["configured"] and final:     # evening: without sleep data; the morning check revisits it
         # notes already marked done (by the coach earlier, or by you) are context, not new input
@@ -434,6 +444,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                                    planning="tomorrow" if evening else "today", preferences=prefs,
                                    asked_today=_requested_sports(cfg, d))
         context["load"] = load_model.summary(acts, d, cfg)
+        prev = week_review.read(ROOT, monday_of(d) - dt.timedelta(weeks=1))
+        if prev:
+            context["last_week_review"] = {k: prev.get(k) for k in ("verdict", "summary", "concerns", "next_week")}
         if saved_design:
             context["week_design"] = {"intent": saved_design.get("intent"), "this_days_purpose":
                                       (saved_design.get("purposes") or {}).get(WEEKDAYS[d.weekday()]),
@@ -821,6 +834,13 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
         for day, _, sess, wnotes in ahead:
             L.append(f"- {day:%a %d/%m}: " + " + ".join(s.title for s in sess) + (f" — {wnotes[0]}" if wnotes else ""))
     sc = (coach or {}).get("schedule") or {}
+    wr = (coach or {}).get("week_review")
+    if wr and wr.get("summary"):
+        L += ["", f"## Last week's review ({wr['verdict'].replace('_', ' ')})", f"- {wr['summary']}"]
+        L += [f"- ✅ {x}" for x in wr.get("went_well") or []] + [f"- ⚠️ {x}" for x in wr.get("concerns") or []]
+        L += [f"- Next week: {x}" for x in wr.get("next_week") or []]
+        if wr.get("load_comment"):
+            L.append(f"- Load: {wr['load_comment']}")
     wd = (coach or {}).get("week_design")
     if wd and wd.get("intent"):
         L += ["", "## This week, as designed by the coach", f"- {wd['intent']}"]

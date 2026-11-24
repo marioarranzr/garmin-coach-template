@@ -146,7 +146,7 @@ def validate(days: dict, base: dict, cfg: dict, wt: dict, phase, d: dt.date) -> 
 
 
 def _context(cfg: dict, d: dt.date, wt: dict, phase, acts: list[dict], base: dict, notes: list[str],
-             prefs: list[str], constraints: dict, problems: list[str] | None = None) -> dict:
+             prefs: list[str], constraints: dict, problems: list[str] | None = None, review: dict | None = None) -> dict:
     ath = cfg.get("athlete") or {}
     recent = [{k: a.get(k) for k in ("date", "sport", "name", "distance_km", "duration_min", "avg_hr", "type")
                if a.get(k) is not None} for a in acts if a["date"] >= (d - dt.timedelta(days=14)).isoformat()]
@@ -166,13 +166,15 @@ def _context(cfg: dict, d: dt.date, wt: dict, phase, acts: list[dict], base: dic
         "schedule_notes": {k: v for k, v in (constraints or {}).items() if v and k in
                            ("unavailable", "moves", "no_swim_until", "no_run_until", "day_plan")},
     }
+    if review:
+        ctx["last_week_review"] = {k: review.get(k) for k in ("verdict", "summary", "concerns", "next_week")}
     if problems:
         ctx["your_last_design_broke_these_rules_fix_them"] = problems
     return ctx
 
 
 def design_week(cfg: dict, d: dt.date, wt: dict, acts: list[dict], notes: list[str], prefs: list[str],
-                constraints: dict, client=None, prov: str | None = None) -> dict:
+                constraints: dict, client=None, prov: str | None = None, review: dict | None = None) -> dict:
     """Asks the AI for the week of `d`. Returns {"used", "days", "intent", "risks", "changes", "problems", "model"}."""
     prov = prov or ai.provider(cfg)
     if prov is None:
@@ -185,7 +187,7 @@ def design_week(cfg: dict, d: dt.date, wt: dict, acts: list[dict], notes: list[s
         cl = ai._client(prov, client)
         ask = ai._ask_openai if prov == "openai" else ai._ask_anthropic
         for attempt in (1, 2):
-            ctx = _context(cfg, d, wt, phase, acts, base, notes, prefs, constraints, problems or None)
+            ctx = _context(cfg, d, wt, phase, acts, base, notes, prefs, constraints, problems or None, review)
             data = json.loads(ask(cl, model, ctx, SYSTEM, SCHEMA, "week_design"))
             days = {e["day"]: list(e["sessions"]) for e in data.get("days") or []}
             problems = validate(days, base, cfg, wt, phase, d)
@@ -203,14 +205,15 @@ def design_week(cfg: dict, d: dt.date, wt: dict, acts: list[dict], notes: list[s
 
 
 def ensure(cfg: dict, root: Path, d: dt.date, wt: dict, acts: list[dict], notes: list[str], prefs: list[str],
-           constraints: dict, save: bool = True, client=None, prov: str | None = None) -> tuple[dict, dict | None]:
+           constraints: dict, save: bool = True, client=None, prov: str | None = None,
+           review: dict | None = None) -> tuple[dict, dict | None]:
     """cfg with this week's design attached; creates the design if the week has none yet.
     Returns (cfg, info) where info is the new design (None if nothing new)."""
     cfg = attach(cfg, root, d)
     mon = monday_of(d)
     if not enabled(cfg) or mon.isoformat() in (cfg.get("_designs") or {}):
         return cfg, None
-    res = design_week(cfg, d, wt, acts, notes, prefs, constraints, client=client, prov=prov)
+    res = design_week(cfg, d, wt, acts, notes, prefs, constraints, client=client, prov=prov, review=review)
     if not res.get("used"):
         return cfg, res
     record = {"week_of": mon.isoformat(), "created": dt.datetime.now().isoformat(timespec="minutes"),

@@ -64,6 +64,7 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
   the week's hard one); the Week tab colours it green.
 - Week design (`coach/design.py`, config `ai.week_design`, off until Mario turns it on): once per week the AI picks which session kinds go on which day (same kinds as the template); `validate` enforces the hard limits, one repair try, else the template. Saved in `data/coach_log/` (committed by the workflow). Preview without saving: workflow input `design_preview` / `python -m coach design`.
 - Weekly review (`coach/review.py`, config `ai.weekly_review`): the first run of a new week reviews the week before (planned vs done from the Garmin calendar, load change, notes); saved in `data/coach_log/review-<monday>.json`, shown in the run report and read by the next week's design and the daily check.
+- Block review (`coach/block.py`, config `ai.block_review`): after 4 weekly reviews (or the week after a race) the coach writes `data/coach_log/block-<monday>.json` (assessment, priorities, things to avoid, tests); design and daily check read the latest. Body data: `coach/body.py`, `data/coach_log/body.json`, filled from scale notes (Todoist, typed or dictated; read by the schedule-notes call) or by hand; the AI sees the 4-week trend.
 - `run_override: {YYYY-MM-DD: km}` (config): that day's run is exactly an easy run of that km, added if none (careful return from injury; remove when done).
 - Rest days: no Garmin workout (marked in Todoist).
 
@@ -107,7 +108,7 @@ Every change follows these steps:
 - `IMPL_PLAN.md` — build sequence
 
 ## Open ideas
-- Withings scale (weight, muscle, fat %) via the Withings API, also written to Garmin
-  body composition. Not built yet.
+- Withings scale via its API (today: Mario sends readings as notes or pastes them), also written to Garmin
+  body composition.
 - HRV / sleep trend chart in the dashboard Status tab.
 - Long-run progression chart in the Training tab.

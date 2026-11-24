@@ -2540,6 +2540,87 @@ def test_week_review_is_written_once_saved_and_fed_to_the_next_design():
     # off by default
     assert RV.ensure(_design_cfg(), Path("/nonexistent"), d, acts, planned, [], lambda m: None) is None
 
+def test_body_data_is_saved_summarised_and_flags_muscle_loss():
+    import tempfile
+    from pathlib import Path
+    from coach import body
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        assert body.summary(root, dt.date(2026, 11, 24)) is None
+        assert body.add(root, [{"date": "2026-10-20", "weight_kg": 75.2, "muscle_kg": 63.9, "fat_kg": 8.2},
+                               {"date": "2026-11-24", "weight_kg": 75.2, "muscle_kg": 62.9, "fat_kg": 8.9, "visceral": 1.8},
+                               {"date": "2026-11-25", "note": "no numbers"}]) == 2
+        assert body.add(root, [{"date": "2026-11-24", "weight_kg": 75.2, "muscle_kg": 62.9, "fat_kg": 8.9, "visceral": 1.8}]) == 0
+        s = body.summary(root, dt.date(2026, 11, 24))
+        assert s["latest"]["muscle_kg"] == 62.9 and s["change_since"]["muscle_kg"] == -1.0 and s["change_since"]["fat_kg"] == 0.7
+        assert s["flags"] and "muscle" in s["flags"][0]
+
+
+def test_scale_notes_become_body_entries():
+    from types import SimpleNamespace as NS
+    from coach import ai
+    body = {"unavailable": [], "moves": [], "no_swim_until": "", "no_run_until": "", "day_plan": [], "summary": "",
+            "preferences": [], "notes_used": ["7"], "body": [
+                {"date": "2026-11-24", "weight_kg": 75.2, "muscle_kg": 62.9, "fat_kg": None, "fat_pct": None, "lean_kg": None,
+                 "water_kg": 43.6, "bone_kg": None, "visceral": None, "bmr_kcal": None},
+                {"date": "2025-01-01", "weight_kg": 80, "fat_kg": None, "fat_pct": None, "muscle_kg": None, "lean_kg": None,
+                 "water_kg": None, "bone_kg": None, "visceral": None, "bmr_kcal": None}]}
+    cl = FakeClaude(schedule=body)
+    out = ai.schedule_changes(CFG, {"today": "2026-11-24", "weekday": "Tuesday", "until": "2026-12-07",
+                                    "open_notes": [{"id": "7", "created": "2026-11-24T08:00", "text": "scale 75.2 muscle 62.9"}],
+                                    "earlier_notes": [], "current_preferences": []}, client=cl, prov="anthropic")
+    assert [e["date"] for e in out["body"]] == ["2026-11-24"] and out["notes_used"] == ["7"]      # a date from 2025 is ignored
+
+
+def test_block_review_is_due_after_four_weekly_reviews_or_a_race_and_feeds_the_design():
+    import tempfile, os
+    from pathlib import Path
+    from types import SimpleNamespace as NS
+    from coach import block as BL
+    os.environ["ANTHROPIC_API_KEY"] = "x"
+    cfg = dict(_design_cfg(), ai=dict(_design_cfg()["ai"], block_review=True))
+    d = dt.date(2026, 12, 21)
+    seen = []
+
+    class Client:
+        provider = "anthropic"
+        @property
+        def messages(self):
+            def create(**kw):
+                seen.append(kw)
+                body = {"assessment": "Rebuilt the base.", "fitness_trend": "ctl up", "priorities": ["3 runs"],
+                        "avoid": ["quality runs"], "tests": [], "message": "Good block."}
+                return NS(content=[NS(type="text", text=json.dumps(body))])
+            return NS(create=create)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "data/coach_log").mkdir(parents=True)
+
+        def review(week):
+            (root / f"data/coach_log/review-{week}.json").write_text(json.dumps(
+                {"week_of": week, "verdict": "mixed", "summary": "s", "went_well": [], "concerns": [], "next_week": [],
+                 "load_comment": ""}))
+        for w in ("2026-11-16", "2026-11-23", "2026-11-30"):
+            review(w)
+        assert BL.ensure(cfg, root, d, [], client=Client(), prov="anthropic") is None       # only 3 reviews, no race last week
+        review("2026-12-07")
+        rec = BL.ensure(cfg, root, d, [], client=Client(), prov="anthropic")
+        assert rec and rec["covers_to"] == "2026-12-07" and rec["priorities"] == ["3 runs"] and len(seen) == 1
+        assert BL.latest(root, d)["assessment"] == "Rebuilt the base."
+        # the week after a race (Silvesterlauf 13 Dec) a block review is due even with fewer reviews
+        with tempfile.TemporaryDirectory() as t2:
+            r2 = Path(t2)
+            (r2 / "data/coach_log").mkdir(parents=True)
+            (r2 / "data/coach_log/review-2026-12-07.json").write_text(json.dumps({"week_of": "2026-12-07", "verdict": "mixed",
+                "summary": "s", "went_well": [], "concerns": [], "next_week": [], "load_comment": ""}))
+            assert BL.due(cfg, r2, dt.date(2026, 12, 14)) and not BL.due(cfg, r2, dt.date(2026, 12, 21))
+        assert BL.ensure(cfg, root, d, [], client=Client(), prov="anthropic") is None       # covered now
+        from coach import design as DS
+        assert DS._block(root, d)["avoid"] == ["quality runs"]
+    # off by default
+    assert BL.ensure(_design_cfg(), Path("/nonexistent"), d, [], client=Client(), prov="anthropic") is None
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

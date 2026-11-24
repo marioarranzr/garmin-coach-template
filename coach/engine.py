@@ -296,6 +296,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                 "earlier_notes": earlier,
                 "current_preferences": prefs,
             }, client=ai_client, prov=getattr(ai_client, "provider", None))
+            if sched.get("body") and upload:
+                from . import body as body_log
+                body_log.add(ROOT, sched["body"])
             new_prefs = sched.get("preferences")
             if new_prefs is not None and "error" not in sched and new_prefs != prefs and upload:
                 if save_preferences(cfg, new_prefs, prefs_id, api=notes_api):
@@ -315,6 +318,9 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         diary(cfg, monday_of(d) - dt.timedelta(weeks=1), monday_of(d) - dt.timedelta(days=1), now, api=notes_api),
         lambda mon: week_design.read(ROOT, mon), save=upload, client=ai_client,
         prov=getattr(ai_client, "provider", None)) if week_review.enabled(cfg) else None
+    from . import block as block_review
+    new_block = block_review.ensure(cfg, ROOT, d, acts, save=upload, client=ai_client,
+                                    prov=getattr(ai_client, "provider", None))
     prev_review = week_review.read(ROOT, monday_of(d) - dt.timedelta(weeks=1))
     # the week as the AI coach designed it (once a week); the daily check follows it
     cfg, new_design = week_design.ensure(
@@ -429,7 +435,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
 
     # ── AI coach: final call within the rule-based limits ──
     coach = {"used": False, "configured": ai_client is not None or ai.enabled(cfg), "evening": evening,
-             "week_design": new_design, "week_review": last_review}
+             "week_design": new_design, "week_review": last_review, "block_review": new_block}
     history: list[dict] = []
     if coach["configured"] and final:     # evening: without sleep data; the morning check revisits it
         # notes already marked done (by the coach earlier, or by you) are context, not new input
@@ -444,6 +450,11 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                                    planning="tomorrow" if evening else "today", preferences=prefs,
                                    asked_today=_requested_sports(cfg, d))
         context["load"] = load_model.summary(acts, d, cfg)
+        from . import body as body_log
+        context["body"] = body_log.summary(ROOT, d)
+        blk = block_review.latest(ROOT, d)
+        if blk:
+            context["current_block"] = {k: blk.get(k) for k in ("priorities", "avoid", "tests")}
         prev = week_review.read(ROOT, monday_of(d) - dt.timedelta(weeks=1))
         if prev:
             context["last_week_review"] = {k: prev.get(k) for k in ("verdict", "summary", "concerns", "next_week")}
@@ -834,6 +845,13 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
         for day, _, sess, wnotes in ahead:
             L.append(f"- {day:%a %d/%m}: " + " + ".join(s.title for s in sess) + (f" — {wnotes[0]}" if wnotes else ""))
     sc = (coach or {}).get("schedule") or {}
+    br = (coach or {}).get("block_review")
+    if br and br.get("assessment"):
+        L += ["", "## Block review", f"- {br['assessment']}", f"- {br['fitness_trend']}"]
+        L += [f"- Next block: {x}" for x in br.get("priorities") or []] + [f"- Avoid: {x}" for x in br.get("avoid") or []]
+        L += [f"- Test: {x}" for x in br.get("tests") or []]
+        if br.get("message"):
+            L.append(f"- {br['message']}")
     wr = (coach or {}).get("week_review")
     if wr and wr.get("summary"):
         L += ["", f"## Last week's review ({wr['verdict'].replace('_', ' ')})", f"- {wr['summary']}"]

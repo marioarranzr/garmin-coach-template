@@ -59,6 +59,8 @@ Keep the key session of the phase (usually run_long).
 is true; no run_quality when "return_mode" or "after_gap" is true; run_quality and run_long at least 2 days apart.
 - No heavy leg strength ("strength") the day before a run_long or run_quality.
 - Strength and swim sessions: no more than the template.
+- "current_block" (priorities, things to avoid), "last_week_review" (what to adjust) and "body" (trend: if \
+muscle falls, keep strength in) are the coach's own notes: follow them.
 - Days before "today" are over: leave them as in the template, they're ignored.
 
 How to decide:
@@ -89,6 +91,12 @@ def write(root: Path, monday: dt.date, record: dict) -> None:
 
 def enabled(cfg: dict) -> bool:
     return bool((cfg.get("ai") or {}).get("week_design")) and ai.enabled(cfg)
+
+
+def _block(root: Path, d: dt.date) -> dict | None:
+    from . import block
+    rec = block.latest(root, d)
+    return {k: rec.get(k) for k in ("assessment", "priorities", "avoid", "tests", "message")} if rec else None
 
 
 def attach(cfg: dict, root: Path, d: dt.date) -> dict:
@@ -146,7 +154,8 @@ def validate(days: dict, base: dict, cfg: dict, wt: dict, phase, d: dt.date) -> 
 
 
 def _context(cfg: dict, d: dt.date, wt: dict, phase, acts: list[dict], base: dict, notes: list[str],
-             prefs: list[str], constraints: dict, problems: list[str] | None = None, review: dict | None = None) -> dict:
+             prefs: list[str], constraints: dict, problems: list[str] | None = None, review: dict | None = None,
+             root: Path | None = None) -> dict:
     ath = cfg.get("athlete") or {}
     recent = [{k: a.get(k) for k in ("date", "sport", "name", "distance_km", "duration_min", "avg_hr", "type")
                if a.get(k) is not None} for a in acts if a["date"] >= (d - dt.timedelta(days=14)).isoformat()]
@@ -166,6 +175,10 @@ def _context(cfg: dict, d: dt.date, wt: dict, phase, acts: list[dict], base: dic
         "schedule_notes": {k: v for k, v in (constraints or {}).items() if v and k in
                            ("unavailable", "moves", "no_swim_until", "no_run_until", "day_plan")},
     }
+    if root is not None:
+        from . import body as body_log
+        ctx["body"] = body_log.summary(root, d)
+        ctx["current_block"] = _block(root, d)
     if review:
         ctx["last_week_review"] = {k: review.get(k) for k in ("verdict", "summary", "concerns", "next_week")}
     if problems:
@@ -174,7 +187,8 @@ def _context(cfg: dict, d: dt.date, wt: dict, phase, acts: list[dict], base: dic
 
 
 def design_week(cfg: dict, d: dt.date, wt: dict, acts: list[dict], notes: list[str], prefs: list[str],
-                constraints: dict, client=None, prov: str | None = None, review: dict | None = None) -> dict:
+                constraints: dict, client=None, prov: str | None = None, review: dict | None = None,
+                root: Path | None = None) -> dict:
     """Asks the AI for the week of `d`. Returns {"used", "days", "intent", "risks", "changes", "problems", "model"}."""
     prov = prov or ai.provider(cfg)
     if prov is None:
@@ -187,7 +201,7 @@ def design_week(cfg: dict, d: dt.date, wt: dict, acts: list[dict], notes: list[s
         cl = ai._client(prov, client)
         ask = ai._ask_openai if prov == "openai" else ai._ask_anthropic
         for attempt in (1, 2):
-            ctx = _context(cfg, d, wt, phase, acts, base, notes, prefs, constraints, problems or None, review)
+            ctx = _context(cfg, d, wt, phase, acts, base, notes, prefs, constraints, problems or None, review, root)
             data = json.loads(ask(cl, model, ctx, SYSTEM, SCHEMA, "week_design"))
             days = {e["day"]: list(e["sessions"]) for e in data.get("days") or []}
             problems = validate(days, base, cfg, wt, phase, d)
@@ -213,7 +227,7 @@ def ensure(cfg: dict, root: Path, d: dt.date, wt: dict, acts: list[dict], notes:
     mon = monday_of(d)
     if not enabled(cfg) or mon.isoformat() in (cfg.get("_designs") or {}):
         return cfg, None
-    res = design_week(cfg, d, wt, acts, notes, prefs, constraints, client=client, prov=prov, review=review)
+    res = design_week(cfg, d, wt, acts, notes, prefs, constraints, client=client, prov=prov, review=review, root=root)
     if not res.get("used"):
         return cfg, res
     record = {"week_of": mon.isoformat(), "created": dt.datetime.now().isoformat(timespec="minutes"),

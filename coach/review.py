@@ -131,6 +131,8 @@ def ensure(cfg: dict, root: Path, d: dt.date, acts: list[dict], planned_fn, note
     planned = {(mon + dt.timedelta(days=i)).isoformat(): planned_fn(mon + dt.timedelta(days=i)) for i in range(7)}
     ctx = facts(cfg, mon, acts, planned, notes, design_fn(mon))
     ctx["season"] = season or ai.season_context(last, cfg)
+    from . import body as body_log
+    ctx["body"] = body_log.summary(root, last)
     res = review_week(cfg, ctx, client=client, prov=prov)
     if not res.get("used"):
         return res

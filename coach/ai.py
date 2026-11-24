@@ -80,6 +80,8 @@ sport, and "leg_fatigue" (leg-heavy work of the last 3 days against the usual). 
 strength count as leg work. When leg fatigue is raised or high, don't put a hard run or heavy leg \
 strength on top: ease, move it or swap it for something that spares the legs, and say so. Very negative \
 form (tsb below -20) means deep fatigue.
+- "body" (when present) is the scale trend; "current_block" the priorities of the training block; \
+"last_week_review" what last week showed. Respect them in your call.
 - "athlete_preferences" are the athlete's lasting preferences: respect them in your call and \
 mention any that apply to how to do the day's session in "coach_note" (e.g. "walk 1' before the \
 strides").
@@ -391,6 +393,7 @@ def _client(prov: str, client=None):
 
 # ── notes about the coming days ("can't train on Sunday", "long run Saturday") ──
 SCHEDULE_KINDS = ["run_long", "run_quality", "bike_long", "bike_quality", "swim", "run"]
+BODY_FIELDS = ("weight_kg", "fat_kg", "fat_pct", "muscle_kg", "lean_kg", "water_kg", "bone_kg", "visceral", "bmr_kcal")
 SCHEDULE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -411,8 +414,12 @@ SCHEDULE_SCHEMA = {
         "summary": {"type": "string"},
         "preferences": {"type": "array", "items": {"type": "string"}},
         "notes_used": {"type": "array", "items": {"type": "string"}},
+        "body": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"date": {"type": "string"}, **{k: {"type": ["number", "null"]} for k in BODY_FIELDS}},
+            "required": ["date", *BODY_FIELDS], "additionalProperties": False}},
     },
-    "required": ["unavailable", "moves", "no_swim_until", "no_run_until", "day_plan", "summary", "preferences", "notes_used"],
+    "required": ["unavailable", "moves", "no_swim_until", "no_run_until", "day_plan", "summary", "preferences", "notes_used", "body"],
     "additionalProperties": False,
 }
 SCHEDULE_SYSTEM = """You read an athlete's short notes and pick out what they say about their training SCHEDULE for the coming days, so a coach can rearrange the plan. Only the schedule: how they feel is handled elsewhere.
@@ -423,11 +430,20 @@ Return:
 - "no_swim_until": the last date with no swims if they don't want to swim ("no swimming this week" → that week's Sunday), else "".
 - "no_run_until": the LAST date with no running, when they say they won't run for some days ("I won't run until Friday 27 because of my Achilles" → Thursday 26, the day before they run again; "no running this week" → that week's Sunday; "no running through Friday" → Friday), else "". Other training (rides, swims, strength) stays. If a later note says they can run again, the later note wins ("" or the new date).
 - "day_plan": when they say which sports they want to DO on a specific day ("tomorrow swim and run", "tomorrow just an easy ride", "Thursday swim only"), return {"date", "sports": [...]} with the sports they named ("run", "bike", "swim", "strength", "rest"). Those sports become that day's WHOLE plan: anything else the coach had that day (a ride, strength…) is dropped, and a sport they named that wasn't planned is added. This is for a day they are deciding the sports of — usually the next day, planned the evening before. Use "day_plan" for this, NOT "moves": "moves" only relocates one key session and keeps the rest of the day. If they name one sport only ("tomorrow I'll just run"), that is the whole day. Only include a day they actually listed sports for; don't infer it from "I can run tomorrow" (that's a "moves" run) or from how they feel.
+- "body": scale readings in the notes ("scale: 75.2 kg, fat 8.9 kg, muscle 62.9 kg, water 43.6, bone 2.7, visceral 1.8, BMR 1894"), one entry per weigh-in: {"date": YYYY-MM-DD (the day of the note unless it says another), and each value in kg, % or kcal as given, null if not mentioned}. Notes with these readings go in "notes_used" too. Empty list if none.
 - "summary": one short sentence of what changes, for the athlete, or "" if nothing.
 - "preferences": the athlete's LASTING preferences and feedback about how they like to train or how sessions should be built ("give me 1' of walking before the strides", "I prefer long runs on Saturday", "I don't like the treadmill"), as short imperative lines for a coach. Start from "current_preferences" and return the full updated list: keep them unless a note changes or cancels one, add new lasting ones from "open_notes", merge duplicates. One-off things are NOT preferences: anything about a particular day or date (today, tomorrow, Friday, this week, "I can run tomorrow"), when they can or can't train, how they feel, the weather. Those go in "unavailable"/"moves" or nowhere; also drop any such entry already in "current_preferences".
 - "notes_used": the ids of the notes in "open_notes" that are about the schedule or are lasting preferences (never ids of other notes; "earlier_notes" have no ids and are context only).
 
 Resolve weekdays and "today"/"yesterday"/"tomorrow"/"this week"/"next week" against the date each note was written ("created"), NOT against "today": a note written on Wednesday evening saying "tomorrow I can run" means Thursday, even if you read it on Thursday. Weeks run Monday to Sunday. Notes in "earlier_notes" were already acted on, but they still apply to the dates from "today" up to "until": a note written yesterday evening saying "tomorrow swim and run" is today's plan, so return it again. Only dates from "today" up to "until" count; ignore anything older or later. Never move a date to a later week to make it fit: a note that names days already before "today" (e.g. "yesterday Tuesday, today Wednesday" written last week) is finished, so return nothing for it. If a later note contradicts an earlier one, the later one wins. If nothing is about the schedule, return empty lists, "" and []."""
+
+
+def _past_day(v, today: dt.date, days: int = 31) -> dt.date | None:
+    try:
+        x = dt.date.fromisoformat(str(v)[:10])
+    except ValueError:
+        return None
+    return x if today - dt.timedelta(days=days) <= x <= today else None
 
 
 def schedule_changes(cfg: dict, context: dict, client=None, prov: str | None = None) -> dict:
@@ -465,8 +481,11 @@ def schedule_changes(cfg: dict, context: dict, client=None, prov: str | None = N
                "day_plan": day_plan,
                "summary": (data.get("summary") or "").strip()[:300],
                "preferences": [str(x).strip()[:200] for x in data.get("preferences") or [] if str(x).strip()][:20],
-               "notes_used": [str(n) for n in data.get("notes_used") or [] if str(n) in known][:10]}
-        return out if (out["unavailable"] or out["moves"] or out["no_swim_until"] or out["no_run_until"]
+               "notes_used": [str(n) for n in data.get("notes_used") or [] if str(n) in known][:10],
+               "body": [dict(e, date=weighed.isoformat()) for e in data.get("body") or []
+                        if isinstance(e, dict) and (weighed := _past_day(e.get("date"), lo))
+                        and any(isinstance(e.get(k), (int, float)) for k in BODY_FIELDS)]}
+        return out if (out["body"] or out["unavailable"] or out["moves"] or out["no_swim_until"] or out["no_run_until"]
                        or out["day_plan"] or out["notes_used"] or out["preferences"]) else {}
     except Exception as e:  # noqa: BLE001 — the plan works without it
         log.warning("Couldn't read your schedule notes: %s", e)

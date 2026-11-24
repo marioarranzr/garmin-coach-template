@@ -283,6 +283,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     # your notes about the coming days ("can't train Sunday", "long run Saturday", "no swims this week")
     sched: dict = {}
     prefs_id, prefs = read_preferences(cfg, api=notes_api)
+    cfg_prefs = [str(x) for x in (cfg.get("athlete") or {}).get("preferences") or []]     # lasting, from config.yaml
     earlier: list[dict] = []
     if ai_client is not None or ai.enabled(cfg):
         earlier = [{"created": e["date"], "text": e["text"]}
@@ -308,6 +309,10 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                     or sched.get("no_run_until") or sched.get("day_plan")):
                 cfg = dict(cfg, _constraints=sched, _today=d)
 
+    if upload:                  # your scale (Withings), if connected: the last weigh-ins into the body log
+        from . import body as body_log, withings
+        if withings.configured():
+            body_log.add(ROOT, withings.fetch(d - dt.timedelta(days=45)))
     wt = week_target(past, d, cfg)
     # last week's review first (once a week): the new week's design reads it
     from . import design as week_design
@@ -324,7 +329,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     prev_review = week_review.read(ROOT, monday_of(d) - dt.timedelta(weeks=1))
     # the week as the AI coach designed it (once a week); the daily check follows it
     cfg, new_design = week_design.ensure(
-        cfg, ROOT, d, wt, acts, [n.get("text", "") for n in open_notes + list(earlier or [])], prefs,
+        cfg, ROOT, d, wt, acts, [n.get("text", "") for n in open_notes + list(earlier or [])], cfg_prefs + prefs,
         cfg.get("_constraints") or {}, save=upload, client=ai_client, prov=getattr(ai_client, "provider", None),
         review=prev_review)
     saved_design = week_design.read(ROOT, monday_of(d)) if (cfg.get("_designs") or {}).get(monday_of(d).isoformat()) else None
@@ -447,7 +452,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                                    acts, notes, why, earlier, history,
                                    season=ai.season_context(d, cfg),
                                    coming_days=W.drafts(d, cfg, acts, final, preview_n, quality_days),
-                                   planning="tomorrow" if evening else "today", preferences=prefs,
+                                   planning="tomorrow" if evening else "today", preferences=cfg_prefs + prefs,
                                    asked_today=_requested_sports(cfg, d))
         context["load"] = load_model.summary(acts, d, cfg)
         from . import body as body_log

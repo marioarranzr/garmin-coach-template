@@ -54,6 +54,9 @@ jobs:
       NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}                   # optional: today's plan as a notification
       STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}       # optional: rides only in Strava (python -m coach strava)
       STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+      WITHINGS_CLIENT_ID: ${{ secrets.WITHINGS_CLIENT_ID }}   # optional: your scale (python -m coach withings)
+      WITHINGS_CLIENT_SECRET: ${{ secrets.WITHINGS_CLIENT_SECRET }}
+      WITHINGS_REFRESH_TOKEN: ${{ secrets.WITHINGS_REFRESH_TOKEN }}
       STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
     steps:
       # Each run's summary (your sleep, HRV, readiness, notes) is visible to
@@ -131,6 +134,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/garmin_tokens.enc || true
           git add data/strava_token.enc 2>/dev/null || true      # only if Strava is connected (encrypted too)
+          git add data/withings_token.enc 2>/dev/null || true     # only if Withings is connected (encrypted too)
           git add data/coach_log 2>/dev/null || true             # the weeks the AI coach designed (plain JSON, no secrets)
           if ! git diff --cached --quiet; then
             git commit -m "Refresh Garmin session"

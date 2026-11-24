@@ -10,6 +10,7 @@
     python -m coach design                # the AI coach's design for this week (preview, saves nothing)
     python -m coach export-tokens         # prepares the encrypted tokens for GitHub
     python -m coach strava                # optional: connect Strava (rides that never reach Garmin)
+    python -m coach withings              # optional: connect your Withings scale (weight, body composition)
     python -m coach dashboard              # local web page: training status, this week, why
     python -m coach export-dashboard       # generate dashboard HTML to --output dir (used by CI → Netlify)
     python -m coach update                # brings in the latest template code, keeps your settings
@@ -37,7 +38,7 @@ def load_cfg(path: str | None) -> dict:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="coach")
-    ap.add_argument("cmd", choices=["setup", "login", "run", "week", "semana", "export-tokens", "update", "strava", "dashboard", "export-dashboard", "design"])
+    ap.add_argument("cmd", choices=["setup", "login", "run", "week", "semana", "export-tokens", "update", "strava", "dashboard", "export-dashboard", "design", "withings"])
     ap.add_argument("--date", help="YYYY-MM-DD (default: today)")
     ap.add_argument("--dry-run", action="store_true", help="don't upload anything to Garmin")
     ap.add_argument("--wait-for-sleep", action="store_true",
@@ -67,6 +68,9 @@ def main(argv=None):
     if a.cmd == "strava":
         from .strava import setup as strava_setup
         raise SystemExit(strava_setup())
+    if a.cmd == "withings":
+        from .withings import setup as withings_setup
+        raise SystemExit(withings_setup())
     if a.cmd == "dashboard":
         from .dashboard import serve as dashboard_serve
         dashboard_serve(ROOT, port=a.port, open_browser=not a.no_browser)

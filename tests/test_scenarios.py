@@ -2276,7 +2276,10 @@ def test_no_running_until_a_date_drops_the_runs_and_keeps_the_rest():
     assert out["tue"] == ["bike_spin"] and out["fri"] == ["run_strides", "strength_core"] and out["sun"] == ["run_long"]
     out2 = P.apply_constraints({"tue": ["run_easy"]} | {d: [] for d in ("mon", "wed", "thu", "fri", "sat", "sun")}, mon,
                                {"no_run_until": dt.date(2026, 11, 26)}, dt.date(2026, 11, 23))
-    assert out2["tue"] == ["rest"]
+    assert out2["tue"] == ["bike_easy"]                       # no running: the aerobic work moves to the bike
+    out3 = P.apply_constraints({"tue": ["run_easy", "strength_core"], "wed": ["rest"]} | {d: [] for d in ("mon", "thu", "fri", "sat", "sun")},
+                               mon, {"no_run_until": dt.date(2026, 11, 26)}, dt.date(2026, 11, 23))
+    assert out3["tue"] == ["strength_core", "bike_easy"] and out3["wed"] == ["rest"]      # rest days stay rest
 
 
 def test_spare_strength_workouts_replace_the_old_ones_and_stay_off_the_calendar():
@@ -2682,6 +2685,33 @@ def test_strength_done_ahead_of_the_plan_takes_the_place_of_the_next_planned_one
     led2 = W.ledger(acts[:1], wed, tpl, dist, None)
     kept, _, _ = W.apply([make_strength("strength", ph, 1)], led2, ph, dist)
     assert [s for s in kept if s.sport == "strength"]
+
+def test_withings_weigh_ins_become_body_entries():
+    import os
+    from coach import withings as WI
+    groups = [{"grpid": 1, "date": 1795600000, "measures": [{"value": 7520, "type": 1, "unit": -2}, {"value": 629, "type": 76, "unit": -1},
+                                                              {"value": 89, "type": 8, "unit": -1}, {"value": 1, "type": 999, "unit": 0}]},
+              {"grpid": 2, "date": 1795603600, "measures": [{"value": 7490, "type": 1, "unit": -2}]}]     # later the same day
+    rows = WI.parse(groups)
+    assert len(rows) == 1 and rows[0]["weight_kg"] == 74.9 and "muscle_kg" not in rows[0]         # the day's last weigh-in
+    rows = WI.parse(groups[:1])
+    assert rows[0]["weight_kg"] == 75.2 and rows[0]["muscle_kg"] == 62.9 and rows[0]["fat_kg"] == 8.9
+    for k in WI.ENV:
+        os.environ.pop(k, None)
+    assert WI.fetch(dt.date(2026, 11, 1)) == []                                  # not connected: nothing, no error
+    for k, v in zip(WI.ENV, ("id", "secret", "refresh")):
+        os.environ[k] = v
+    calls = []
+
+    def http(url, data=None, token=None):
+        calls.append(url)
+        if url == WI.TOKEN_URL:
+            return {"status": 0, "body": {"access_token": "A", "refresh_token": "R2"}}
+        return {"status": 0, "body": {"measuregrps": groups[:1]}}
+    assert WI.fetch(dt.date(2026, 11, 1), http=http)[0]["weight_kg"] == 75.2 and calls == [WI.TOKEN_URL, WI.MEASURE_URL]
+    assert WI.fetch(dt.date(2026, 11, 1), http=lambda *a, **k: {"status": 401, "error": "bad"}) == []   # an error: the scale is extra
+    for k in WI.ENV:
+        os.environ.pop(k, None)
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

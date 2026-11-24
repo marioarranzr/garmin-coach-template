@@ -969,7 +969,10 @@ def apply_constraints(tpl: dict, mon: dt.date, c: dict, today: dt.date | None = 
         for i in range(first, 7):
             if mon + dt.timedelta(days=i) <= until:
                 wd = WEEKDAYS[i]
-                days[wd] = [k for k in days[wd] if not k.startswith("run_")] or ["rest"]
+                keep = [k for k in days[wd] if not k.startswith("run_")]
+                if len(keep) < len(days[wd]) and not any(k.startswith("bike_") for k in keep) and days[wd] != ["rest"]:
+                    keep.append("bike_easy")      # no running: the aerobic work goes on the bike instead (chained rides)
+                days[wd] = keep or ["rest"]
     return days
 
 

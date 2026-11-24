@@ -85,7 +85,7 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
 Every change follows these steps:
 1. Implement.
 2. Run `python tests/test_scenarios.py` (no pytest).
-3. Push to the template (`git push template main`).
+3. Push to the template **from its own clone** (`/home/claude/garmin-coach-template`): copy only the changed code, tests and docs there, never `config.yaml`, `data/` or `reports/`, commit and `git push origin main`. Never push this repo's `main` to the template (it carries Mario's config and bot commits; the `template` remote's push URL is disabled for that reason).
 4. Merge into the private repo (`git fetch template && git merge template/main`).
    Check for conflicts: `git diff --name-only --diff-filter=U` and grep for `<<<<`.
    Keep Mario's `config.yaml`.

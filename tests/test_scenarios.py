@@ -2492,7 +2492,8 @@ def test_week_design_is_saved_used_for_the_plan_and_falls_back_when_unsafe(tmp_p
         c, info = DS.ensure(cfg, Path(tmp), d, {"target_km": 20}, [], [], [], {}, client=cl, prov="anthropic")
         assert not info.get("used") and info.get("problems") and cl.n == 2       # asked, retried, gave up
         assert week_parts(d, c, {"target_km": 20})[1] == dict(base) or week_parts(d, c, {"target_km": 20})[1]["mon"] == ["rest"]
-        assert not list(Path(tmp).rglob("*.json"))
+        saved = [json.loads(f.read_text()) for f in Path(tmp).rglob("*.json")]
+        assert len(saved) == 1 and "days" not in saved[0] and saved[0]["failed_on"] == d.isoformat()   # only the failure note
     # switched off (the default): nothing is asked
     cl = Client(mine)
     assert DS.ensure(CFG, Path("/nonexistent"), d, {}, [], [], [], {}, client=cl, prov="anthropic")[1] is None and cl.n == 0
@@ -2620,6 +2621,47 @@ def test_block_review_is_due_after_four_weekly_reviews_or_a_race_and_feeds_the_d
         assert DS._block(root, d)["avoid"] == ["quality runs"]
     # off by default
     assert BL.ensure(_design_cfg(), Path("/nonexistent"), d, [], client=Client(), prov="anthropic") is None
+
+def test_week_design_ignores_past_days_in_return_mode_and_doesnt_retry_a_failure_the_same_day():
+    import tempfile, os
+    from pathlib import Path
+    from types import SimpleNamespace as NS
+    from coach import design as DS
+    from coach.planner import phase_for, template_for, WEEKDAYS
+    os.environ["ANTHROPIC_API_KEY"] = "x"
+    cfg = _design_cfg()
+    d = dt.date(2026, 10, 21)                                    # a Wednesday: Monday and Tuesday are over
+    phase = phase_for(d, cfg)
+    base = {w: list(v) for w, v in template_for(phase, cfg).items()}
+    past_quality = {w: list(v) for w, v in base.items()}
+    past_quality["tue"] = ["run_quality"]                        # a past day keeps the template's quality run
+    past_quality["thu"], past_quality["fri"] = ["rest"], [k for k in base["fri"] if not k.startswith("run_")] or ["rest"]
+    wt = {"return_mode": True}
+    bad_today = {w: list(v) for w, v in past_quality.items()}
+    bad_today["wed"] = ["run_quality"]
+    assert DS.validate(past_quality, base, cfg, wt, phase, d) == [] or not any("quality" in p for p in DS.validate(past_quality, base, cfg, wt, phase, d))
+    assert any("quality" in p for p in DS.validate(bad_today, base, cfg, wt, phase, d))
+    calls = []
+
+    class Client:
+        provider = "anthropic"
+        @property
+        def messages(self):
+            def create(**kw):
+                calls.append(1)
+                body = {"days": [{"day": w, "sessions": bad_today[w], "purpose": "p"} for w in WEEKDAYS], "intent": "i",
+                        "risks": [], "changes_vs_template": "none"}
+                return NS(content=[NS(type="text", text=json.dumps(body))])
+            return NS(create=create)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _, info = DS.ensure(cfg, root, d, wt, [], [], [], {}, client=Client(), prov="anthropic")
+        assert not info.get("used") and len(calls) == 2
+        _, again = DS.ensure(cfg, root, d, wt, [], [], [], {}, client=Client(), prov="anthropic")
+        assert again is None and len(calls) == 2                 # not asked again the same day
+        DS.ensure(cfg, root, d + dt.timedelta(days=1), wt, [], [], [], {}, client=Client(), prov="anthropic")
+        assert len(calls) == 4                                   # but tomorrow it tries again
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

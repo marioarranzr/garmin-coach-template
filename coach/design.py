@@ -61,7 +61,8 @@ is true; no run_quality when "return_mode" or "after_gap" is true; run_quality a
 - Strength and swim sessions: no more than the template.
 - "current_block" (priorities, things to avoid), "last_week_review" (what to adjust) and "body" (trend: if \
 muscle falls, keep strength in) are the coach's own notes: follow them.
-- Days before "today" are over: leave them as in the template, they're ignored.
+- Days before "today" are over and ignored by the checks: leave them as in the template. Everything from \
+"today" on follows the rules (for example no run_quality while returning to running, even if the template has it).
 
 How to decide:
 - Follow the template unless there is a reason to change it: leg fatigue after skiing or hikes, a break \
@@ -143,7 +144,8 @@ def validate(days: dict, base: dict, cfg: dict, wt: dict, phase, d: dt.date) -> 
     runs = [i for i, w in enumerate(WEEKDAYS) if any(k.startswith("run_") for k in days[w])]
     if (cfg.get("athlete") or {}).get("no_runs_on_consecutive_days") and any(b - a == 1 for a, b in zip(runs, runs[1:])):
         bad.append("runs on consecutive days")
-    if (wt.get("return_mode") or wt.get("after_gap")) and "run_quality" in mine:
+    today = d.weekday()                                               # days before today are over and ignored
+    if (wt.get("return_mode") or wt.get("after_gap")) and any("run_quality" in days[w] for w in WEEKDAYS[today:]):
         bad.append("no quality run while returning to running")
     pos = {k: [i for i, w in enumerate(WEEKDAYS) if k in days[w]] for k in ("run_quality", "run_long", "strength")}
     if any(abs(a - b) < 2 for a in pos["run_quality"] for b in pos["run_long"]):
@@ -227,8 +229,14 @@ def ensure(cfg: dict, root: Path, d: dt.date, wt: dict, acts: list[dict], notes:
     mon = monday_of(d)
     if not enabled(cfg) or mon.isoformat() in (cfg.get("_designs") or {}):
         return cfg, None
+    tried = read(root, mon)
+    if tried and tried.get("failed_on") == d.isoformat():
+        return cfg, None                      # already tried today and fell back to the template: not again until tomorrow
     res = design_week(cfg, d, wt, acts, notes, prefs, constraints, client=client, prov=prov, review=review, root=root)
     if not res.get("used"):
+        if save and (res.get("problems") or res.get("error")):
+            write(root, mon, {"week_of": mon.isoformat(), "failed_on": d.isoformat(),
+                              "problems": res.get("problems") or [res.get("error")]})
         return cfg, res
     record = {"week_of": mon.isoformat(), "created": dt.datetime.now().isoformat(timespec="minutes"),
               "model": res["model"], "days": res["days"], "intent": res["intent"], "risks": res["risks"],

@@ -2663,6 +2663,26 @@ def test_week_design_ignores_past_days_in_return_mode_and_doesnt_retry_a_failure
         DS.ensure(cfg, root, d + dt.timedelta(days=1), wt, [], [], [], {}, client=Client(), prov="anthropic")
         assert len(calls) == 4                                   # but tomorrow it tries again
 
+def test_strength_done_ahead_of_the_plan_takes_the_place_of_the_next_planned_one():
+    from coach import week as W
+    from coach.planner import Phase, make_run
+    from coach.strength import make_strength
+    ph = Phase("run", "base", "b", None, None, 1.0, False, 10)
+    tpl = {"mon": ["strength_core"], "tue": ["run_easy"], "wed": ["bike_easy"], "thu": ["strength"], "fri": ["strength_core"],
+           "sat": ["bike_long"], "sun": ["run_long"]}
+    dist = {"long": 10, "quality": 0, "easy": 5, "brick": 0}
+    mon = dt.date(2026, 11, 23)
+    acts = [{"date": "2026-11-23", "sport": "strength", "distance_km": 0, "duration_min": 30},        # Monday: as planned
+            {"date": "2026-11-24", "sport": "strength", "distance_km": 0, "duration_min": 30}]       # Tuesday: ahead of the plan
+    wed = dt.date(2026, 11, 26)                                             # Thursday: a day after no strength
+    led = W.ledger(acts, wed, tpl, dist, None)
+    sessions, notes, _ = W.apply([make_strength("strength", ph, 1)], led, ph, dist)
+    assert not [s for s in sessions if s.sport == "strength"]               # Thursday's session is the one done Tuesday
+    # nothing done ahead: Thursday's strength stays
+    led2 = W.ledger(acts[:1], wed, tpl, dist, None)
+    kept, _, _ = W.apply([make_strength("strength", ph, 1)], led2, ph, dist)
+    assert [s for s in kept if s.sport == "strength"]
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

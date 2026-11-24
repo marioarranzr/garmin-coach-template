@@ -46,6 +46,9 @@ wrong and why (injury, fatigue, missed key session, too much or too little), and
 - "next_week": at most 3 concrete adjustments the next week's design must respect (e.g. "first run back \
 4 km, no strides", "keep the leg strength off the day after skiing").
 - "load_comment": one line about fitness, fatigue and form.
+- A session cut short, swapped or skipped because of pain or a known injury in the notes or season is \
+explained by it: mention it as context at most, never as a concern or a failure. The athlete sometimes trains \
+by feel and moves sessions between days: judge the week as a whole, not day by day.
 - Don't invent data. If a number isn't given, don't state it. A skipped session because of a note \
 (pain, travel) is explained, not a failure. Skiing, hikes and other sports count as training."""
 

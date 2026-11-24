@@ -60,7 +60,8 @@ def ledger(acts: list[dict], d: dt.date, tpl: dict, dist: dict, bdist: dict | No
         "runs": sum(a["distance_km"] >= 2 for a in runs), "runs_due": len(run_kinds),
         "planned": {"run_long": kinds.count("run_long"), "run_quality": kinds.count("run_quality"),
                     "swims": sum(k.startswith("swim_") for k in kinds),
-                    "strength": sum(k.startswith("strength") for k in kinds), "bike_long": kinds.count("bike_long"),
+                    "strength": sum(k.startswith("strength") for k in kinds),
+                    "strength_before_today": sum(k.startswith("strength") for k in before), "bike_long": kinds.count("bike_long"),
                     "bike_quality": kinds.count("bike_quality")},
         # a quality run planned earlier this week that hasn't happened
         "quality_owed": before.count("run_quality") > len(hard_runs),
@@ -96,7 +97,10 @@ def apply(sessions: list[Session], led: dict, phase, dist: dict) -> tuple[list[S
             why = why or "No run today: you've already done this week's runs so far."
             continue
         elif s.sport == "strength" and (led.get("strength_yesterday")
-                                        or (p.get("strength") and led.get("strength", 0) >= p["strength"])):
+                                        or (p.get("strength") and led.get("strength", 0) >= p["strength"])
+                                        or led.get("strength", 0) > p.get("strength_before_today", 99)):
+            # (the last test: you did strength on a day it wasn't planned, i.e. ahead of the week, so
+            # today's planned session is the one you already did)
             notes.append("You've done strength recently" + (" (yesterday)" if led.get("strength_yesterday") else "")
                          + f" — {led.get('strength', 0)}× this week — so no strength today.")
             why = why or "No strength today: you've already done it."

@@ -973,12 +973,20 @@ def apply_constraints(tpl: dict, mon: dt.date, c: dict, today: dt.date | None = 
     return days
 
 
+def designed_template(cfg: dict, d: dt.date) -> dict | None:
+    """The week the AI coach designed (coach/design.py), if this week has one."""
+    days = (cfg.get("_designs") or {}).get(monday_of(d).isoformat())
+    if not days or set(days) != set(WEEKDAYS):
+        return None
+    return {w: list(days[w]) for w in WEEKDAYS}
+
+
 def week_parts(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = False):
     """(phase, template, run distances, ride minutes or None) for the week of day d."""
     wt = week if isinstance(week, dict) else {"target_km": week}
     return_mode = return_mode or wt.get("return_mode", False) or wt.get("after_gap", False)
     phase = phase_for(d, cfg)
-    tpl = template_for(phase, cfg)
+    tpl = designed_template(cfg, d) or template_for(phase, cfg)
     if cfg.get("_constraints"):
         tpl = apply_constraints(tpl, monday_of(d), cfg["_constraints"], cfg.get("_today"))
     long_floor = max(float(cfg.get("min_long_run_km") or 0), _round_half(wt.get("longest_run_km", 0) * 1.1))
@@ -1058,7 +1066,22 @@ def plan_day(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = Fals
             from .strength import make_strength
             sessions.append(make_strength(kind, phase, wk))
     from .strength import spare_shoulders
+    sessions = run_override(sessions, d, cfg, phase, wk)
     return rebuilding(phase, wt), spare_shoulders(sessions or [make_rest()], phase, wk)
+
+
+def run_override(sessions: list[Session], d: dt.date, cfg: dict, phase: Phase, wk: int = 0,
+                 notes: list[str] | None = None) -> list[Session]:
+    """`run_override: {YYYY-MM-DD: km}` in config.yaml: that day's run is exactly an easy run of
+    that km (added if the day had none, replaced if it had one). For a careful return from an injury."""
+    ov = cfg.get("run_override") or {}
+    km = next((v for k, v in ov.items() if str(k) == d.isoformat()), None)
+    if not km or any(s.kind == "race" for s in sessions):
+        return sessions
+    rest = [s for s in sessions if s.sport != "run" and s.kind != "rest"]
+    if notes is not None and not any(s.sport == "run" and abs((s.distance_km or 0) - float(km)) < 0.5 for s in sessions):
+        notes.append(f"Return from injury: easy run of {float(km):g} km (set in config).")
+    return [make_run("run_easy", float(km), phase, wk)] + rest
 
 
 def planned_run_km(sessions: list[Session]) -> float:

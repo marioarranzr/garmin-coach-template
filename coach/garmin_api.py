@@ -200,8 +200,27 @@ def fetch_profile_time_zone(api) -> str | None:
 def fetch_activities(api, start: dt.date, end: dt.date) -> list[dict]:
     raw = _safe(api.get_activities_by_date, start.isoformat(), end.isoformat(), default=[]) or []
     acts = [normalize_activity(a) for a in raw]
+    for a in acts:
+        if any(k in (a.get("type") or "") for k in ("ski", "snowboard")):
+            _ski_without_lifts(api, a)
     acts.sort(key=lambda a: a["date"])
     return acts
+
+
+def _ski_without_lifts(api, a: dict) -> None:
+    """The activity list adds the lift rides to a ski day (km and time); the activity's own summary,
+    as Garmin Connect shows it, counts the runs down. Use the smaller figures from the summary."""
+    det = _safe(api.get_activity, a["id"], default={}) or {}
+    s = det.get("summaryDTO") or {}
+    dist = (s.get("distance") or 0) / 1000
+    moving = (s.get("movingDuration") or 0) / 60
+    log.info("Ski %s: list %.1f km %.0f' · summary %.1f km, moving %.0f'", a.get("date"),
+             a["distance_km"], a["duration_min"], dist, moving)
+    if 0 < dist < a["distance_km"]:
+        a["distance_km"] = round(dist, 2)
+        a["lifts_excluded"] = True
+    if 0 < moving < a["duration_min"]:
+        a["duration_min"] = round(moving, 1)
 
 
 def _ts(v) -> dt.datetime | None:

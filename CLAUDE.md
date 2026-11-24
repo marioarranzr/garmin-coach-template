@@ -33,7 +33,8 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
   titles/descriptions, footers) and from Todoist (plan tasks with "(Garmin Coach plan)",
   rest days' footer, "📌 Coach preferences" task, diary notes labelled `coach`).
 - Strava (`coach/strava.py`): activities only in Strava (MyWhoosh rides) count.
-- AI coach (OpenAI) decides the day within limits (`ai.apply_limits`); a second call
+  A ski day counts only the runs down (Garmin activity summary, or Strava's figures), not the lifts.
+- AI coach (OpenAI) decides the day within limits (`ai.apply_limits`); daily check on `ai.openai_day_model` (cheap), notes/week design/reviews on `ai.openai_model`; costs are logged per call. `coach/load.py` gives it CTL/ATL/TSB per sport and a leg-fatigue index (ski counts as leg work). Design and plan: `docs/COACH_DESIGN.md`; a second call
   reads schedule notes (`ai.schedule_changes`): relative days are resolved from the
   date each note was written; one-offs are never preferences. "I won't run until Friday" → `no_run_until`
   (the day before): runs are dropped from the template until then, other training stays.
@@ -48,23 +49,26 @@ and ntfy (notifications). Runs on GitHub Actions (`.github/workflows/coach.yml`)
 - Strides count in the run's distance. A run done earlier in the week isn't repeated.
 - Plan shows only what's planned (no done marks); sessions already done keep their
   workout; past days are never touched.
-- Strength: home gym (50 cm box, bar up to 48 kg, 10 kg dumbbell); Garmin exercise
+- Strength: 3 sessions a week (Mon core, Wed lower body, Fri core; Thursday stays rest);
+  home gym (50 cm box, bar up to 48 kg, 10 kg dumbbell); Garmin exercise
   names on the watch, one-line how-to per exercise, warm-up 30" per exercise, sides
   as left/right steps or alternating sets, Y-T-W as three exercises. Everything written is English (web,
   Todoist, Garmin description: compact `Session.brief`, so it isn't cut at Garmin's 1000 characters); only
   the per-exercise cues on the watch follow `strength.language`.
 - Spare strength workouts: two (core + the phase's heavy one) named "Coach spare · …" sit unscheduled in the watch's
   workout list, refreshed on every plan, so there's always one more than planned.
-- Bike sessions also give watts per zone from `athlete.ftp_w`: in the description and as the step note on
-  the watch (the target stays heart rate).
+- Bike sessions give watts per zone from `athlete.ftp_w` (Strava's Coggan zones): power is the
+  step target, the heart-rate zone the second target (no FTP: heart rate only).
 - Followed without "Follow workout" (Strava, or Garmin without the workout): `coach/match.py` counts an
   activity as the day's planned session when sport and duration/distance match ≥85 % (hard session → counts as
   the week's hard one); the Week tab colours it green.
+- Week design (`coach/design.py`, config `ai.week_design`, off until Mario turns it on): once per week the AI picks which session kinds go on which day (same kinds as the template); `validate` enforces the hard limits, one repair try, else the template. Saved in `data/coach_log/` (committed by the workflow). Preview without saving: workflow input `design_preview` / `python -m coach design`.
+- `run_override: {YYYY-MM-DD: km}` (config): that day's run is exactly an easy run of that km, added if none (careful return from injury; remove when done).
 - Rest days: no Garmin workout (marked in Todoist).
 
 ## Dashboard
 - `coach/dashboard.py` — `python -m coach dashboard` serves http://localhost:8765.
-- Tabs: Week, Log, Strength (every strength workout in the Garmin calendar, draft or not, with
+- Tabs: Week, Log, Strength (only coach-made strength workouts: calendar + draft/spare ones; other apps' workouts are hidden, with
   exercises, sets, weights, short cue and a picture from free-exercise-db). Older notes: Status (race countdown, phase, week progress, 12-week chart), Why
   (training logic), Decisions (14-day coach reasoning log), Training (filterable
   activity list), Upcoming (this week + next week with full descriptions).
@@ -87,7 +91,9 @@ Every change follows these steps:
    Keep Mario's `config.yaml`.
 5. Push (`git push origin main`).
 6. Confirm CI is green.
-7. Where relevant, trigger a real run (`gh api .../dispatches`).
+7. Trigger a real run after every push, not only "where relevant": the dashboard is deployed by the
+   workflow, so a change isn't visible until it runs. `gh api repos/marioarranzr/garmin-coach/actions/workflows/coach.yml/dispatches -f ref=main`
+   (a manual run re-plans today, or tomorrow after the evening plan time).
 - Mario gives feedback from real watch/Todoist use. Fixes say what changed, why,
   and when it takes effect — no technical narration.
 

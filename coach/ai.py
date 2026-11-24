@@ -22,7 +22,7 @@ from .planner import Phase, Session, make_bike, make_rest, make_run, make_swim
 log = logging.getLogger(__name__)
 KEY_ENV = "ANTHROPIC_API_KEY"          # Claude
 OPENAI_KEY_ENV = "OPENAI_API_KEY"       # OpenAI
-DEFAULT_MODELS = {"openai": "gpt-5.4-mini", "anthropic": "claude-sonnet-5-5"}
+DEFAULT_MODELS = {"openai": "gpt-5.5", "anthropic": "claude-sonnet-5-5"}
 DEFAULT_MODEL = DEFAULT_MODELS["anthropic"]
 
 KINDS = ["rest", "run_easy", "run_strides", "run_quality", "run_long", "run_brick",
@@ -75,6 +75,11 @@ and power.
 stretch without stopping): compare it with what was planned. "swim_capacity" is what the next swim is \
 sized to. If a session was cut short or needed many stops, build up gradually from what was done, \
 not from the plan.
+- "load" is the measured training load: fitness (ctl), fatigue (atl) and form (tsb), overall and per \
+sport, and "leg_fatigue" (leg-heavy work of the last 3 days against the usual). Skiing, hikes and leg \
+strength count as leg work. When leg fatigue is raised or high, don't put a hard run or heavy leg \
+strength on top: ease, move it or swap it for something that spares the legs, and say so. Very negative \
+form (tsb below -20) means deep fatigue.
 - "athlete_preferences" are the athlete's lasting preferences: respect them in your call and \
 mention any that apply to how to do the day's session in "coach_note" (e.g. "walk 1' before the \
 strides").
@@ -138,9 +143,35 @@ def enabled(cfg: dict) -> bool:
     return provider(cfg) is not None
 
 
-def model_for(cfg: dict, prov: str) -> str:
+DAY_MODELS = {"openai": "gpt-5.4-mini", "anthropic": "claude-sonnet-5-5"}
+# USD per million tokens (input, output): only to show what the AI costs; unknown models count as 0
+PRICES = {"gpt-5.5": (5, 30), "gpt-5.4": (2.5, 15), "gpt-5.4-mini": (0.75, 4.5), "claude-opus-5-5": (4, 20),
+          "claude-sonnet-5-5": (2, 10), "claude-haiku-5-5": (0.1, 0.5)}
+USAGE: list[dict] = []          # one entry per AI call of this run
+
+
+def model_for(cfg: dict, prov: str, task: str = "heavy") -> str:
+    """`heavy` (reading notes, and later the week design and reviews): `<provider>_model`.
+    `day` (the daily check): `<provider>_day_model`, a cheaper model by default for OpenAI."""
     settings = cfg.get("ai") or {}
-    return settings.get(f"{prov}_model") or DEFAULT_MODELS[prov]
+    heavy = settings.get(f"{prov}_model") or DEFAULT_MODELS[prov]
+    if task == "day":
+        return settings.get(f"{prov}_day_model") or (DAY_MODELS[prov] if prov == "openai" and
+                                                     not settings.get(f"{prov}_model") else heavy)
+    return heavy
+
+
+def _record(model: str, task: str, tin: int, tout: int) -> None:
+    pin, pout = PRICES.get(model, (0, 0))
+    cost = (tin * pin + tout * pout) / 1e6
+    USAGE.append({"model": model, "task": task, "in": tin, "out": tout, "usd": round(cost, 4)})
+    log.info("AI call %s (%s): %d in, %d out tokens ≈ $%.3f", task, model, tin, tout, cost)
+
+
+def usage_summary() -> str:
+    if not USAGE:
+        return ""
+    return f"AI today: {len(USAGE)} calls ≈ ${sum(u['usd'] for u in USAGE):.2f}"
 
 
 def _session_json(s: Session) -> dict:
@@ -318,12 +349,15 @@ def _ask_openai(client, model: str, context: dict, system: str = SYSTEM, schema:
                 name: str = "coach_decision") -> str:
     resp = client.chat.completions.create(
         model=model,
-        max_completion_tokens=4000,
+        max_completion_tokens=12000,
         messages=[{"role": "system", "content": system},
                   {"role": "user", "content": "Today's data (JSON):\n" + json.dumps(context, default=str)}],
         response_format={"type": "json_schema",
                          "json_schema": {"name": name, "schema": schema, "strict": True}},
     )
+    u = getattr(resp, "usage", None)
+    if u is not None:
+        _record(model, name, getattr(u, "prompt_tokens", 0) or 0, getattr(u, "completion_tokens", 0) or 0)
     msg = resp.choices[0].message
     if getattr(msg, "refusal", None):
         raise RuntimeError(f"refused: {msg.refusal}")
@@ -339,6 +373,9 @@ def _ask_anthropic(client, model: str, context: dict, system: str = SYSTEM, sche
         messages=[{"role": "user", "content": "Today's data (JSON):\n" + json.dumps(context, default=str)}],
         output_config={"format": {"type": "json_schema", "schema": schema}},
     )
+    u = getattr(resp, "usage", None)
+    if u is not None:
+        _record(model, name, getattr(u, "input_tokens", 0) or 0, getattr(u, "output_tokens", 0) or 0)
     return "".join(getattr(b, "text", "") for b in resp.content)
 
 
@@ -442,7 +479,7 @@ def decide(cfg: dict, context: dict, proposal: list[Session], phase: Phase, wk: 
     prov = prov or provider(cfg)
     if prov is None:
         return {"used": False}
-    model = model_for(cfg, prov)
+    model = model_for(cfg, prov, "day")
     try:
         client = _client(prov, client)
         text = _ask_openai(client, model, context) if prov == "openai" else _ask_anthropic(client, model, context)

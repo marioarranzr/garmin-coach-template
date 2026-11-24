@@ -514,7 +514,7 @@ Run so far this week: 14.0 km
 - Easy run 5 km: 5 km in Z2. If you can't hold Z2, walk the hills.
 
 ## Coach
-- Decided by the AI coach (gpt-5.4-mini), within the plan's safety limits.
+- Decided by the AI coach (gpt-5.5), within the plan's safety limits.
 - Keep it truly conversational and stop if your legs feel flat or niggly. No strides today.
 - Your notes (last 14 h): “legs heavy” (07:45)
 - Taken into account: “legs heavy”
@@ -743,7 +743,8 @@ workflow file, and keys in GitHub secrets.
 | `garmin.tokenstore` | `~/.garminconnect` | Where `login` saves your session on your computer |
 | `ai.enabled` | `true` | Use the AI coach if a key is set |
 | `ai.provider` | `auto` | `auto`, `openai` or `anthropic` |
-| `ai.openai_model` / `ai.anthropic_model` | `gpt-5.4-mini` / `claude-sonnet-5-5` | Model per provider |
+| `ai.openai_model` / `ai.anthropic_model` | `gpt-5.5` / `claude-sonnet-5-5` | Model per provider (notes, week design, reviews) |
+| `ai.openai_day_model` / `ai.anthropic_day_model` | `gpt-5.4-mini` (OpenAI, when no model is set) | Cheaper model for the daily check |
 | `todoist.enabled` | `true` | Read your notes if a token is set |
 | `todoist.project` | `Inbox` | Todoist project the notes are read from |
 | `strength.loads` | 30 / 30 / 20 / 10 | Your current loads in kg: `front_squat`, `hip_thrust`, `row`, `dumbbell` |

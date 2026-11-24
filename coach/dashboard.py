@@ -227,12 +227,14 @@ def _strength_workouts(cal: Calendar, today: dt.date) -> list[dict]:
     drafts or not (whatever the coach's prefix), read from the workout itself."""
     from . import strength as ST
     out, seen = [], set()
+    mine = cal.prefix.removesuffix(" ·")          # "Coach": workouts from other apps (RestOrTrain…) aren't ours
     start, end = today - dt.timedelta(days=7), today + dt.timedelta(days=14)
     y, m = start.year, start.month
     while (y, m) <= (end.year, end.month):
         for item in cal._month(y, m):
             day, title = str(item.get("date") or "")[:10], str(item.get("title") or "")
-            if not (start.isoformat() <= day <= end.isoformat()) or "strength" not in title.lower():
+            if not (start.isoformat() <= day <= end.isoformat()) or "strength" not in title.lower() \
+                    or not title.startswith(mine):
                 continue
             wid = item.get("workoutId") or G.find_key(item, "workoutId")
             if not wid or (day, wid) in seen:
@@ -257,7 +259,12 @@ def _strength_workouts(cal: Calendar, today: dt.date) -> list[dict]:
     have = {w for _, w in seen}
     for w in library:
         name, wid = str(w.get("workoutName") or ""), w.get("workoutId")
-        if not wid or wid in have or "strength" not in name.lower():
+        if not wid or wid in have or "strength" not in name.lower() or not name.startswith(mine):
+            continue
+        if not any(x in name.lower() for x in ("draft", "spare")):
+            continue            # the coach's earlier sessions stay in the library as history: not shown
+        if any(o["date"] == "9999" and o["title"] == name.split("·", 1)[-1].strip() and o["draft"] == ("draft" in name.lower())
+               for o in out):
             continue
         have.add(wid)
         try:

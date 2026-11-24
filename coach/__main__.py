@@ -7,6 +7,7 @@
     python -m coach run --scheduled       # what GitHub runs: morning check or evening plan, by the time
     python -m coach run --date 2026-10-14
     python -m coach week                  # preview of the next 7 days
+    python -m coach design                # the AI coach's design for this week (preview, saves nothing)
     python -m coach export-tokens         # prepares the encrypted tokens for GitHub
     python -m coach strava                # optional: connect Strava (rides that never reach Garmin)
     python -m coach dashboard              # local web page: training status, this week, why
@@ -36,7 +37,7 @@ def load_cfg(path: str | None) -> dict:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="coach")
-    ap.add_argument("cmd", choices=["setup", "login", "run", "week", "semana", "export-tokens", "update", "strava", "dashboard", "export-dashboard"])
+    ap.add_argument("cmd", choices=["setup", "login", "run", "week", "semana", "export-tokens", "update", "strava", "dashboard", "export-dashboard", "design"])
     ap.add_argument("--date", help="YYYY-MM-DD (default: today)")
     ap.add_argument("--dry-run", action="store_true", help="don't upload anything to Garmin")
     ap.add_argument("--wait-for-sleep", action="store_true",
@@ -144,6 +145,35 @@ def main(argv=None):
         for day, _, sess, notes in days:
             print(f"{day:%a %d/%m}: " + " + ".join(s.title for s in sess) + (f"  ({notes[0]})" if notes else ""))
         print("\n(Each morning the day is adjusted to your recovery, and the rest of the week to what you did.)")
+
+    if a.cmd == "design":
+        from . import ai as _ai, design as DS
+        from .notes import recent_notes
+        from .planner import WEEKDAYS, template_for
+        acts = G.fetch_activities(api, history_start(d), d - dt.timedelta(days=1))
+        from . import strava as S
+        acts = S.merge(acts, S.fetch(history_start(d), d - dt.timedelta(days=1)))[0]
+        cfg = dict(cfg, _learned_days={s: day for s in ("run", "bike") if (day := learn_long_day(acts, d, s))})
+        wt = week_target(acts, d, cfg)
+        cfg = dict(cfg, ai=dict(cfg.get("ai") or {}, week_design=True))
+        res = DS.design_week(cfg, d, wt, acts, [], [], {})
+        base = template_for(phase_for(d, cfg), cfg)
+        out = [f"# Week design for the week of {DS.monday_of(d):%a %d/%m}", ""]
+        if res.get("used"):
+            out += [f"**Intent:** {res['intent']}", f"**Changed from the usual week:** {res['changes']}"]
+            out += [f"**Watch:** {x}" for x in res["risks"]]
+            out += ["", "| Day | Designed | Usual |", "|---|---|---|"]
+            out += [f"| {w} | {' + '.join(res['days'][w])} | {' + '.join(base[w])} |" for w in WEEKDAYS]
+        else:
+            out += ["Not used: " + ("; ".join(res.get("problems") or []) or str(res.get("error") or "AI off"))]
+        out += ["", _ai.usage_summary()]
+        text = "\n".join(out)
+        print(text)
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as f:
+                f.write(text + "\n")
+        return
 
     if a.cmd == "export-dashboard":
         from .dashboard import build_data, render_html

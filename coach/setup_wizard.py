@@ -351,7 +351,7 @@ strength:
 ai:
   enabled: {str(answers.get('ai_enabled', True)).lower()}
   provider: {answers.get('ai_provider', 'auto')}
-  openai_model: {answers.get('openai_model', 'gpt-5.4-mini')}
+  openai_model: {answers.get('openai_model', 'gpt-5.5')}
   anthropic_model: {answers.get('anthropic_model', 'claude-sonnet-5-5')}
 
 # Your own notes on how you feel, read from Todoist: anything added to this
@@ -614,7 +614,7 @@ def existing_setup(cfg: dict, workflow: str) -> dict:
                      "track_km": ath.get("track_warmup_km"), "path_km": ath.get("path_warmup_km"),
                      "ai_enabled": (cfg.get("ai") or {}).get("enabled", True),
                      "ai_provider": (cfg.get("ai") or {}).get("provider", "auto"),
-                     "openai_model": (cfg.get("ai") or {}).get("openai_model", "gpt-5.4-mini"),
+                     "openai_model": (cfg.get("ai") or {}).get("openai_model", "gpt-5.5"),
                      "anthropic_model": (cfg.get("ai") or {}).get("anthropic_model")
                      or (cfg.get("ai") or {}).get("model", "claude-sonnet-5-5"),
                      "todoist_enabled": (cfg.get("todoist") or {}).get("enabled", True),

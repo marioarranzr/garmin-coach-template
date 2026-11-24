@@ -856,7 +856,7 @@ def test_ai_provider_selection():
     cfg = {"ai": {"provider": "auto"}}
     os.environ["OPENAI_API_KEY"] = "x"
     try:
-        assert ai.provider(cfg) == "openai" and ai.model_for(cfg, "openai") == "gpt-5.4-mini"
+        assert ai.provider(cfg) == "openai" and ai.model_for(cfg, "openai") == "gpt-5.5"
         os.environ["ANTHROPIC_API_KEY"] = "y"
         assert ai.provider({"ai": {"provider": "anthropic"}}) == "anthropic"
         assert ai.provider({"ai": {"enabled": False}}) is None
@@ -2314,9 +2314,10 @@ def test_strength_tab_also_shows_library_workouts_no_calendar_day_has():
         def get_workout_by_id(self, wid): return wj
     api = Api()
     got = D._strength_workouts(Calendar(api, {}), dt.date(2026, 11, 12))
-    assert [w["title"] for w in got] == ["Strength · power 37'", "Strength · lower body 52'", "My strength thing"]
+    assert [w["title"] for w in got] == ["Strength · power 37'", "Strength · lower body 52'"]
     html = D._strength_html({"strength": got})
-    assert "Strength · power" in html and "Strength · lower body" in html and html.count('data-st=') == 3
+    assert "Strength · power" in html and "Strength · lower body" in html and html.count('data-st=') == 2
+    assert "My strength thing" not in html
 
 
 def make_run_for_test(ph):
@@ -2360,6 +2361,141 @@ def test_a_short_jog_isnt_a_run_and_strength_done_yesterday_isnt_repeated():
     kept = engine.account_for_today([make_run_for_test(ph)], [jog], ph, notes)
     assert kept == [] and "a test, not a run" in notes[0]
 
+
+def test_run_override_sets_an_easy_run_for_that_day_only():
+    from coach.planner import Phase, make_run, run_override
+    from coach.strength import make_strength
+    ph = Phase("run", "base", "b", None, None, 1.0, False, 10)
+    d = dt.date(2026, 11, 27)
+    cfg = {"run_override": {"2026-11-27": 4}}
+    out = run_override([make_strength("strength_core", ph, 1)], d, cfg, ph)
+    assert [s.kind for s in out][0] == "run_easy" and out[0].distance_km == 4 and any(s.sport == "strength" for s in out)
+    out = run_override([make_run("run_long", 11, ph)], dt.date(2026, 11, 27), cfg, ph)
+    assert len(out) == 1 and out[0].kind == "run_easy" and out[0].distance_km == 4
+    other = [make_run("run_long", 11, ph)]
+    assert run_override(other, dt.date(2026, 11, 28), cfg, ph) == other
+
+def test_ski_day_counts_only_the_runs_down_not_the_lifts():
+    from coach import strava as S
+    g = [{"date": "2026-11-24", "start": "2026-11-24T11:05:00", "sport": "other", "type": "resort_skiing",
+          "distance_km": 41.0, "duration_min": 232}]
+    s = [{"date": "2026-11-24", "start": "2026-11-24T11:10:42", "sport": "other", "type": "alpineski",
+          "distance_km": 22.63, "duration_min": 94.8}]
+    allacts, extra = S.merge(g, s)
+    assert extra == [] and len(allacts) == 1
+    assert allacts[0]["distance_km"] == 22.63 and allacts[0]["duration_min"] == 94.8
+    # no Strava twin: Garmin's own numbers stay
+    assert S.merge(g, [])[0][0]["distance_km"] == 41.0
+
+def test_garmin_ski_day_uses_the_summary_without_lifts():
+    from coach import garmin_api as G
+    class Api:
+        def get_activities_by_date(self, a, b):
+            return [{"activityId": 1, "startTimeLocal": "2026-11-24 11:05:00", "distance": 41000, "duration": 13920,
+                     "activityType": {"typeKey": "resort_skiing"}}]
+        def get_activity(self, i): return {"summaryDTO": {"distance": 22650, "movingDuration": 5700}}
+    got = G.fetch_activities(Api(), dt.date(2026, 11, 24), dt.date(2026, 11, 24))
+    assert got[0]["distance_km"] == 22.65 and got[0]["duration_min"] == 95.0
+
+def test_day_check_uses_the_cheaper_model_and_calls_are_costed():
+    from coach import ai
+    cfg = {"ai": {"openai_model": "gpt-5.5", "openai_day_model": "gpt-5.4-mini"}}
+    assert ai.model_for(cfg, "openai") == "gpt-5.5" and ai.model_for(cfg, "openai", "day") == "gpt-5.4-mini"
+    assert ai.model_for({"ai": {"openai_model": "gpt-5.5"}}, "openai", "day") == "gpt-5.5"
+    assert ai.model_for({}, "openai", "day") == "gpt-5.4-mini"
+    assert ai.model_for({"ai": {}}, "anthropic", "day") == "claude-sonnet-5-5"
+    ai.USAGE.clear(); ai._record("gpt-5.5", "t", 10000, 1000)
+    assert abs(ai.USAGE[0]["usd"] - 0.08) < 1e-6 and "1 calls" in ai.usage_summary()
+    ai.USAGE.clear()
+
+def test_load_model_scores_every_sport_and_flags_leg_fatigue():
+    from coach import load as L
+    d = dt.date(2026, 11, 25)
+    ski = {"date": "2026-11-24", "sport": "other", "type": "resort_skiing", "name": "Parsenn Ski",
+           "duration_min": 95, "avg_hr": 120}
+    assert 0 < L.stress(ski) < 100 and L.leg_factor(ski) == 0.9
+    ride = {"date": "2026-11-20", "sport": "bike", "duration_min": 60, "avg_power": 265}
+    assert L.stress(ride, {"athlete": {"ftp_w": 265}}) == 100.0          # an hour at FTP
+    assert L.stress({"sport": "run", "duration_min": 0}) == 0
+    base = [{"date": (d - dt.timedelta(days=n)).isoformat(), "sport": "run", "duration_min": 40, "avg_hr": 145}
+            for n in range(4, 30, 2)]
+    quiet = L.leg_fatigue(base, d)
+    after_ski = L.leg_fatigue(base + [ski], d)
+    assert after_ski["index"] > quiet["index"] and after_ski["level"] in ("raised", "high")
+    s = L.summary(base + [ski, ride], d)
+    assert set(s["by_sport"]) == {"run", "bike", "other"} and s["overall"]["ctl"] > 0
+    assert L.fitness([], d)["ctl"] == 0
+
+def _design_cfg(**ai_extra):
+    return dict(CFG, ai=dict(CFG.get("ai") or {}, enabled=True, provider="anthropic", week_design=True, **ai_extra))
+
+
+def test_week_design_validation_catches_unsafe_weeks():
+    from coach import design as DS
+    from coach.planner import phase_for, template_for
+    cfg = _design_cfg()
+    d = dt.date(2026, 10, 19)
+    phase = phase_for(d, cfg)
+    base = {w: list(v) for w, v in template_for(phase, cfg).items()}
+    assert DS.validate(base, base, cfg, {}, phase, d) == []
+    bad = {w: list(v) for w, v in base.items()}
+    bad["mon"] = ["run_easy"]
+    assert any("rest day" in p for p in DS.validate(bad, base, cfg, {}, phase, d))
+    bad = {w: list(v) for w, v in base.items()}
+    bad["mon"] = bad["mon"] + ["run_long"]
+    assert DS.validate(bad, base, cfg, {}, phase, d)                     # one long run too many
+    assert any("quality" in p for p in DS.validate(base, base, cfg, {"return_mode": True}, phase, d)) or \
+        "run_quality" not in sum(base.values(), [])
+
+
+def test_week_design_is_saved_used_for_the_plan_and_falls_back_when_unsafe(tmp_path=None):
+    import tempfile, os
+    from pathlib import Path
+    from coach import design as DS
+    from coach.planner import phase_for, template_for, week_parts, WEEKDAYS
+    os.environ["ANTHROPIC_API_KEY"] = "x"
+    cfg = _design_cfg()
+    d = dt.date(2026, 10, 19)
+    phase = phase_for(d, cfg)
+    base = {w: list(v) for w, v in template_for(phase, cfg).items()}
+    mine = {w: list(v) for w, v in base.items()}
+    mine["sat"], mine["fri"] = base["fri"], base["sat"]          # a swap that keeps every rule
+
+    class Client:
+        provider = "anthropic"
+        def __init__(self, days): self.days, self.n = days, 0
+        def _create(self, **kw):
+            from types import SimpleNamespace as NS
+            self.n += 1
+            body = {"days": [{"day": w, "sessions": self.days[w], "purpose": "p"} for w in WEEKDAYS],
+                    "intent": "Easy week after skiing", "risks": ["heel"], "changes_vs_template": "swapped Fri/Sat"}
+            return NS(content=[NS(type="text", text=json.dumps(body))])
+        @property
+        def messages(self):
+            from types import SimpleNamespace as NS
+            return NS(create=self._create)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        c, info = DS.ensure(cfg, root, d, {"target_km": 20}, [], [], [], {}, client=Client(mine), prov="anthropic")
+        assert info and info["intent"].startswith("Easy week") and (root / "data/coach_log/week-2026-10-19.json").exists()
+        _, tpl, _, _ = week_parts(d, c, {"target_km": 20})
+        assert tpl["sat"] == mine["sat"] and tpl["fri"] == mine["fri"]
+        # a later run only reads the saved design: no new AI call
+        cl2 = Client(mine)
+        c2, info2 = DS.ensure(cfg, root, d, {"target_km": 20}, [], [], [], {}, client=cl2, prov="anthropic")
+        assert info2 is None and cl2.n == 0 and week_parts(d, c2, {"target_km": 20})[1]["sat"] == mine["sat"]
+    with tempfile.TemporaryDirectory() as tmp:
+        broken = {w: list(v) for w, v in base.items()}
+        broken["mon"] = ["run_easy"]                                 # breaks the rest day rule, twice
+        cl = Client(broken)
+        c, info = DS.ensure(cfg, Path(tmp), d, {"target_km": 20}, [], [], [], {}, client=cl, prov="anthropic")
+        assert not info.get("used") and info.get("problems") and cl.n == 2       # asked, retried, gave up
+        assert week_parts(d, c, {"target_km": 20})[1] == dict(base) or week_parts(d, c, {"target_km": 20})[1]["mon"] == ["rest"]
+        assert not list(Path(tmp).rglob("*.json"))
+    # switched off (the default): nothing is asked
+    cl = Client(mine)
+    assert DS.ensure(CFG, Path("/nonexistent"), d, {}, [], [], [], {}, client=cl, prov="anthropic")[1] is None and cl.n == 0
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

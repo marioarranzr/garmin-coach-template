@@ -149,9 +149,23 @@ def same(g: dict, s: dict) -> bool:
     return abs((g.get("duration_min") or 0) - (s.get("duration_min") or 0)) <= 0.2 * max(s.get("duration_min") or 1, 1)
 
 
+def is_snow(a: dict) -> bool:
+    t = (a.get("type") or "").lower()
+    return any(k in t for k in ("ski", "snowboard"))
+
+
 def merge(garmin: list[dict], strava: list[dict]) -> tuple[list[dict], list[dict]]:
     """Garmin's activities plus the Strava ones that aren't in Garmin.
-    Returns (all of them by date, the ones only in Strava)."""
+    Returns (all of them by date, the ones only in Strava).
+    A ski day recorded by Garmin includes the lift rides (km and time); Strava's version counts
+    only the runs down, which is the exercise: Garmin's ski entry takes Strava's distance and moving time."""
+    garmin = [dict(g) for g in garmin]
+    for g in garmin:
+        if is_snow(g):
+            twin = next((s for s in strava if is_snow(s) and same(g, s)), None)
+            if twin and twin.get("distance_km"):
+                g["distance_km"], g["duration_min"] = twin["distance_km"], twin["duration_min"]
+                g["lifts_excluded"] = True
     extra = [s for s in strava if not any(same(g, s) for g in garmin)]
     return sorted(garmin + extra, key=lambda a: (a["date"], a.get("start") or "")), extra
 

@@ -11,7 +11,8 @@ from . import garmin_api as G
 from .adjust import adjust
 from . import paces as P
 from . import week as W
-from .planner import (Session, compute_week_target, history_start, set_swim_capacity, swim_capacity, week_parts, key_day, key_session, learn_long_day, monday_of,
+from . import load as load_model
+from .planner import (WEEKDAYS, run_override, Session, compute_week_target, history_start, set_swim_capacity, swim_capacity, week_parts, key_day, key_session, learn_long_day, monday_of,
                       phase_for, plan_day,
                       planned_run_km, run_distribution, template_for, week_index, weekly_run_km)
 from .readiness import compliance, compute, is_training, evening as evening_readiness, consecutive_days, own_acwr, recent_load
@@ -282,6 +283,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     # your notes about the coming days ("can't train Sunday", "long run Saturday", "no swims this week")
     sched: dict = {}
     prefs_id, prefs = read_preferences(cfg, api=notes_api)
+    earlier: list[dict] = []
     if ai_client is not None or ai.enabled(cfg):
         earlier = [{"created": e["date"], "text": e["text"]}
                    for e in diary(cfg, d - dt.timedelta(days=7), d, now, api=notes_api)]
@@ -304,6 +306,12 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                 cfg = dict(cfg, _constraints=sched, _today=d)
 
     wt = week_target(past, d, cfg)
+    # the week as the AI coach designed it (once a week); the daily check follows it
+    from . import design as week_design
+    cfg, new_design = week_design.ensure(
+        cfg, ROOT, d, wt, acts, [n.get("text", "") for n in open_notes + list(earlier or [])], prefs,
+        cfg.get("_constraints") or {}, save=upload, client=ai_client, prov=getattr(ai_client, "provider", None))
+    saved_design = week_design.read(ROOT, monday_of(d)) if (cfg.get("_designs") or {}).get(monday_of(d).isoformat()) else None
     # today's training paces, from Garmin's race predictor (your current fitness)
     pace_set = P.estimate(cfg, G.fetch_race_predictions(api), wt.get("chronic_km"))
     P.set_current(pace_set)
@@ -410,7 +418,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         why = week_why       # the only change today comes from what you've already done this week
 
     # ── AI coach: final call within the rule-based limits ──
-    coach = {"used": False, "configured": ai_client is not None or ai.enabled(cfg), "evening": evening}
+    coach = {"used": False, "configured": ai_client is not None or ai.enabled(cfg), "evening": evening,
+             "week_design": new_design}
     history: list[dict] = []
     if coach["configured"] and final:     # evening: without sleep data; the morning check revisits it
         # notes already marked done (by the coach earlier, or by you) are context, not new input
@@ -424,6 +433,11 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
                                    coming_days=W.drafts(d, cfg, acts, final, preview_n, quality_days),
                                    planning="tomorrow" if evening else "today", preferences=prefs,
                                    asked_today=_requested_sports(cfg, d))
+        context["load"] = load_model.summary(acts, d, cfg)
+        if saved_design:
+            context["week_design"] = {"intent": saved_design.get("intent"), "this_days_purpose":
+                                      (saved_design.get("purposes") or {}).get(WEEKDAYS[d.weekday()]),
+                                      "risks": saved_design.get("risks")}
         coach["context"] = context
         coach.update(ai.decide(cfg, context, final, phase, week_index(d, cfg), client=ai_client,
                                prov=getattr(ai_client, "provider", None)))
@@ -431,6 +445,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
             final, why = coach["sessions"], coach["why"] or why
             notes += [f"Safety limit: {x}." for x in coach.get("limited", [])]
     final = ride_rules(final, cfg, phase, notes)
+    final = run_override(final, d, cfg, phase, week_index(d, cfg), notes)
     from .strength import spare_shoulders
     # a swim you already did spares the shoulders only when swimming is a real part of the plan (triathlon
     # focus); the optional swims of a running phase never touch the strength session
@@ -806,6 +821,15 @@ def build_report(d, phase, wt, w, r, comp, ctx, planned, final, notes, uploads, 
         for day, _, sess, wnotes in ahead:
             L.append(f"- {day:%a %d/%m}: " + " + ".join(s.title for s in sess) + (f" — {wnotes[0]}" if wnotes else ""))
     sc = (coach or {}).get("schedule") or {}
+    wd = (coach or {}).get("week_design")
+    if wd and wd.get("intent"):
+        L += ["", "## This week, as designed by the coach", f"- {wd['intent']}"]
+        if wd.get("changes_vs_template") and wd["changes_vs_template"].lower() != "none":
+            L.append(f"- Changed from the usual week: {wd['changes_vs_template']}")
+        L += [f"- Watch: {x}" for x in wd.get("risks") or []]
+    elif wd and (wd.get("problems") or wd.get("error")):
+        L += ["", "## This week", "- The coach's design wasn't used (" + (
+            "; ".join(wd.get("problems") or []) or str(wd.get("error")))[:200] + "): the usual week stands."]
     if sc.get("prefs_saved"):
         L += ["", "## Saved to your coach preferences"] + [f"- {x}" for x in sc["prefs_saved"]] + [
             "- (They're in the “📌 Coach preferences” task in your Todoist “Training plan” project: edit it there.)"]

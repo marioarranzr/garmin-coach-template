@@ -54,7 +54,9 @@ the planner from the weekly target, so choose WHICH sessions go on WHICH day.
 Rules (checked by code; a design that breaks them is thrown away):
 - Keep the template's rest days as rest (a day with "rest" has nothing else). At least one rest day.
 - Never more key sessions than the template has: run_long, run_quality, bike_long, bike_quality, run_brick. \
-Keep the key session of the phase (usually run_long).
+Keep the key session of the phase (usually run_long), except when returning from a break, pain or a \
+stop on running ("return_mode", "after_gap", a no-run note or an injury preference): then the long run may be \
+replaced by a short run_easy or a bike session, and that is the better choice if the athlete asks for it.
 - Never more runs (any run_*) than the template; no runs on consecutive days when "no_runs_on_consecutive_days" \
 is true; no run_quality when "return_mode" or "after_gap" is true; run_quality and run_long at least 2 days apart.
 - No heavy leg strength ("strength") the day before a run_long or run_quality.
@@ -139,7 +141,8 @@ def validate(days: dict, base: dict, cfg: dict, wt: dict, phase, d: dt.date) -> 
         if a > b:
             bad.append(f"more {prefix.strip('_')} sessions than the template ({a} > {b})")
     key_kind = "bike_long" if phase.focus == "bike" else "run_long"
-    if phase.name not in ("race_week", "transition") and key_kind in theirs and key_kind not in mine:
+    injured = bool(wt.get("return_mode") or wt.get("after_gap") or (cfg.get("_constraints") or {}).get("no_run_until"))
+    if phase.name not in ("race_week", "transition") and key_kind in theirs and key_kind not in mine and not (injured and key_kind == "run_long"):
         bad.append(f"the phase's key session {key_kind} is missing")
     runs = [i for i, w in enumerate(WEEKDAYS) if any(k.startswith("run_") for k in days[w])]
     if (cfg.get("athlete") or {}).get("no_runs_on_consecutive_days") and any(b - a == 1 for a, b in zip(runs, runs[1:])):

@@ -2686,6 +2686,19 @@ def test_strength_done_ahead_of_the_plan_takes_the_place_of_the_next_planned_one
     kept, _, _ = W.apply([make_strength("strength", ph, 1)], led2, ph, dist)
     assert [s for s in kept if s.sport == "strength"]
 
+def test_design_rejects_runs_during_a_requested_running_stop():
+    from coach import design as DS
+    d = dt.date(2026, 11, 25)
+    cfg = dict(CFG, _constraints={"no_run_until": dt.date(2026, 11, 26)})
+    base = {w: ["bike_easy"] for w in DS.WEEKDAYS}
+    base["fri"] = ["run_easy"]
+    phase = phase_for(d, cfg)
+    ok = DS.validate(base, base, cfg, {}, phase, d)
+    assert not any("won't run" in p for p in ok)
+    bad = dict(base, thu=["run_easy"])
+    assert any("won't run" in p for p in DS.validate(bad, dict(base, thu=["run_easy"]), cfg, {}, phase, d))
+
+
 def test_withings_weigh_ins_become_body_entries():
     import os
     from coach import withings as WI

@@ -147,6 +147,13 @@ def validate(days: dict, base: dict, cfg: dict, wt: dict, phase, d: dt.date) -> 
     today = d.weekday()                                               # days before today are over and ignored
     if (wt.get("return_mode") or wt.get("after_gap")) and any("run_quality" in days[w] for w in WEEKDAYS[today:]):
         bad.append("no quality run while returning to running")
+    until = (cfg.get("_constraints") or {}).get("no_run_until")
+    if until:                                   # a stop on running the athlete asked for: no run on those days
+        monday = monday_of(d)
+        for i, w in enumerate(WEEKDAYS):
+            day = monday + dt.timedelta(days=i)
+            if d <= day <= until and any(k.startswith("run_") for k in days[w]):
+                bad.append(f"{w}: the athlete won't run until {until + dt.timedelta(days=1):%a %d/%m}")
     pos = {k: [i for i, w in enumerate(WEEKDAYS) if k in days[w]] for k in ("run_quality", "run_long", "strength")}
     if any(abs(a - b) < 2 for a in pos["run_quality"] for b in pos["run_long"]):
         bad.append("run_quality and run_long need 2 days between them")

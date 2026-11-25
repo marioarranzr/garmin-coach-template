@@ -160,7 +160,25 @@ def main(argv=None):
         cfg = dict(cfg, _learned_days={s: day for s in ("run", "bike") if (day := learn_long_day(acts, d, s))})
         wt = week_target(acts, d, cfg)
         cfg = dict(cfg, ai=dict(cfg.get("ai") or {}, week_design=True))
-        res = DS.design_week(cfg, d, wt, acts, [], [], {})
+        # the same notes the daily run reads, so the preview knows what you told the coach
+        notes, sched = [], {}
+        try:
+            from .notes import diary, read_preferences
+            now = dt.datetime.now()
+            open_n = [n for n in recent_notes(cfg, now) if not n["done"]]
+            earlier = [{"created": e["date"], "text": e["text"]} for e in diary(cfg, d - dt.timedelta(days=7), d, now)]
+            earlier += [{"created": n["created"][:10], "text": n["text"]} for n in recent_notes(cfg, now) if n["done"]]
+            if open_n or earlier:
+                sched = _ai.schedule_changes(cfg, {
+                    "today": d.isoformat(), "weekday": d.strftime("%A"), "until": (d + dt.timedelta(days=13)).isoformat(),
+                    "open_notes": [{"id": n["id"], "created": n["created"], "text": n["text"]} for n in open_n],
+                    "earlier_notes": earlier, "current_preferences": read_preferences(cfg)[1]})
+            notes = [n["text"] for n in open_n]
+            if sched and "error" not in sched:
+                cfg = dict(cfg, _constraints=sched, _today=d)
+        except Exception as e:  # noqa: BLE001
+            print(f"(couldn't read your notes: {e})")
+        res = DS.design_week(cfg, d, wt, acts, notes, [], sched if "error" not in (sched or {}) else {})
         base = template_for(phase_for(d, cfg), cfg)
         out = [f"# Week design for the week of {DS.monday_of(d):%a %d/%m}", ""]
         if res.get("used"):

@@ -999,6 +999,11 @@ def week_parts(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = Fa
     if phase.name in ("taper", "race_week", "transition"):
         easy_floor = 4
     dist = run_distribution(tpl, wt["target_km"], phase, return_mode, long_floor, easy_floor)
+    stop = (cfg.get("_constraints") or {}).get("no_run_until")
+    if stop and dt.timedelta(0) <= d - stop <= dt.timedelta(days=7):
+        # first runs after a stop the athlete asked for (pain): short and easy, whatever the weekly target says
+        cap = float((cfg.get("athlete") or {}).get("return_run_km", 4))
+        dist = {k: min(v, cap) for k, v in dist.items()}
     kinds = [k for day in WEEKDAYS for k in tpl.get(day, [])]
     if return_mode:
         kinds = ["run_strides" if k == "run_quality" else k for k in kinds]

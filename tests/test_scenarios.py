@@ -2702,6 +2702,15 @@ def test_design_rejects_runs_during_a_requested_running_stop():
     assert any("won't run" in p for p in DS.validate(bad, dict(base, thu=["run_easy"]), cfg, {}, phase, d))
 
 
+def test_first_runs_after_a_requested_stop_are_short():
+    from coach.planner import week_parts
+    d = dt.date(2026, 11, 27)
+    wt = {"target_km": 15, "return_mode": True}
+    cfg = dict(CFG, _constraints={"no_run_until": dt.date(2026, 11, 26)})
+    assert week_parts(d, cfg, wt)[2]["easy"] <= 4
+    assert week_parts(d, CFG, wt)[2]["easy"] > 0
+
+
 def test_withings_weigh_ins_become_body_entries():
     import os
     from coach import withings as WI

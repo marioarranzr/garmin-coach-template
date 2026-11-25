@@ -264,35 +264,72 @@ def _warmup(spare_shoulders: bool = False) -> list[dict]:   # built per session:
     return [x for e in moves for x in e]
 
 
+# Same exercises every week (they're the ones that work), but the 4-week block waves: reps climb two
+# weeks, week 4 is a lighter deload (fewer sets, fewer reps), and the tempo cue changes each week.
+_WAVE = (0, 1, 2, -2)
+_TEMPO = ("Smooth reps with 2-3 left in the tank; the last rep should still look good.",
+          "Same exercises, one more rep: lower for 3 seconds, drive up fast.",
+          "Top of the block: pause 1 second at the bottom of every squat, step-up and split squat.",
+          "Deload week: lighter and crisp, fewer sets; finish feeling fresh.")
+_TEMPO_ES = ("Repeticiones fluidas dejando 2-3 en reserva; la última debe seguir viéndose bien.",
+             "Mismos ejercicios, una repetición más: baja en 3 segundos y sube rápido.",
+             "Punto alto del bloque: pausa de 1 segundo abajo en cada sentadilla, subida al cajón y zancada.",
+             "Semana de descarga: más ligero y ágil, menos series; termina fresco.")
+TIP_ES.update(dict(zip(_TEMPO, _TEMPO_ES)))
+
+
+_CORE_TEMPO = ("Controlled reps; shoulders down and back on the rows and Y-T-W (good for swimming).",
+               "One more rep each set: slow on the way down, shoulders down and back on the rows and Y-T-W.",
+               "Top of the block: hold 1 second at the top of every row and pull-up; Y-T-W without swinging.",
+               "Deload week: lighter and crisp, fewer sets; shoulders fresh for swimming.")
+TIP_ES.update({
+    _CORE_TEMPO[0]: "Repeticiones controladas; hombros abajo y atrás en los remos y en la Y-T-W (bueno para nadar).",
+    _CORE_TEMPO[1]: "Una repetición más por serie: baja lento, hombros abajo y atrás en los remos y en la Y-T-W.",
+    _CORE_TEMPO[2]: "Punto alto del bloque: mantén 1 segundo arriba en cada remo y dominada; Y-T-W sin balanceo.",
+    _CORE_TEMPO[3]: "Semana de descarga: más ligero y ágil, menos series; hombros frescos para nadar."})
+
+
+def _wave(wk: int) -> int:
+    return _WAVE[wk % 4]
+
+
+def _rounds(rounds: int, wk: int) -> int:
+    return max(2, rounds - 1) if wk % 4 == 3 else rounds
+
+
 def _strength_blocks(phase: Phase, wk: int) -> tuple[str, list[dict], str]:
     db = _load("dumbbell", wk)
     squat, thrust = _load("front_squat", wk), _load("hip_thrust", wk)
     power = phase.name in ("build", "specific", "peak")
     rounds = 2 if phase.name in ("specific", "peak", "taper", "transition") else 3
     if power:
+        u = _wave(wk)
+        rounds = _rounds(rounds, wk)
         # power phase: heavier, fewer reps, plyometrics and jumps
         blocks = [
-            _block(rounds, [ex("Front squat", 5, kg=squat + 2), ex("Box jump (50 cm), step down", 5),
-                            ex("Broad jump", 5)], 120),
+            _block(rounds, [ex("Front squat", 5, kg=squat + 2), ex("Box jump (50 cm), step down", 5 + u // 2),
+                            ex("Broad jump", 5 + u // 2)], 120),
             _block(rounds, [ex("Single-leg RDL", 6, kg=db, each_side=True),
                             ex("Split squat jump", 6, kg=2 * db, each_side=True)], 90),     # split squat jump: a dumbbell in each hand
             _block(rounds, [ex("Bulgarian split squat (rear foot on box)", 6, kg=db, each_side=True),
                             ex("Lateral bound", 6, each_side=True),
                             ex("Single-leg calf raise", 12, kg=db, each_side=True)], 75),
-            _block(2, [ex("Pogo hop", 20), ex("Hanging leg raise", 10),
-                       ex("Side plank", secs=40, each_side=True)], 45),
+            _block(2, [ex("Pogo hop", 20 + 3 * u), ex("Hanging leg raise", 10 + u),
+                       ex("Side plank", secs=40 + 5 * u, each_side=True)], 45),
         ]
         return "Strength · power", blocks, "Heavier, fewer reps, explosive up and controlled down; jumps fast off the ground."
+    u = _wave(wk)
+    rounds = _rounds(rounds, wk)
     blocks = [
-        _block(rounds, [ex("Front squat", 8, kg=squat), ex("Step-up onto box (50 cm)", 8, kg=db, each_side=True),
-                        ex("Pogo hop", 15)], 90),
-        _block(rounds, [ex("Single-leg RDL with knee drive", 10, kg=db, each_side=True),
-                        ex("Raised-leg hip thrust", 8, kg=thrust, each_side=True)], 75),
-        _block(rounds, [ex("Bulgarian split squat (rear foot on box)", 8, kg=db, each_side=True),
-                        ex("Single-leg calf raise", 15, kg=db, each_side=True), ex("Lateral walk", 10, each_side=True)], 60),
-        _block(2, [ex("Hanging leg raise", 10), ex("Side plank", secs=40, each_side=True)], 45),
+        _block(rounds, [ex("Front squat", 8 + u, kg=squat), ex("Step-up onto box (50 cm)", 8 + u, kg=db, each_side=True),
+                        ex("Pogo hop", 15 + 3 * u)], 90),
+        _block(rounds, [ex("Single-leg RDL with knee drive", 10 + u, kg=db, each_side=True),
+                        ex("Raised-leg hip thrust", 8 + u, kg=thrust, each_side=True)], 75),
+        _block(rounds, [ex("Bulgarian split squat (rear foot on box)", 8 + u, kg=db, each_side=True),
+                        ex("Single-leg calf raise", 15 + 2 * u, kg=db, each_side=True), ex("Lateral walk", 10 + u, each_side=True)], 60),
+        _block(2, [ex("Hanging leg raise", 10 + u), ex("Side plank", secs=40 + 5 * u, each_side=True)], 45),
     ]
-    return "Strength · lower body", blocks, "Smooth reps with 2-3 left in the tank; the last rep should still look good."
+    return "Strength · lower body", blocks, _TEMPO[wk % 4]
 
 
 SWIM_DAY_TIP = "Swim day: no shoulders or upper body today, only core and legs, light."
@@ -301,7 +338,8 @@ TIP_ES[SWIM_DAY_TIP] = "Día de natación: hoy sin hombros ni tren superior, sol
 
 def _core_blocks(phase: Phase, wk: int, spare_shoulders: bool = False) -> tuple[str, list[dict], str]:
     db, row = _load("dumbbell", wk), _load("row", wk)
-    rounds = 2 if phase.name in ("taper", "race_week", "transition") else 3
+    rounds = _rounds(2 if phase.name in ("taper", "race_week", "transition") else 3, wk)
+    u = _wave(wk)
     if spare_shoulders:                      # swim day: nothing that loads the shoulders
         blocks = [
             _block(rounds, [ex("Dead bug", 10, each_side=True), ex("Glute bridge march", 10, each_side=True),
@@ -310,16 +348,16 @@ def _core_blocks(phase: Phase, wk: int, spare_shoulders: bool = False) -> tuple[
         ]
         return "Strength & core", blocks, SWIM_DAY_TIP
     blocks = [
-        _block(rounds, [ex("Pull-up", 5), ex("Bent-over barbell row", 10, kg=row),
-                        ex("Press-up", 10), ex("Single-arm snatch", 10, kg=db, each_side=True)], 60),
+        _block(rounds, [ex("Pull-up", 5 + u), ex("Bent-over barbell row", 10 + u, kg=row),
+                        ex("Press-up", 10 + 2 * u), ex("Single-arm snatch", 10 + u, kg=db, each_side=True)], 60),
         # Y, T and W one after the other (swimming shoulders), then dead bugs
-        _block(rounds, [ex("Prone Y raise", 8), ex("Prone T raise", 8), ex("Prone W raise", 8),
-                        ex("Dead bug", 10, each_side=True)], 45),
-        _block(rounds, [ex("Seated calf raise", 15, kg=db), ex("Standing side bend", 10, kg=db, each_side=True),
-                        ex("Glute bridge march", 10, each_side=True)], 45),
-        _block(2, [ex("Side plank", secs=40, each_side=True), ex("Superman hold", secs=30)], 30),
+        _block(rounds, [ex("Prone Y raise", 8 + u), ex("Prone T raise", 8 + u), ex("Prone W raise", 8 + u),
+                        ex("Dead bug", 10 + u, each_side=True)], 45),
+        _block(rounds, [ex("Seated calf raise", 15 + 2 * u, kg=db), ex("Standing side bend", 10 + u, kg=db, each_side=True),
+                        ex("Glute bridge march", 10 + u, each_side=True)], 45),
+        _block(2, [ex("Side plank", secs=40 + 5 * u, each_side=True), ex("Superman hold", secs=30 + 5 * u)], 30),
     ]
-    return "Strength & core", blocks, "Controlled reps; shoulders down and back on the rows and Y-T-W (good for swimming)."
+    return "Strength & core", blocks, _CORE_TEMPO[wk % 4]
 
 
 def _minutes(steps: list[dict]) -> int:

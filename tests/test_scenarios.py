@@ -1505,7 +1505,10 @@ def test_strength_sessions_for_a_home_gym():
     base = Phase("short", "base", "x", None, None, 1, False, 14)
     s = S.make_strength("strength", base, 0)
     assert s.sport == "strength" and "Front squat · 8 reps @ 32 kg" in s.detail and "Front squat 8 @ 32 kg" in s.brief and 25 <= s.duration_min <= 65
-    assert "Front squat · 8 reps @ 36 kg" in S.make_strength("strength", base, 2).detail      # +2 kg a week
+    assert "Front squat · 10 reps @ 36 kg" in S.make_strength("strength", base, 2).detail      # +2 kg a week
+    assert S.make_strength("strength", base, 0).detail != S.make_strength("strength", base, 1).detail      # the block waves: reps change week to week
+    assert S.make_strength("strength_core", base, 0).detail != S.make_strength("strength_core", base, 2).detail
+    assert "Deload" in S.make_strength("strength", base, 3).detail or "Deload" in str(S.make_strength("strength", base, 3).tip)
     assert "@ 32 kg" in S.make_strength("strength", base, 3).detail                           # deload week
     S.set_loads({"strength": {"loads": {"front_squat": 46}, "max_bar_kg": 48}})
     assert "@ 48 kg" in S.make_strength("strength", base, 2).detail                           # what you can load
@@ -2094,8 +2097,8 @@ def test_strength_tab_reads_workouts_back_from_garmin():
     blocks = ST.read_workout(WK.to_garmin(ST.make_strength("strength", ph, 1), {}, "d"))
     items = [i for b in blocks for i in b["items"]]
     front = next(i for i in items if i["name"] == "Front squat")
-    assert front["kg"] == 32 and front["what"] == "8 reps" and front["cue"].startswith("Barra") and front["img"]
-    assert next(i for i in items if i["name"] == "Bulgarian split squat (rear foot on box)")["what"] == "8 + 8 reps"   # one step, split shown
+    assert front["kg"] == 32 and front["what"] == "9 reps" and front["cue"].startswith("Barra") and front["img"]
+    assert next(i for i in items if i["name"] == "Bulgarian split squat (rear foot on box)")["what"] == "9 + 9 reps"   # one step, split shown
     assert next(i for i in items if i["name"] == "Side plank")["both"]               # timed: left + right steps = one row
     html = D._strength_html({"strength": [{"date": "2026-11-18", "weekday": "Wed 18 Nov", "title": "Strength · lower 52'",
                                            "draft": True, "is_past": False, "blocks": blocks}]})

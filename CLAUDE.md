@@ -110,7 +110,6 @@ Every change follows these steps:
 - `IMPL_PLAN.md` — build sequence
 
 ## Open ideas
-- Withings scale via its API (today: Mario sends readings as notes or pastes them), also written to Garmin
-  body composition.
+- Withings scale: done (see README, "Withings scale").
 - HRV / sleep trend chart in the dashboard Status tab.
 - Long-run progression chart in the Training tab.

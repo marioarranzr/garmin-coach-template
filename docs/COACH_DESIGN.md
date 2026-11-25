@@ -71,7 +71,7 @@ JSON files the bot commits (`data/coach_log/`, no secrets).
 ## 7. Data to add
 - **Body composition** (Withings/Garmin scale): weight, fat, muscle, lean, water, BMR. Mario sends a
   screenshot or a Todoist note (e.g. "scale 75.2 kg, fat 8.9, muscle 62.9") regularly or after a big change;
-  the coach reads it into `data/body.csv`. Later: Withings API.
+  the coach reads it into `data/body.csv`. Withings API: done (`coach/withings.py`).
   *First reading (24 Nov):* weight stable 75.2 kg, but muscle −1.0 kg, lean −0.9 kg, fat +0.7 kg over 8
   weigh-ins. Bio-impedance is noisy (water −0.8 kg, hydration), so trends only; but with less running and a
   heel injury it is a reason to keep strength in and check protein/energy intake.

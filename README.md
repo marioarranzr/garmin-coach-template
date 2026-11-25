@@ -42,6 +42,7 @@ Add any of these later; the coach works without all of them.
 | **Todoist** | Reads notes you write ("legs heavy", "can't train Sunday"), keeps a training diary, shows the week's plan | `TODOIST_API_TOKEN` |
 | **ntfy** | Push notification to your phone and watch with tomorrow's plan | `NTFY_TOPIC` |
 | **Strava** | Counts rides that only reach Strava (MyWhoosh, Zwift) | `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`, `STRAVA_REFRESH_TOKEN` |
+| **Withings scale** | Reads your weigh-ins (weight, fat, muscle, water…); the coach sees the 4-week trend (e.g. losing muscle) | `WITHINGS_CLIENT_ID`, `WITHINGS_CLIENT_SECRET`, `WITHINGS_REFRESH_TOKEN` |
 | **Netlify dashboard** | A private web page with your training status, updated after each daily run | `NETLIFY_AUTH_TOKEN`, `NETLIFY_SITE_ID` |
 
 ## Contents
@@ -656,6 +657,24 @@ Garmin's own numbers (its training load and readiness) still won't include
 them; only the coach's. Strava replaces its token now and then, so the latest
 one is kept encrypted in `data/strava_token.enc`, like the Garmin session.
 
+**Withings scale** (weight and body composition). Run `python -m coach withings`
+on your computer. It walks you through:
+
+1. Create a free app at developer.withings.com/dashboard (type *Public API
+   integration*) with callback URL `https://localhost/exchange_token`.
+2. Paste its Client ID and Secret, open the link it prints and press Allow.
+   Your browser lands on a page that doesn't load: paste that address back
+   into the terminal, quickly (the code is valid for 30 seconds).
+3. It prints `WITHINGS_CLIENT_ID`, `WITHINGS_CLIENT_SECRET` and
+   `WITHINGS_REFRESH_TOKEN`: add them as GitHub secrets.
+
+From the next run every weigh-in of the last 45 days goes into
+`data/coach_log/body.json`, and the coach (weekly review, block review, week
+design, daily check) sees the 4-week trend. Withings rotates the token on each
+use, so the latest one is kept encrypted in `data/withings_token.enc`, like
+Strava's. No scale? Send readings as a Todoist note ("weight 74.2, muscle 62.9")
+and they land in the same file.
+
 ### 6. Optional: Netlify dashboard
 
 A web page at your own URL showing your training status, this week's plan with coaching
@@ -708,6 +727,7 @@ and runs only on your computer; nothing it shows is uploaded anywhere. Needs
 | `python -m coach run --date 2026-10-14` | Plans a specific day |
 | `python -m coach export-tokens` | Encrypts your session for GitHub and prints the key |
 | `python -m coach strava` | Optional: connects Strava, for rides that never reach Garmin |
+| `python -m coach withings` | Optional: connects your Withings scale (weight, body composition) |
 | `python -m coach dashboard` | Opens a local web page with your training status, this week's plan and why, and the trend |
 | `python -m coach update` | Brings in the latest template code, keeping your settings |
 

@@ -35,12 +35,12 @@ def set_loads(cfg: dict) -> None:
 
 
 def _load(key: str, wk: int) -> float:
-    """Your load for this lift, +2 kg per load week within the 4-week block (plates go
+    """Your load for this lift, +2 kg in week 3 of the 4-week block (plates go
     on in pairs, so whole kilos are always loadable)."""
     base = float((_loads or DEFAULT_LOADS).get(key, DEFAULT_LOADS.get(key, 10)))
     if key == "dumbbell":
         return base
-    step = (wk % 4) if (wk % 4) < 3 else 0          # weeks 1-3 build, week 4 deload back to base
+    step = 1 if wk % 4 == 2 else 0                  # +2 kg only in week 3; the other weeks stay at base
     return min(round(base) + 2 * step, float((_loads or DEFAULT_LOADS).get("max_bar_kg", 48)))
 
 
@@ -266,26 +266,26 @@ def _warmup(spare_shoulders: bool = False) -> list[dict]:   # built per session:
 
 # Same exercises every week (they're the ones that work), but the 4-week block waves: reps climb two
 # weeks, week 4 is a lighter deload (fewer sets, fewer reps), and the tempo cue changes each week.
-_WAVE = (0, 1, 2, -2)
+_WAVE = (0, 1, 0, -2)   # reps: base, +1, base, deload (weight goes up in week 3, never reps and weight together)
 _TEMPO = ("Smooth reps with 2-3 left in the tank; the last rep should still look good.",
           "Same exercises, one more rep: lower for 3 seconds, drive up fast.",
-          "Top of the block: pause 1 second at the bottom of every squat, step-up and split squat.",
+          "Heaviest week: +2 kg on the bar, same reps; pause 1 second at the bottom of every squat, step-up and split squat.",
           "Deload week: lighter and crisp, fewer sets; finish feeling fresh.")
 _TEMPO_ES = ("Repeticiones fluidas dejando 2-3 en reserva; la última debe seguir viéndose bien.",
              "Mismos ejercicios, una repetición más: baja en 3 segundos y sube rápido.",
-             "Punto alto del bloque: pausa de 1 segundo abajo en cada sentadilla, subida al cajón y zancada.",
+             "Semana más pesada: +2 kg en la barra, mismas repeticiones; pausa de 1 segundo abajo en cada sentadilla, subida al cajón y zancada.",
              "Semana de descarga: más ligero y ágil, menos series; termina fresco.")
 TIP_ES.update(dict(zip(_TEMPO, _TEMPO_ES)))
 
 
 _CORE_TEMPO = ("Controlled reps; shoulders down and back on the rows and Y-T-W (good for swimming).",
                "One more rep each set: slow on the way down, shoulders down and back on the rows and Y-T-W.",
-               "Top of the block: hold 1 second at the top of every row and pull-up; Y-T-W without swinging.",
+               "Heaviest week: +2 kg on the rows, same reps; hold 1 second at the top of every row and pull-up.",
                "Deload week: lighter and crisp, fewer sets; shoulders fresh for swimming.")
 TIP_ES.update({
     _CORE_TEMPO[0]: "Repeticiones controladas; hombros abajo y atrás en los remos y en la Y-T-W (bueno para nadar).",
     _CORE_TEMPO[1]: "Una repetición más por serie: baja lento, hombros abajo y atrás en los remos y en la Y-T-W.",
-    _CORE_TEMPO[2]: "Punto alto del bloque: mantén 1 segundo arriba en cada remo y dominada; Y-T-W sin balanceo.",
+    _CORE_TEMPO[2]: "Semana más pesada: +2 kg en los remos, mismas repeticiones; mantén 1 segundo arriba en cada remo y dominada.",
     _CORE_TEMPO[3]: "Semana de descarga: más ligero y ágil, menos series; hombros frescos para nadar."})
 
 

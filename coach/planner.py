@@ -1072,7 +1072,9 @@ def plan_day(d: dt.date, cfg: dict, week: float | dict, return_mode: bool = Fals
             if phase.name == "race_week" and phase.days_out is not None and phase.days_out <= 3:
                 continue                                  # nothing in the last days before a race
             from .strength import make_strength
-            sessions.append(make_strength(kind, phase, wk))
+            stop = (cfg.get("_constraints") or {}).get("no_run_until")
+            hold = return_mode or bool(stop and abs((d - stop).days) <= 10)
+            sessions.append(make_strength(kind, phase, 0 if hold else wk))      # coming back or tired: no progression
     from .strength import spare_shoulders
     sessions = run_override(sessions, d, cfg, phase, wk)
     return rebuilding(phase, wt), spare_shoulders(sessions or [make_rest()], phase, wk)

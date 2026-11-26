@@ -1505,7 +1505,7 @@ def test_strength_sessions_for_a_home_gym():
     base = Phase("short", "base", "x", None, None, 1, False, 14)
     s = S.make_strength("strength", base, 0)
     assert s.sport == "strength" and "Front squat · 8 reps @ 32 kg" in s.detail and "Front squat 8 @ 32 kg" in s.brief and 25 <= s.duration_min <= 65
-    assert "Front squat · 10 reps @ 36 kg" in S.make_strength("strength", base, 2).detail      # +2 kg a week
+    assert "Front squat · 8 reps @ 34 kg" in S.make_strength("strength", base, 2).detail      # +2 kg a week
     assert S.make_strength("strength", base, 0).detail != S.make_strength("strength", base, 1).detail      # the block waves: reps change week to week
     assert S.make_strength("strength_core", base, 0).detail != S.make_strength("strength_core", base, 2).detail
     assert "Deload" in S.make_strength("strength", base, 3).detail or "Deload" in str(S.make_strength("strength", base, 3).tip)
@@ -2097,12 +2097,12 @@ def test_strength_tab_reads_workouts_back_from_garmin():
     blocks = ST.read_workout(WK.to_garmin(ST.make_strength("strength", ph, 1), {}, "d"))
     items = [i for b in blocks for i in b["items"]]
     front = next(i for i in items if i["name"] == "Front squat")
-    assert front["kg"] == 32 and front["what"] == "9 reps" and front["cue"].startswith("Barra") and front["img"]
+    assert front["kg"] == 30 and front["what"] == "9 reps" and front["cue"].startswith("Barra") and front["img"]
     assert next(i for i in items if i["name"] == "Bulgarian split squat (rear foot on box)")["what"] == "9 + 9 reps"   # one step, split shown
     assert next(i for i in items if i["name"] == "Side plank")["both"]               # timed: left + right steps = one row
     html = D._strength_html({"strength": [{"date": "2026-11-18", "weekday": "Wed 18 Nov", "title": "Strength · lower 52'",
                                            "draft": True, "is_past": False, "blocks": blocks}]})
-    assert "draft" in html and "Front squat" in html and "32 kg" in html and "each side" in html
+    assert "draft" in html and "Front squat" in html and "30 kg" in html and "each side" in html
     assert ST.image_urls("Bear crawl") and ST.image_urls("Pull-up")[1:]       # a backup collection covers gaps
     assert 'data-alt="https://' in html                                       # the page tries the backup if one fails
     two = [{"date": d, "weekday": d, "title": "Strength & core %d'" % m, "draft": False, "is_past": p, "blocks": blocks}
@@ -2709,6 +2709,17 @@ def test_first_runs_after_a_requested_stop_are_short():
     cfg = dict(CFG, _constraints={"no_run_until": dt.date(2026, 11, 26)})
     assert week_parts(d, cfg, wt)[2]["easy"] <= 4
     assert week_parts(d, CFG, wt)[2]["easy"] > 0
+
+
+def test_strength_never_progresses_reps_and_weight_together_and_holds_when_returning():
+    from coach import strength as ST
+    ST.set_loads({})
+    ph = phase_for(dt.date(2026, 10, 5), CFG)
+    detail = {w: ST.make_strength("strength", ph, w).detail for w in range(4)}
+    assert detail[0] != detail[1] != detail[2]       # something changes each week
+    assert ST._load("front_squat", 1) == ST._load("front_squat", 0) and ST._wave(2) == 0   # week 3: weight only
+    assert ST._load("front_squat", 2) == ST._load("front_squat", 0) + 2 and ST._wave(1) == 1  # week 2: reps only
+    assert ST._load("front_squat", 3) == ST._load("front_squat", 0)       # deload
 
 
 def test_withings_weigh_ins_become_body_entries():

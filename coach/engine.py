@@ -364,7 +364,7 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
         cur += dt.timedelta(days=1)
     led = W.ledger(past, d, tpl, dist, bdist, quality_ok=not ret and phase.name != "transition",
                    quality_days=quality_days)
-    for_today, week_notes, week_why = W.apply(planned, led, phase, dist)
+    for_today, week_notes, week_why = W.apply(planned, led, phase, dist, week_index(d, cfg))
     for_today, more, b2b_why = W.no_back_to_back_runs(for_today, d, acts, cfg)
     week_notes, week_why = week_notes + more, week_why or b2b_why
 

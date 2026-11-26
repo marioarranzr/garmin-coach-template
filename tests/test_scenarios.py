@@ -2215,6 +2215,29 @@ def test_a_session_done_a_day_late_counts_as_the_planned_one():
     assert M.tag_followed([far], Cal(), [dt.date(2026, 11, 25), dt.date(2026, 11, 27)]) == 0
 
 
+def test_swapped_long_run_and_quality_days_swap_the_sessions():
+    from coach import week as W
+    from coach.planner import make_run
+    tpl = {"mon": ["rest"], "tue": ["run_long"], "wed": ["bike_easy"], "thu": ["rest"],
+           "fri": ["run_quality"], "sat": ["bike_easy"], "sun": ["rest"]}
+    dist = {"easy": 5, "long": 12, "quality": 7}
+    # the quality session was done early, on the long-run day: the later quality slot gets the long run
+    fri = dt.date(2026, 10, 16)
+    ph = plan_day(fri, CFG, 30)[0]
+    hard = [{"date": "2026-10-13", "sport": "run", "distance_km": 8, "duration_min": 50, "aerobic_te": 4.2}]
+    led = W.ledger(hard, fri, tpl, dist, None, quality_days={"2026-10-13"})
+    out, notes, why = W.apply([make_run("run_quality", 7, ph)], led, ph, dist, 0)
+    assert [s.kind for s in out] == ["run_long"] and "Long run" in why
+    # the long run was done early, on the quality day: the long-run slot gets the quality session
+    tue = dt.date(2026, 10, 13)
+    tpl2 = dict(tpl, tue=["run_quality"], fri=["run_long"])
+    ph2 = plan_day(fri, CFG, 30)[0]
+    longrun = [{"date": "2026-10-13", "sport": "run", "distance_km": 12, "duration_min": 70, "aerobic_te": 3.0}]
+    led2 = W.ledger(longrun, fri, tpl2, dist, None)
+    out2, _, why2 = W.apply([make_run("run_long", 12, ph2)], led2, ph2, dist, 0)
+    assert [s.kind for s in out2] == ["run_quality"] and "Quality" in why2
+
+
 def test_dashboard_update_button_runs_the_workflow_from_the_page():
     import os
     from coach import dashboard as D

@@ -73,14 +73,28 @@ def _day(a: dict | None) -> str:
     return dt.date.fromisoformat(a["date"]).strftime("%A") if a else ""
 
 
-def apply(sessions: list[Session], led: dict, phase, dist: dict) -> tuple[list[Session], list[str], str]:
+def apply(sessions: list[Session], led: dict, phase, dist: dict, wk: int = 0) -> tuple[list[Session], list[str], str]:
     """Drops or eases today's key sessions that you've already done this week.
     Returns the sessions, the notes, and a one-line why (empty if nothing changed)."""
     out, notes, why = [], [], ""
     p = led["planned"]
     easy_km = dist.get("easy") or 6
     for s in sessions:
-        if s.kind == "run_long" and led["long_run"]:
+        owed_q = p["run_quality"] > led["hard_runs"] and dist.get("quality")
+        if s.kind == "run_long" and led["long_run"] and owed_q and not led.get("hard_yesterday"):
+            # swapped days: the long run was done early, so the quality session takes this slot
+            a = led["long_run"]
+            s = make_run("run_quality", dist["quality"], phase, wk)
+            notes.append(f"You did your long run on {_day(a)} ({a['distance_km']:g} km), so today is the quality session "
+                         "that was planned for later.")
+            why = why or f"Quality session today: you already did the long run on {_day(a)}."
+        elif s.kind == "run_quality" and p["run_quality"] and led["hard_runs"] >= p["run_quality"] \
+                and p["run_long"] and not led["long_run"] and dist.get("long") and not led.get("hard_yesterday"):
+            # swapped days the other way: the quality session was done early, so the long run takes this slot
+            s = make_run("run_long", dist["long"], phase, wk)
+            notes.append("You already did this week's quality session, so today is the long run that was planned for later.")
+            why = why or "Long run today: you already did this week's quality session."
+        elif s.kind == "run_long" and led["long_run"]:
             a = led["long_run"]
             km = max(min(easy_km, round(a["distance_km"] * 0.6 * 2) / 2), 4)   # an easy, shorter day after it
             s = make_run("run_easy", km, phase)

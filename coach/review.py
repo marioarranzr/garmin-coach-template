@@ -86,7 +86,8 @@ def facts(cfg: dict, mon: dt.date, acts: list[dict], planned: dict[str, list[dic
                      "planned": [p.get("title") or p.get("kind") for p in planned.get(iso, [])],
                      "done": [{"sport": a["sport"], "name": a.get("name"), "km": a.get("distance_km"),
                                "min": a.get("duration_min"), "avg_hr": a.get("avg_hr"),
-                               "stress": load_model.stress(a, cfg), "followed_plan": a.get("followed")}
+                               "stress": load_model.stress(a, cfg), "followed_plan": a.get("followed"),
+                               "done_a_day_late_for": a.get("moved_from")}
                               for a in done]})
     end = mon + dt.timedelta(days=7)
     start_f, end_f = load_model.fitness(acts, mon, cfg), load_model.fitness(acts, end, cfg)

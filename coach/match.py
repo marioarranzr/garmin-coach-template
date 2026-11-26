@@ -36,10 +36,11 @@ def similarity(plan: dict, a: dict) -> float:
 
 
 def tag_followed(acts: list[dict], cal, days: list[dt.date], threshold: float = THRESHOLD) -> int:
-    """Marks the activities that match a session the coach planned that day: `followed` (its
+    """Marks the activities that match a session the coach planned that day (or the day before, done a day late): `followed` (its
     title), `match` (0..1) and, for a hard session, `plan_hard` (counts as the week's hard
     session). One activity per planned session, the closest first. Returns how many."""
     n = 0
+    missed: list[tuple[dt.date, dict]] = []          # planned sessions nothing matched on their own day
     for day in days:
         entries = cal.plan(day)
         if not entries:
@@ -56,4 +57,18 @@ def tag_followed(acts: list[dict], cal, days: list[dt.date], threshold: float = 
                 if plan.get("intensity") == "hard":
                     a["plan_hard"] = True
                 n += 1
+            else:
+                missed.append((day, e))
+    # Done a day late: what was planned yesterday and not done then counts when you do it today
+    # (your own plan for today comes first, so only activities left over are used).
+    for day, e in sorted(missed, key=lambda m: m[0]):
+        plan = e["session"]
+        later = [a for a in acts if a["date"] == (day + dt.timedelta(days=1)).isoformat() and not a.get("followed")]
+        best = max(((similarity(plan, a), i) for i, a in enumerate(later)), default=(0, -1))
+        if best[1] >= 0 and best[0] >= threshold:
+            a = later[best[1]]
+            a["followed"], a["match"], a["moved_from"] = plan["title"], best[0], day.isoformat()
+            if plan.get("intensity") == "hard":
+                a["plan_hard"] = True
+            n += 1
     return n

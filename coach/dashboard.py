@@ -177,6 +177,8 @@ def _day_rows(cal: Calendar, acts: list[dict], start: dt.date, days: int, today:
             planned, projected = project(day), True
         required = [e["session"]["title"] for e in entries if not e["session"].get("optional")]
         followed = {a["followed"] for a in done if a.get("followed")}
+        nxt = (day + dt.timedelta(days=1)).isoformat()
+        followed |= {a["followed"] for a in acts if a["date"] == nxt and a.get("moved_from") == day.isoformat()}   # done a day late
         status = ""      # green: did what was planned; yellow: planned but done differently, less or not at all
         if required and day <= today:
             if all(t in followed for t in required):

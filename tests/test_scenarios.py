@@ -2199,6 +2199,22 @@ def test_an_activity_close_to_the_plan_counts_as_that_session_even_without_follo
     assert M.similarity(easy, {"sport": "bike", "duration_min": 45}) < M.THRESHOLD   # an easy ride has no main set to protect
 
 
+def test_a_session_done_a_day_late_counts_as_the_planned_one():
+    from coach import match as M
+    from coach.calendar import session_from
+
+    class Cal:
+        def plan(self, day):
+            return [{"session": session_from("Easy ride 60'", {"min": 60})}] if day == dt.date(2026, 11, 25) else []
+    late = {"date": "2026-11-26", "sport": "bike", "duration_min": 58, "distance_km": 25}
+    swim = {"date": "2026-11-25", "sport": "swim", "duration_min": 40, "distance_km": 1.5}
+    assert M.tag_followed([late, swim], Cal(), [dt.date(2026, 11, 25), dt.date(2026, 11, 26)]) == 1
+    assert late["followed"] and late["moved_from"] == "2026-11-25" and not swim.get("followed")
+    # a day too late (two days) doesn't count, and a ride that was today's own plan keeps priority
+    far = {"date": "2026-11-27", "sport": "bike", "duration_min": 58, "distance_km": 25}
+    assert M.tag_followed([far], Cal(), [dt.date(2026, 11, 25), dt.date(2026, 11, 27)]) == 0
+
+
 def test_dashboard_update_button_runs_the_workflow_from_the_page():
     import os
     from coach import dashboard as D

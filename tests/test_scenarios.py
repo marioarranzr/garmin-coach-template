@@ -1311,7 +1311,7 @@ def test_evening_notification_lists_the_week():
     msg = sent[0]["message"]
     assert "Next:" not in msg and ";" not in msg.split("\n\n")[-1]
     days = msg.split("\n\n")[-1].splitlines()                    # the 6 days after tomorrow, one per line
-    assert len(days) == 6 and all(d[:3] in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun") and d[3] == ":"
+    assert len(days) == 7 and all(d[:3] in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun") and d[3] == ":"
                                   for d in days), days
 
 
@@ -2236,6 +2236,15 @@ def test_swapped_long_run_and_quality_days_swap_the_sessions():
     led2 = W.ledger(longrun, fri, tpl2, dist, None)
     out2, _, why2 = W.apply([make_run("run_long", 12, ph2)], led2, ph2, dist, 0)
     assert [s.kind for s in out2] == ["run_quality"] and "Quality" in why2
+
+
+def test_notification_lists_the_day_it_is_about_before_the_coming_days():
+    from coach import notify
+    from coach.planner import make_rest
+    ahead = [(dt.date(2026, 11, 29), None, [make_rest()], [])]
+    _, body = notify.message([make_rest()], "", "", {"score": 70}, "Today", ahead=ahead, day=dt.date(2026, 11, 28))
+    lines = body.splitlines()
+    assert lines[-2].startswith("Sat: ") and lines[-1].startswith("Sun: ")
 
 
 def test_dashboard_update_button_runs_the_workflow_from_the_page():

@@ -19,7 +19,7 @@ SERVER_ENV = "NTFY_SERVER"
 
 
 def message(final, why: str, coach_note: str, r: dict, label: str = "Today", ahead=(),
-            done=(), notes_line: str = "") -> tuple[str, str]:
+            done=(), notes_line: str = "", day=None) -> tuple[str, str]:
     """`label`: Tomorrow (evening plan), Today, Changed (the morning check changed
     last night's plan) or Updated (a later re-plan)."""
     sessions = list(done) + [s.title for s in final] or ["Nothing left: already done 🎉"]
@@ -28,8 +28,12 @@ def message(final, why: str, coach_note: str, r: dict, label: str = "Today", ahe
     lines.append("It's in your Garmin calendar; the morning check adjusts it to your sleep." if r["score"] is None
                  else f"Readiness {r['score']}/100. The workout is in your Garmin calendar.")
     if ahead:
-        # the coming days, one per line (no "Next:", no semicolons): easy to scan on a watch
-        lines.append("\n".join(f"{day:%a}: " + " + ".join(s.title for s in sess) for day, _, sess, _ in ahead))
+        # the week ahead, one day per line (no "Next:", no semicolons): easy to scan on a watch; starts with the day
+        # this message is about (today, or tomorrow in the evening)
+        rows = [f"{day:%a}: " + " + ".join(s.title for s in sess) for day, _, sess, _ in ahead]
+        if day is not None:
+            rows.insert(0, f"{day:%a}: " + " + ".join(sessions))
+        lines.append("\n".join(rows))
     return title[:120], "\n\n".join(lines)
 
 

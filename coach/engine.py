@@ -610,7 +610,8 @@ def run_day(api, cfg: dict, d: dt.date, upload: bool = True, wait_for_sleep: boo
     coach["notified"] = bool(upload and label and send(*message(final, why, coach.get("coach_note", ""), r, label,
                                                                ahead,
                                                                done=done_today_titles,
-                                                               notes_line=_notes_line(coach.get("schedule") or {})),
+                                                               notes_line=_notes_line(coach.get("schedule") or {}),
+                                                               day=d),
                                          poster=poster))
     coach["was_evening_plan"] = any(e["meta"].get("eve") for e in today_cal)
 
